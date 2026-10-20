@@ -27,6 +27,21 @@ go.work.sum
 
 # env file
 .env
+.env.*
+!.env.example
+.local/
+node_modules/
+dist/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.terraform/
+*.tfstate
+*.tfstate.*
+__pycache__/
+*.pyc
+*.log
+.aws
 
 # Editor/IDE
 # .idea/

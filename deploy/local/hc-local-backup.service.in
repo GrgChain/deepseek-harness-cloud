@@ -1,0 +1,14 @@
+[Unit]
+Description=Harness Cloud verified local daily encrypted backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=@WORKSPACE@
+EnvironmentFile=@WORKSPACE@/.local/daily-backup.env
+ExecStart=@WORKSPACE@/.local/bin/hcctl backup-daily --directory @WORKSPACE@/.local/daily-backups --apply
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+TimeoutStartSec=35min
+StandardOutput=journal
+StandardError=journal

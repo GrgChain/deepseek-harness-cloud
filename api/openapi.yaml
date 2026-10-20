@@ -1,0 +1,5929 @@
+openapi: 3.0.3
+info:
+  title: DSH Cloud Platform API
+  version: 0.1.0
+  description: V0.1 development contract; identity, configuration, owner resource queries, controlled access, lifecycle commands
+    and reconciled failed-operation retry implemented; create/start require runtime observations and complete template approval.
+    Local real OIDC/defaults/one-click creation/Gateway entry passed; full model task and operational acceptance remain pending.
+    Single-organization Docker platform. OIDC/BFF cookies, CSRF, versioned configuration, durable operations and server-held
+    native DSH sessions.
+x-design-baseline: DSHC Initial Release V0.1
+x-requirements-version: DSHC Initial Release V0.1
+x-requirements-coverage: REQ-01 through REQ-19; identity supply and complete governance acceptance remain pending; runtime
+  compatibility requires pinned-image contract and real browser tests.
+x-contract-status: partially-implemented
+security:
+- portalSession: []
+tags:
+- name: Identity
+- name: Templates
+- name: Instances
+- name: Operations
+- name: Access
+- name: Storage
+- name: OperationLogs
+- name: Configuration
+- name: Preflight
+- name: IdentityManagement
+paths:
+  /v1/storage-assets/{id}:release:
+    post:
+      operationId: releaseOwnStorage
+      x-api-id: API-080
+      tags: [Storage]
+      summary: Permanently release own deleted workspace storage
+      description: >-
+        Requires current instances:release-storage permission, exact Owner/organization,
+        Portal Origin and CSRF. Confirm the exact asset ID and workspace name. The Owner
+        may end retention early for an already deleted workspace; legal hold, active or
+        uncertain work, conflicting maintenance and unconfirmed bindings still block release.
+        A durable per-asset request and audit precede physical IO. Repeating the request
+        returns the same request. Accepted is not physical completion; quota remains until
+        Worker confirms original disk absence and atomically publishes the final audit.
+        Existing backup archives remain independent. No query parameters accepted.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - name: X-CSRF-Token
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [confirmed_name, confirmed_asset_id]
+              properties:
+                confirmed_name: {type: string, minLength: 1, maxLength: 32}
+                confirmed_asset_id: {type: string, format: uuid}
+      responses:
+        '202':
+          description: Original durable release request; no-store. Poll the asset status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [request_id, asset_id, status]
+                properties:
+                  request_id: {type: string, format: uuid}
+                  asset_id: {type: string, format: uuid}
+                  status: {type: string, enum: [ACCEPTED, RUNNING, UNCERTAIN, SUCCEEDED]}
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/storage-assets:
+    get:
+      operationId: listStorageAssets
+      x-api-id: API-077
+      tags:
+      - Storage
+      summary: List own active and retained data assets
+      description: Requires a current instances:read permission and exact owner/organization.
+        Administrators have no implicit access to other owners. Read-only metadata;
+        no filesystem paths, keys, backup contents or file names. Missing or foreign
+        assets return 404. No resource collection or maintenance is triggered by GET.
+        Unknown or repeated query parameters are rejected.
+      parameters:
+      - &storage_path_id002
+        name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 1000000000
+          default: 1
+      - &storage_path_id003
+        name: limit
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      - name: status
+        in: query
+        description: PROCESSING groups PREPARING, RESTORING and RECLAIM_PENDING before
+          pagination and counting. Responses retain the underlying asset status.
+        schema:
+          type: string
+          enum:
+          - PROCESSING
+          - PREPARING
+          - READY
+          - RETAINED
+          - RESTORING
+          - RECLAIM_PENDING
+          - DELETED
+      - name: q
+        in: query
+        description: Literal workspace-name prefix, Chinese letters/digits/_/-; up to
+          32 characters.
+        schema:
+          type: string
+          maxLength: 32
+      responses:
+        '200':
+          description: Safe owner metadata; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageAssetPage'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/storage-assets/{id}:
+    get:
+      operationId: getStorageAsset
+      x-api-id: API-078
+      tags:
+      - Storage
+      summary: Read own data asset usage, retention, backup and maintenance conditions
+      description: Requires a current instances:read permission and exact owner/organization.
+        Administrators have no implicit access to other owners. Read-only metadata;
+        no filesystem paths, keys, backup contents or file names. Missing or foreign
+        assets return 404. No resource collection or maintenance is triggered by GET.
+        Unknown or repeated query parameters are rejected.
+      parameters:
+      - &storage_path_id001
+        name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Safe owner metadata; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageAsset'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/storage-assets/{id}/backups:
+    get:
+      operationId: listStorageBackups
+      x-api-id: API-079
+      tags:
+      - Storage
+      summary: List safe backup history for an owned asset
+      description: Requires a current instances:read permission and exact owner/organization.
+        Administrators have no implicit access to other owners. Read-only metadata;
+        no filesystem paths, keys, backup contents or file names. Missing or foreign
+        assets return 404. No resource collection or maintenance is triggered by GET.
+        Unknown or repeated query parameters are rejected.
+      parameters:
+      - *storage_path_id001
+      - *storage_path_id002
+      - *storage_path_id003
+      responses:
+        '200':
+          description: Safe owner metadata; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageBackupPage'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/storage-assets/{id}/files:
+    get:
+      operationId: listOwnStorageFiles
+      x-api-id: API-081
+      tags: [Storage]
+      summary: Browse a fixed directory in an owned stopped workspace disk
+      description: >-
+        Requires current instances:read and exact Owner/organization. Only root=workspace
+        (/data/workspace) or root=dsh (/data/dsh) is accepted. The workspace must be
+        stopped or soft-deleted. Lists are read-only, paged at 100 entries, and disclose
+        only direct-child names, types, sizes and modification times. Relative paths reject
+        traversal and symlinks are never followed. No uploads, edits or deletes.
+      parameters:
+      - *storage_path_id001
+      - name: root
+        in: query
+        required: true
+        schema: {type: string, enum: [workspace, dsh]}
+      - name: path
+        in: query
+        description: Optional relative directory path below the selected fixed root.
+        schema: {type: string, maxLength: 4096, default: ''}
+      - name: after
+        in: query
+        description: Last item name from the prior page.
+        schema: {type: string, maxLength: 255}
+      responses:
+        '200':
+          description: One direct directory page; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StorageDirectory'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/storage-assets/{id}/file:
+    get:
+      operationId: readOwnStorageFile
+      x-api-id: API-082
+      tags: [Storage]
+      summary: Preview or download one regular file from a fixed data directory
+      description: >-
+        Requires current instances:read, exact Owner/organization, and a stopped or
+        soft-deleted workspace. mode=PREVIEW returns UTF-8 plain text up to 512 KiB;
+        mode=DOWNLOAD returns an attachment up to 64 MiB. Absolute paths, traversal,
+        symlinks, special files and other roots are rejected. Content is no-store and
+        never persisted as an audit record.
+      parameters:
+      - *storage_path_id001
+      - name: root
+        in: query
+        required: true
+        schema: {type: string, enum: [workspace, dsh]}
+      - name: path
+        in: query
+        required: true
+        schema: {type: string, minLength: 1, maxLength: 4096}
+      - name: mode
+        in: query
+        required: true
+        schema: {type: string, enum: [PREVIEW, DOWNLOAD]}
+      responses:
+        '200':
+          description: Text preview or binary attachment; no-store and nosniff.
+          content:
+            text/plain:
+              schema: {type: string}
+            application/octet-stream:
+              schema: {type: string, format: binary}
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/me:
+    get:
+      operationId: getCurrentUser
+      x-api-id: API-001
+      tags:
+      - Identity
+      summary: Get current user and organization memberships
+      responses:
+        '200':
+          description: Current user, role, in-memory CSRF token and session expiry; no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUser'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/templates:
+    get:
+      operationId: listTemplates
+      x-api-id: API-003
+      tags:
+      - Templates
+      summary: Get the approved fixed template and version
+      description: Return an empty items array if no template/spec is enabled. Otherwise return the single approved Docker
+        template, persisted name, version, digest and fixed specification.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/instances:
+    get:
+      operationId: listInstances
+      x-api-id: API-004
+      tags:
+      - Instances
+      summary: List authorized instances
+      description: Owner-scoped keyset pagination descending created_at/id; signed cursor expires in 15 minutes.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InstanceList'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - name: state
+        in: query
+        schema:
+          $ref: '#/components/schemas/ObservedState'
+      - name: include_deleted
+        in: query
+        schema:
+          type: boolean
+          default: false
+      - name: q
+        in: query
+        schema:
+          type: string
+          maxLength: 32
+          pattern: '^[\p{L}\p{N}_-]{0,32}$'
+    post:
+      operationId: createInstance
+      x-api-id: API-005
+      tags:
+      - Instances
+      summary: Create an instance asynchronously and idempotently
+      description: Accept an empty JSON object for one-click creation. Resolve name, fixed organization/backend/template/spec/model
+        from authorized server defaults once, persist the snapshot and quota reservation with instance/operation/outbox, and
+        return 202. Replays return the original snapshot even after defaults change. initial release rejects any backend other
+        than docker and autostart=false.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateInstance'
+            example: {}
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/instances/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getInstance
+      x-api-id: API-006
+      tags:
+      - Instances
+      summary: Get instance state, resources and access health
+      responses:
+        '200':
+          description: Instance with per-dimension health, ready and request-specific can_enter. Runtime RUNNING alone is
+            not agent readiness.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instance'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+    delete:
+      operationId: deleteInstance
+      x-api-id: API-009
+      tags:
+      - Instances
+      summary: Soft-delete instance and revoke compute access
+      description: Exact immutable name confirmation in X-Confirm-Instance-Name; immediate access revocation, asynchronous
+        compute cleanup, retained storage. No body or permanent deletion.
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/ConfirmName'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /v1/instances/{id}:start:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: startInstance
+      x-api-id: API-007
+      tags:
+      - Instances
+      summary: Start an instance using its original verified storage
+      description: Reject conflicting operations or missing/mismatched storage.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/instances/{id}:stop:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: stopInstance
+      x-api-id: API-008
+      tags:
+      - Instances
+      summary: Stop compute while preserving storage
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/operations/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getOperation
+      x-api-id: API-010
+      tags:
+      - Operations
+      summary: Get operation status and error
+      responses:
+        '200':
+          description: Operation state/stage and redacted failure. UNCERTAIN remains active until reconciled; retry_allowed
+            is server-calculated, not permission by itself.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Operation'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+  /v1/instances/{id}:access:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: accessInstance
+      x-api-id: API-011
+      tags:
+      - Access
+      summary: Authorize a controlled native-auth session handoff
+      description: Issue a single-use browser-challenge-bound ticket after live Owner and health checks. Expiry is at most
+        45 seconds and cannot exceed the challenge or Portal session expiry; reject a challenge with less than 5 seconds remaining.
+        Native DSH Cookie remains server-side.
+      responses:
+        '200':
+          description: Sensitive handoff; Cache-Control no-store. POST ticket via form, never a URL.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessHandoff'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccessRequest'
+  /v1/audit-events:
+    get:
+      operationId: listOperationLogs
+      x-api-id: API-012
+      tags:
+      - OperationLogs
+      summary: 查询授权范围内的操作日志
+      description: Query readable actor and resource names, outcomes and allowlisted change details within the caller’s authorized organization scope. Members see only their own or owned-resource events; audit:organization permits organization scope.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationLogList'
+        default:
+          $ref: '#/components/responses/Error'
+      x-delivery-scope: initial-release
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - name: action
+        in: query
+        schema:
+          type: string
+          maxLength: 128
+      - name: outcome
+        in: query
+        schema:
+          type: string
+          enum: [ACCEPTED, SUCCEEDED, FAILED, DENIED]
+      - name: resource_id
+        in: query
+        schema:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+      - name: from
+        in: query
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        schema:
+          type: string
+          format: date-time
+  /v1/platform-checks:
+    get:
+      operationId: getPlatformChecks
+      x-api-id: API-078
+      x-delivery-scope: initial-release
+      tags:
+      - Preflight
+      summary: Check shared platform services and resource configuration
+      description: Requires configuration:read. Returns system dependency health, approved runtime defaults and organization quota configuration. Does not evaluate caller workspace mapping, personal models or remaining creation quota. Resource usage and remaining quota are reported on quota pages and checked during creation.
+      responses:
+        '200':
+          description: System checks independent of caller model and quota choices.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformChecks'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/preflight:
+    get:
+      operationId: getPreflight
+      x-api-id: API-013
+      x-delivery-scope: initial-release
+      tags:
+      - Preflight
+      summary: Check workspace creation dependencies, selected model and remaining quota
+      description: An authenticated readable control plane returns 200 even when can_create=false. Include identity/workspace/docker/database/redis/template/spec/model/storage/access/defaults/maintenance
+        checks. The workspace check validates the embedded Workspace module. Missing initialization is diagnostic, not a fabricated
+        default.
+      responses:
+        '200':
+          description: Redacted checks appropriate to caller; technical details restricted to administrator.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Preflight'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: model_configuration_id
+        in: query
+        description: Both selection parameters must appear together; otherwise personal/organization defaults apply.
+        schema:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+      - name: model_configuration_version
+        in: query
+        description: Both selection parameters must appear together; otherwise personal/organization defaults apply.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      - name: spec_id
+        in: query
+        description: Optional enabled approved resource spec; quota preview uses its CPU, memory and storage. Independent of model selection.
+        schema:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+  /v1/model-configuration:
+    get:
+      operationId: getModelConfiguration
+      x-api-id: API-014
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Get redacted organization model configuration
+      description: Return 404 NOT_FOUND when no version has been saved or the requested version does not exist. The administrator
+        initializes expected_version=0; never fabricate a model identifier.
+      responses:
+        '200':
+          description: Authorized metadata; never returns api_key or plaintext credential.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfiguration'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: version
+        in: query
+        description: Omit for current head; otherwise retrieve a specific existing version.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+    put:
+      operationId: saveModelConfiguration
+      x-api-id: API-015
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Save a versioned model configuration
+      responses:
+        '200':
+          description: Saved metadata; validation is a separate bounded real request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfiguration'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Administrator only, version check required. First save requires api_key. Save creates a new immutable version;
+        does not silently change running instances or call the model. Old credential revocation is explicit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelConfigurationInput'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /v1/model-configuration:validate:
+    post:
+      operationId: validateModelConfiguration
+      x-api-id: API-016
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Validate a model using a bounded real request
+      responses:
+        '200':
+          description: Validation result; model failure may be represented by INVALID metadata, not successful model health.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfiguration'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Validate the explicit version using synthetic data, at most 2 upstream requests within 30 seconds, output
+        cap 128 tokens each. 5-minute validity, per-org daily budget. Same-version concurrent validation conflicts.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /v1/instances/{id}:configure:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: applyInstanceConfiguration
+      x-api-id: API-017
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Apply an explicitly selected validated model configuration
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Owner only in V0.1. Single-active-operation, idempotency and instance version checks apply. RUNNING instances
+        revoke access immediately and restart with the original volume; STOPPED instances only prepare configuration for the
+        next start. Never roll back to revoked credentials.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ApplyConfiguration'
+  /v1/operations/{id}:retry:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: retryOperation
+      x-api-id: API-018
+      x-delivery-scope: initial-release
+      tags:
+      - Operations
+      summary: Retry only a reconciled, safely retryable failed operation
+      responses:
+        '202':
+          $ref: '#/components/responses/AcceptedOperation'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Retry only the latest FAILED USER operation with no later accepted command, reconciled_at, current Owner
+        authorization and no active operation. Preserve original type, target snapshot and desired state, confirmation name
+        and external identifiers; refresh the execution version precondition. Re-reserve only confirmed released resources.
+        Cleanup STOP/DELETE must remain possible with an invalid model. UNCERTAIN and SYSTEM STOP are not user-retryable.
+        Creates a linked operation without a second instance/workspace or discarding storage.
+      parameters:
+      - $ref: '#/components/parameters/IdempotencyKey'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /v1/defaults:
+    get:
+      operationId: getOrganizationDefaults
+      x-api-id: API-019
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Get approved fixed organization defaults
+      description: Return 404 DEFAULTS_NOT_CONFIGURED before initialization. The first defaults PUT uses version=0 and real
+        approved template/spec identifiers from the template catalog. Model fields may be omitted for runtime-only initialization.
+      responses:
+        '200':
+          description: Defaults shown to current authorized user; no secrets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationDefaults'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateOrganizationDefaults
+      x-api-id: API-020
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Update defaults for future instances
+      responses:
+        '200':
+          description: New defaults version; existing snapshots unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationDefaults'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Requires defaults:write. Version is the expected current version (0 for initialization). Validate approved Docker template/spec,
+        retention_days (1-365) and max_user_instances against the organization quota and inherited usage. Model fields are optional and
+        existing model bindings are preserved when omitted. Configuration, default quota and audit commit atomically; existing instance snapshots remain unchanged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OrganizationDefaultsInput'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /v1/model-configuration:revoke:
+    post:
+      operationId: revokeModelConfiguration
+      x-api-id: API-021
+      x-delivery-scope: initial-release
+      tags:
+      - Configuration
+      summary: Revoke use of a model configuration version
+      responses:
+        '200':
+          description: Revoked metadata. This is not proof the upstream credential was invalidated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelConfiguration'
+        default:
+          $ref: '#/components/responses/Error'
+      description: Revoke explicit version and every version sharing its credential reference. Disable affected access and
+        enqueue safe stopping. Repeated revocation is idempotent. Local revocation does not prove upstream key invalidation.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /auth/login:
+    get:
+      operationId: login
+      x-api-id: API-022
+      x-delivery-scope: initial-release
+      responses:
+        '302':
+          description: Redirect to the embedded same-origin OIDC issuer
+          headers:
+            Location:
+              description: Configured OIDC authorization endpoint
+              schema:
+                type: string
+                format: uri-reference
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Identity
+      security: []
+      parameters:
+      - name: return_to
+        in: query
+        schema:
+          type: string
+          default: /app/instances
+          pattern: ^/app/[A-Za-z0-9/_-]*$
+  /auth/callback:
+    get:
+      operationId: oidcCallback
+      x-api-id: API-023
+      x-delivery-scope: initial-release
+      responses:
+        '303':
+          description: Validate one-time browser-bound state/nonce/PKCE and create Portal cookie
+          headers:
+            Location:
+              description: Allowlisted /app/ relative path
+              schema:
+                type: string
+                format: uri-reference
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Identity
+      security: []
+      parameters:
+      - name: state
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 32
+          maxLength: 256
+      - name: code
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 4096
+      - name: error
+        in: query
+        description: Provider error, mutually exclusive with code.
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 128
+      description: Require state and exactly one of code or error. Validate browser binding before handling provider denial.
+        Never log code/state; denial returns a safe authentication error without creating a session.
+  /auth/logout:
+    post:
+      operationId: logout
+      x-api-id: API-024
+      x-delivery-scope: initial-release
+      responses:
+        '204':
+          description: Sessions revoked and Portal cookie cleared; no body.
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Identity
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+  /__dsh/connect:
+    get:
+      operationId: confirmWorkspaceConnection
+      x-api-id: API-027
+      x-delivery-scope: initial-release
+      responses:
+        '200':
+          description: Public connection confirmation page. No cookies, challenge, ticket, session, or native authorization;
+            no-store and strict CSP. Query parameters are rejected.
+          content:
+            text/html:
+              schema:
+                type: string
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Access
+      servers:
+      - url: https://{instance_host}
+        description: Configured immutable instance host; never user-supplied upstream.
+        variables:
+          instance_host:
+            default: i-22222222222242228222222222222222.cloud.example
+      security: []
+  /__dsh/challenge:
+    get:
+      operationId: createBrowserChallenge
+      x-api-id: API-025
+      x-delivery-scope: initial-release
+      responses:
+        '200':
+          description: Set host-only challenge cookie; exact Portal CORS origin, credentials allowed, no-store.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessChallenge'
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Access
+      servers:
+      - url: https://{instance_host}
+        description: Configured immutable instance host; never user-supplied upstream.
+        variables:
+          instance_host:
+            default: i-22222222222242228222222222222222.cloud.example
+      security: []
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+  /__dsh/handoff:
+    post:
+      operationId: consumeHandoff
+      x-api-id: API-026
+      x-delivery-scope: initial-release
+      responses:
+        '303':
+          description: Atomically consume ticket/challenge, establish server-held native session, set Gateway cookie
+          headers:
+            Location:
+              description: /
+              schema:
+                type: string
+                format: uri-reference
+        default:
+          $ref: '#/components/responses/Error'
+      tags:
+      - Access
+      servers:
+      - url: https://{instance_host}
+        description: Configured immutable instance host; never user-supplied upstream.
+        variables:
+          instance_host:
+            default: i-22222222222242228222222222222222.cloud.example
+      security:
+      - gatewayChallenge: []
+      parameters:
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/HandoffForm'
+  /v1/users:
+    get:
+      operationId: listOrganizationUsers
+      x-api-id: API-028
+      tags:
+      - IdentityManagement
+      summary: 查询组织用户
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply. Without a status filter, archived (deleted) users are excluded.
+        Use status=ARCHIVED to query deleted identity history.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUserPage'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 100
+      - in: query
+        name: status
+        schema:
+          type: string
+          enum:
+          - PENDING_IDENTITY
+          - ACTIVE
+          - DISABLED
+          - ARCHIVED
+      - in: query
+        name: role_id
+        schema:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    post:
+      operationId: createOrganizationUser
+      x-api-id: API-029
+      tags:
+      - IdentityManagement
+      summary: 创建本地账号或绑定已有组织身份
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+        '202':
+          description: Identity provider has not confirmed supply; the existing PENDING_IDENTITY user and operation must be
+            retried. No login authority granted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserCreate'
+  /v1/users/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getOrganizationUser
+      x-api-id: API-030
+      tags:
+      - IdentityManagement
+      summary: 查询用户及身份供应结果
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: editOrganizationUser
+      x-api-id: API-031
+      tags:
+      - IdentityManagement
+      summary: 编辑联系资料
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserEdit'
+    delete:
+      operationId: deleteOrganizationUser
+      x-api-id: API-077
+      tags:
+      - IdentityManagement
+      summary: 删除用户并撤销登录权限
+      description: Logical deletion using the existing atomic USER_ARCHIVE action. Retains immutable identity, quota configuration
+        and audit history. Requires users:manage and the exact display name (user ID if empty). Rejects self-deletion,
+        remaining assets, pending password resets and invalid lifecycle transitions. A concurrent change returns VERSION_CONFLICT.
+        Deleted users are excluded from default user and quota lists and cannot be enabled again.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserDelete'
+      responses:
+        '204':
+          description: User deleted; previous sessions revoked. No response body.
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/users/{id}:quota:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getUserResourceQuota
+      x-api-id: API-070
+      tags:
+      - IdentityManagement
+      summary: 查看用户有效资源额度及已占用量
+      description: Requires users:read. Missing overrides inherit organization defaults (version 0). Usage includes HELD/USED
+        reservations, retained storage and recovery holds.
+      responses:
+        '200':
+          description: Effective per-user limits, commitments and shared organization ceilings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResourceQuota'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateUserResourceQuota
+      x-api-id: API-071
+      tags:
+      - IdentityManagement
+      summary: 分配或调整用户资源额度
+      description: Requires users:manage and complete limits. Zero forbids additional commitments. User ceilings cannot exceed
+        the organization ceilings or fall below committed usage. Organization quota lock serializes updates and admission;
+        version conflicts return 409 VERSION_CONFLICT, reductions below usage return 409 QUOTA_BELOW_USAGE. Atomic audit;
+        archived or foreign users cannot be updated.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserResourceQuotaInput'
+      responses:
+        '200':
+          description: Updated limits and usage
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResourceQuota'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/roles:
+    get:
+      operationId: listOrganizationRoles
+      x-api-id: API-038
+      tags:
+      - IdentityManagement
+      summary: 查询内置及自定义角色
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedRolePage'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 100
+    post:
+      operationId: createOrganizationRole
+      x-api-id: API-039
+      tags:
+      - IdentityManagement
+      summary: 创建自定义角色
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '201':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedRole'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedRoleInput'
+  /v1/roles/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getOrganizationRole
+      x-api-id: API-040
+      tags:
+      - IdentityManagement
+      summary: 查询角色权限与分配数
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedRole'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updateOrganizationRole
+      x-api-id: API-041
+      tags:
+      - IdentityManagement
+      summary: 修改自定义角色与权限
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedRole'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedRoleInput'
+    delete:
+      operationId: deleteOrganizationRole
+      x-api-id: API-042
+      tags:
+      - IdentityManagement
+      summary: 删除未分配的自定义角色
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '204':
+          description: Successful response
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVersion'
+  /v1/permissions:
+    get:
+      operationId: getPermissionCatalog
+      x-api-id: API-043
+      tags:
+      - IdentityManagement
+      summary: 读取固定权限目录及依赖
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PermissionCatalog'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/users/{id}:role:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userRole
+      x-api-id: API-032
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：role
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserRole'
+  /v1/users/{id}:disable:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userDisable
+      x-api-id: API-033
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：disable
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVersion'
+  /v1/users/{id}:enable:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userEnable
+      x-api-id: API-034
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：enable
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVersion'
+  /v1/users/{id}:archive:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userArchive
+      x-api-id: API-035
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：archive
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVersion'
+  /v1/users/{id}:retry-identity:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userRetryIdentity
+      x-api-id: API-036
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：retry-identity
+      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+        atomic audit and immediate session revocation apply.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserPassword'
+  /v1/users/{id}:reset-password:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userResetPassword
+      x-api-id: API-037
+      tags:
+      - IdentityManagement
+      summary: 用户治理动作：reset-password
+      description: Commit an audited reset intent and revoke old sessions before provider I/O. Pending results return 202
+        and must be resumed using retry-password-reset without a new password.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        '202':
+          description: Reset intent saved; provider confirmation pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ManagedUserPassword'
+  /v1/users/{id}:retry-password-reset:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: userRetryPasswordReset
+      x-api-id: API-061
+      tags:
+      - IdentityManagement
+      summary: 继续原密码重置，无需重新输入密码
+      description: Resume the pending reset using its immutable encrypted provider hash. A live lease returns 409. Current
+        administrator authority and expected user version are required.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        '202':
+          description: Reset intent saved; provider confirmation pending.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedUser'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceVersion'
+  /v1/model-directory:
+    get:
+      operationId: getModelDirectory
+      x-api-id: API-044
+      tags:
+      - Configuration
+      summary: 读取已保存配置版本的批准目录
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDirectory'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - name: version
+        in: query
+        required: true
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+  /v1/model-directory:refresh:
+    post:
+      operationId: refreshModelDirectory
+      x-api-id: API-045
+      tags:
+      - Configuration
+      summary: 刷新已保存配置版本的批准目录
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelDirectory'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+  /v1/model-providers:
+    get:
+      operationId: getModelProviders
+      x-api-id: API-046
+      tags:
+      - PersonalModels
+      summary: 读取启用的提供商
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelProvider'
+                    maxItems: 100
+                required:
+                - items
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/model-providers/{provider}:sync:
+    post:
+      operationId: syncProviderModels
+      x-api-id: API-068
+      tags:
+      - PersonalModels
+      summary: 同步官方或自定义服务模型列表
+      description: Requires personal-model:write, exact Portal Origin and CSRF. Reads model-list APIs only, with the supplied
+        write-only key; no inference or secret persistence. Exact configured endpoint required. Eight-second total deadline,
+        at most ten pages / 1000 unique models. Failure returns no partial list.
+      parameters:
+      - name: provider
+        in: path
+        required: true
+        schema:
+          type: string
+          enum:
+          - openai
+          - anthropic
+          - gemini
+          - qwen
+          - deepseek
+          - moonshot
+          - zai
+          - custom-openai
+          - custom-anthropic
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelDiscoveryInput'
+      responses:
+        '200':
+          description: Live models visible to this key; listing does not certify inference or tool compatibility.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 1000
+                    items:
+                      type: object
+                      required:
+                      - id
+                      - name
+                      additionalProperties: false
+                      properties:
+                        id:
+                          type: string
+                          maxLength: 128
+                        name:
+                          type: string
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/my-models:batch:
+    post:
+      operationId: createPersonalModelsBatch
+      x-api-id: API-069
+      tags:
+      - PersonalModels
+      summary: 原子新增提供商的多个个人模型
+      description: Requires personal-model:write, CSRF and Idempotency-Key. Accepts 1–20 distinct models from one provider
+        and API base. Entire transaction commits or rolls back; replay must match the entire original batch including order.
+        Only selected models are saved; saving does not certify capabilities.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      - in: header
+        name: Idempotency-Key
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - items
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  items:
+                    $ref: '#/components/schemas/PersonalModelInput'
+      responses:
+        '202':
+          description: All selected models saved for asynchronous route registration.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    minItems: 1
+                    maxItems: 20
+                    items:
+                      $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/model-catalog:
+    get:
+      operationId: getModelCatalog
+      x-api-id: API-047
+      tags:
+      - PersonalModels
+      summary: 读取组织共享及本人已绑定模型目录
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ModelCatalogEntry'
+                    maxItems: 120
+                required:
+                - items
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/my-models:
+    get:
+      operationId: listPersonalModels
+      x-api-id: API-048
+      tags:
+      - PersonalModels
+      summary: 列出本人未归档连接
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModelPage'
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createPersonalModel
+      x-api-id: API-049
+      tags:
+      - PersonalModels
+      summary: 添加本人外部模型并排队同步
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalModelInput'
+  /v1/my-models/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    get:
+      operationId: getPersonalModel
+      x-api-id: API-050
+      tags:
+      - PersonalModels
+      summary: 读取本人连接及同步结果
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: updatePersonalModel
+      x-api-id: API-057
+      tags:
+      - PersonalModels
+      summary: 更新本人连接并冻结新的模型与密钥版本
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '202':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalModelUpdate'
+  /v1/my-models/{id}:validate:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: personalModelValidate
+      x-api-id: API-051
+      tags:
+      - PersonalModels
+      summary: 本人模型动作：validate
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+  /v1/my-models/{id}:revoke:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: personalModelRevoke
+      x-api-id: API-052
+      tags:
+      - PersonalModels
+      summary: 本人模型动作：revoke
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+  /v1/my-models/{id}:archive:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: personalModelArchive
+      x-api-id: API-053
+      tags:
+      - PersonalModels
+      summary: 本人模型动作：archive
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalModel'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConfigurationVersion'
+  /v1/my-model-default:
+    get:
+      operationId: getPersonalDefault
+      x-api-id: API-054
+      tags:
+      - PersonalModels
+      summary: 读取个人默认及版本
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/PersonalDefault'
+                nullable: true
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: setPersonalDefault
+      x-api-id: API-055
+      tags:
+      - PersonalModels
+      summary: 设置通过校验的个人默认
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalDefault'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PersonalDefaultInput'
+  /v1/my-model-default:clear:
+    post:
+      operationId: clearPersonalDefault
+      x-api-id: API-056
+      tags:
+      - PersonalModels
+      summary: 清除个人默认并保留版本防止旧请求覆盖
+      description: Current database permissions and owner scope apply. Credentials are never returned. All writes require
+        the exact Portal Origin and CSRF. Synchronization never implies a successful inference validation.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PersonalDefault'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExpectedPersonalDefault'
+  /v1/model-catalog/manage:
+    get:
+      operationId: getManagedModelCatalog
+      x-api-id: API-058
+      tags:
+      - PersonalModels
+      summary: 管理员读取组织全部模型目录（含停用）
+      description: Requires models:catalog:manage in the current database projection. Fixed approved provider API bases only;
+        arbitrary hosts and transport parameters are rejected. CAS uses expected_version (0 for create). No credentials are
+        accepted or returned. Disabled entries block use immediately; Worker queues remote removal.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/ManagedCatalogEntry'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters: []
+    post:
+      operationId: createModelCatalogEntry
+      x-api-id: API-059
+      tags:
+      - PersonalModels
+      summary: 管理员添加组织批准模型与区域
+      description: Requires models:catalog:manage in the current database projection. Fixed approved provider API bases only;
+        arbitrary hosts and transport parameters are rejected. CAS uses expected_version (0 for create). No credentials are
+        accepted or returned. Disabled entries block use immediately; Worker queues remote removal.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCatalogEntry'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCatalogInput'
+  /v1/model-catalog/manage/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ResourceId'
+    put:
+      operationId: updateModelCatalogEntry
+      x-api-id: API-060
+      tags:
+      - PersonalModels
+      summary: 管理员按版本编辑或停用模型目录
+      description: Requires models:catalog:manage in the current database projection. Fixed approved provider API bases only;
+        arbitrary hosts and transport parameters are rejected. CAS uses expected_version (0 for create). No credentials are
+        accepted or returned. Disabled entries block use immediately; Worker queues remote removal.
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ManagedCatalogEntry'
+        default:
+          $ref: '#/components/responses/Error'
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModelCatalogInput'
+  /oidc/.well-known/openid-configuration:
+    get:
+      operationId: oidcDiscovery
+      x-api-id: API-062
+      tags:
+      - Identity
+      description: Discovery for the embedded first-party authorization-code provider.
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCDiscovery'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+  /oidc/jwks:
+    get:
+      operationId: oidcPublicKeys
+      x-api-id: API-063
+      tags:
+      - Identity
+      description: Public signing key only. The RSA private key is never exposed.
+      security: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCJWKS'
+  /oidc/authorize:
+    get:
+      operationId: oidcAuthorization
+      x-api-id: API-064
+      tags:
+      - Identity
+      description: Only the configured client and exact HC_PUBLIC_URL/auth/callback are accepted. Duplicate or unsupported
+        parameters are rejected.
+      security: []
+      responses:
+        '200':
+          description: Same-origin login form with a five-minute browser/CSRF challenge.
+          content:
+            text/html:
+              schema:
+                type: string
+          headers:
+            Set-Cookie:
+              description: Secure/HttpOnly/SameSite=Lax __Host-hc_identity; Path=/; Max-Age=300.
+              schema:
+                type: string
+        '400':
+          description: Invalid protocol request or grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+      parameters:
+      - name: client_id
+        in: query
+        required: true
+        schema:
+          type: string
+      - name: redirect_uri
+        in: query
+        required: true
+        schema:
+          type: string
+          format: uri
+      - name: response_type
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - code
+      - name: scope
+        in: query
+        required: true
+        schema:
+          type: string
+          description: Space-separated unique openid/profile/email; openid required.
+      - name: state
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 32
+          maxLength: 256
+      - name: nonce
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 32
+          maxLength: 256
+      - name: code_challenge
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9_-]{43}$
+      - name: code_challenge_method
+        in: query
+        required: true
+        schema:
+          type: string
+          enum:
+          - S256
+      - name: prompt
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - login
+      - name: response_mode
+        in: query
+        required: false
+        schema:
+          type: string
+          enum:
+          - query
+  /oidc/login:
+    post:
+      operationId: oidcPasswordLogin
+      x-api-id: API-065
+      tags:
+      - Identity
+      description: A bounded urlencoded form authenticates the account and consumes its browser-bound authorization challenge.
+        No password or protocol tokens are returned in the form.
+      security:
+      - OIDCLoginChallenge: []
+      responses:
+        '303':
+          description: Redirect to the exact callback with code and original state.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri
+        '401':
+          description: Uniform wrong-password/unknown/disabled-account feedback; expired or consumed challenges require a
+            new login.
+          content:
+            text/html:
+              schema:
+                type: string
+        '400':
+          description: Invalid protocol request or grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '403':
+          description: Origin or CSRF rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+      parameters:
+      - name: Origin
+        in: header
+        required: true
+        schema:
+          type: string
+          format: uri
+        description: Must equal HC_PUBLIC_URL.
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - request
+              - csrf
+              - login
+              - password
+              properties:
+                request:
+                  type: string
+                  format: uuid
+                csrf:
+                  type: string
+                  minLength: 43
+                  maxLength: 43
+                login:
+                  type: string
+                  format: email
+                  maxLength: 254
+                password:
+                  type: string
+                  maxLength: 72
+                  writeOnly: true
+  /oidc/token:
+    post:
+      operationId: oidcToken
+      x-api-id: API-066
+      tags:
+      - Identity
+      description: Client secret basic only; code is consumed once and bound to redirect, PKCE, credential version and authority
+        generation. No refresh/password/client-credentials grants.
+      security:
+      - OIDCClientBasic: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCTokenResponse'
+        '400':
+          description: Invalid protocol request or grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '429':
+          description: Rate limited
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - grant_type
+              - code
+              - redirect_uri
+              - code_verifier
+              properties:
+                grant_type:
+                  type: string
+                  enum:
+                  - authorization_code
+                code:
+                  type: string
+                  minLength: 43
+                  maxLength: 43
+                redirect_uri:
+                  type: string
+                  format: uri
+                code_verifier:
+                  type: string
+                  pattern: ^[A-Za-z0-9._~-]{43,128}$
+  /oidc/userinfo:
+    get:
+      operationId: oidcUserInfo
+      x-api-id: API-067
+      tags:
+      - Identity
+      description: Requires the opaque provider access token, not a Portal cookie. Rechecks enabled account, organization,
+        member generation and credential version.
+      security:
+      - OIDCAccessBearer: []
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCUserInfo'
+        '400':
+          description: Invalid protocol request or grant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '401':
+          description: Authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+        '503':
+          description: Dependency unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OIDCProtocolError'
+  /v1/my-provider-accounts:
+    get:
+      operationId: listProviderAccounts
+      x-api-id: API-072
+      tags:
+      - PersonalModels
+      summary: 读取本人模型提供商账号
+      description: Requires personal-model:read. Returns up to 20 live provider accounts and their selected models; model
+        usage counts determine whether removal is allowed.
+      responses:
+        '200':
+          description: Successful owner-scoped result; keys are never returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 20
+                    items:
+                      $ref: '#/components/schemas/ProviderAccount'
+        default: &id001
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createProviderAccount
+      x-api-id: API-073
+      tags:
+      - PersonalModels
+      summary: 原子添加账号和多个模型
+      description: Requires personal-model:write, exact Origin, CSRF and a stable Idempotency-Key. Expected version must be
+        zero. Key is required, including an empty key for a custom no-auth service. 1–20 unique models must match the provider/root.
+        All creation and audit changes commit together; directory results do not imply inference compatibility.
+        After route synchronization the Worker automatically validates each new model's streaming and tool capabilities.
+        Poll the returned models' validation states; automatic validation may consume provider usage.
+      responses:
+        '202':
+          description: Successful owner-scoped result; keys are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAccount'
+        default: *id001
+      parameters:
+      - &id002
+        $ref: '#/components/parameters/Origin'
+      - &id003
+        $ref: '#/components/parameters/Csrf'
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 16
+          maxLength: 128
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+              - $ref: '#/components/schemas/ProviderAccountInput'
+              - required:
+                - api_key
+  /v1/my-provider-accounts/{id}:
+    put:
+      operationId: updateProviderAccount
+      x-api-id: API-074
+      tags:
+      - PersonalModels
+      summary: 原子修改提供商名称、密钥与模型集合
+      description: Requires personal-model:write and current expected_version. Provider and API root are immutable; create
+        another connection to change them. Omitted key reuses the existing credential; rotation creates new immutable versions
+        of all retained models. Name-only edits preserve model versions and validations. Removed models additionally require
+        personal-model:revoke and zero nondeleted workspace references. Their personal default reference is cleared with a
+        new tombstone version. The whole mutation rolls back on any failure.
+        Newly added or rotated model versions are automatically validated after synchronization; name-only edits do not
+        repeat validation. A failed check can be retried with the existing personal model validate operation.
+      responses:
+        '202':
+          description: Successful owner-scoped result; keys are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAccount'
+        default: *id001
+      parameters:
+      - &id004
+        name: id
+        in: path
+        required: true
+        schema: &id006
+          type: string
+          format: uuid
+      - *id002
+      - *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderAccountInput'
+  /v1/my-provider-accounts/{id}:delete:
+    post:
+      operationId: deleteProviderAccount
+      x-api-id: API-075
+      tags:
+      - PersonalModels
+      summary: 撤销并删除整组模型提供商账号
+      description: Requires personal-model:revoke, current expected_version, Origin and CSRF. Blocks if any selected model
+        is used by a nondeleted workspace. Atomically clears personal default references and revokes all models. Returns DELETING;
+        the durable worker only archives retired models and marks DELETED after every version is confirmed REVOKED. A deleted
+        create receipt cannot resurrect the provider.
+      responses:
+        '202':
+          description: Successful owner-scoped result; keys are never returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderAccount'
+        default: *id001
+      parameters:
+      - *id004
+      - *id002
+      - *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expected_version
+              properties:
+                expected_version: &id005
+                  type: integer
+                  format: int64
+                  minimum: 1
+  /v1/my-provider-accounts/{id}:sync:
+    post:
+      operationId: syncProviderAccount
+      x-api-id: API-076
+      tags:
+      - PersonalModels
+      summary: 使用本人已保存密钥同步官方模型列表
+      description: Requires personal-model:write, current expected_version, exact Origin and CSRF. Rate limit shares the existing
+        10 reads/minute per owner. Omitted api_key decrypts one active credential from this exact owner/provider after session
+        and database permission recheck. A supplied key is used only for this read and is not saved. No inference, directory
+        persistence or implicit model selection; no upstream response body in errors.
+      responses:
+        '200':
+          description: Successful owner-scoped result; keys are never returned.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - items
+                properties:
+                  items:
+                    type: array
+                    maxItems: 1000
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required:
+                      - id
+                      - name
+                      properties:
+                        id:
+                          type: string
+                          maxLength: 128
+                        name:
+                          type: string
+        default: *id001
+      parameters:
+      - *id004
+      - *id002
+      - *id003
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expected_version
+              properties:
+                expected_version: *id005
+                api_key:
+                  type: string
+                  maxLength: 4096
+                  writeOnly: true
+                  format: password
+components:
+  securitySchemes:
+    OIDCClientBasic:
+      type: http
+      scheme: basic
+      description: The configured confidential platform OIDC client.
+    OIDCAccessBearer:
+      type: http
+      scheme: bearer
+      description: Opaque five-minute access token from the embedded provider; business /v1 APIs still use Portal cookies.
+    OIDCLoginChallenge:
+      type: apiKey
+      in: cookie
+      name: __Host-hc_identity
+      description: Browser-bound login challenge; form CSRF and exact Origin are also required.
+    portalSession:
+      type: apiKey
+      in: cookie
+      name: __Host-hc_session
+      description: Opaque BFF session; all /v1 writes require CSRF and exact Portal Origin. No browser management bearer tokens.
+    gatewayChallenge:
+      type: apiKey
+      in: cookie
+      name: __Host-hc_challenge
+      description: Host-only browser challenge secret, paired with challenge_id and a single-use handoff ticket.
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+        pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Scope org/actor/action/target. Canonical explicit request hash; defaults resolved once. Keep at least 7
+        days after terminal state, never expire active operations.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: ^[A-Za-z0-9_-]+$
+    ConfirmName:
+      name: X-Confirm-Instance-Name
+      in: header
+      required: true
+      description: UTF-8 percent-encoded immutable display name (encodeURIComponent). Decoded once and matched exactly; ASCII names remain compatible. No permanent-volume deletion.
+      schema:
+        type: string
+        pattern: ^(?:[A-Za-z0-9_-]|%[0-9A-Fa-f]{2}){1,384}$
+    Csrf:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 32
+        maxLength: 128
+    Origin:
+      name: Origin
+      in: header
+      required: true
+      description: Exact configured Portal HTTPS origin for platform writes/handoff; challenge endpoint also requires it.
+      schema:
+        type: string
+        format: uri
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Page:
+      name: page
+      in: query
+      description: One-based page number for direct navigation. Cannot be combined with cursor. Omit both for the first page.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000000000
+    Cursor:
+      name: cursor
+      in: query
+      description: Opaque signed cursor, bound to subject/org/filters, expires in 15 minutes.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 2048
+  responses:
+    AcceptedOperation:
+      description: Command durably accepted; query operation_id for actual completion.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/AcceptedOperation'
+      headers:
+        X-Request-ID:
+          schema:
+            type: string
+    Error:
+      description: Error envelope with status mapping in docs/api.md; never raw upstream bodies or secrets. 401/403/404/409/413/415/422/429/500/502/503/504.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+      headers:
+        X-Request-ID:
+          schema:
+            type: string
+        Retry-After:
+          description: Integer seconds for 429 or a transient 503, when known.
+          schema:
+            type: integer
+            format: int64
+            minimum: 0
+  schemas:
+    StorageAsset:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - owner_id
+      - instance_id
+      - workspace_name
+      - workspace_state
+      - capacity_bytes
+      - status
+      - created_at
+      - deleted_at
+      - retention_until
+      - legal_hold
+      - retention_expired
+      - usage
+      - latest_backup
+      - latest_verified_backup
+      - maintenance
+      properties:
+        id:
+          type: string
+          format: uuid
+        owner_id:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+        workspace_name:
+          type: string
+          maxLength: 32
+        workspace_state:
+          type: string
+        capacity_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+        status:
+          type: string
+          enum:
+          - PREPARING
+          - READY
+          - RETAINED
+          - RESTORING
+          - RECLAIM_PENDING
+          - DELETED
+        created_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+        legal_hold:
+          type: boolean
+        retention_expired:
+          type: boolean
+        usage:
+          $ref: '#/components/schemas/StorageUsage'
+        latest_backup: &storage_schema_id001
+          allOf:
+          - $ref: '#/components/schemas/StorageBackup'
+          nullable: true
+        latest_verified_backup: *storage_schema_id001
+        maintenance:
+          $ref: '#/components/schemas/StorageMaintenance'
+    StorageUsage:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - used_bytes
+      - available_bytes
+      - sampled_at
+      - attempted_at
+      properties:
+        status:
+          type: string
+          enum:
+          - CURRENT
+          - STALE
+          - UNSAMPLED
+          - UNAVAILABLE
+        used_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          nullable: true
+        available_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          nullable: true
+        sampled_at:
+          type: string
+          format: date-time
+          nullable: true
+        attempted_at:
+          type: string
+          format: date-time
+          nullable: true
+    StorageBackup:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - status
+      - created_at
+      - completed_at
+      - verified_at
+      - expires_at
+      - retention_policy
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum:
+          - RUNNING
+          - SUCCEEDED
+          - FAILED
+          - UNCERTAIN
+          - PRUNE_PENDING
+          - PRUNED
+          - EXPIRED
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        retention_policy:
+          type: string
+          enum:
+          - MANUAL
+          - LAST_7_SUCCESSFUL_DATES
+    StorageMaintenance:
+      type: object
+      additionalProperties: false
+      required:
+      - backup_blockers
+      - restore_blockers
+      - reclaim_blockers
+      properties:
+        backup_blockers:
+          type: array
+          items:
+            type: string
+            enum: &storage_schema_id002
+            - OPERATION_PENDING
+            - BINDING_UNCONFIRMED
+            - QUOTA_UNCONFIRMED
+            - COMPUTE_NOT_STOPPED
+            - BACKUP_PENDING
+            - TARGET_NOT_STOPPED
+            - LEGAL_HOLD
+            - NOT_SOFT_DELETED
+            - RETENTION_ACTIVE
+            - MINIMUM_7_DAYS
+            - ALREADY_RECLAIMED
+            - RUNTIME_BINDING_UNAVAILABLE
+          maxItems: 16
+        restore_blockers:
+          type: array
+          items:
+            type: string
+            enum: *storage_schema_id002
+          maxItems: 16
+        reclaim_blockers:
+          type: array
+          items:
+            type: string
+            enum: *storage_schema_id002
+          maxItems: 16
+    StorageDirectory:
+      type: object
+      additionalProperties: false
+      required: [root, path, entries]
+      properties:
+        root:
+          type: string
+          enum: [workspace, dsh]
+        path:
+          type: string
+          maxLength: 4096
+        entries:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            additionalProperties: false
+            required: [name, type, size_bytes, modified_at]
+            properties:
+              name: {type: string, minLength: 1, maxLength: 255}
+              type: {type: string, enum: [DIRECTORY, FILE, LINK, OTHER]}
+              size_bytes: {type: integer, format: int64, minimum: 0}
+              modified_at: {type: string, format: date-time}
+        next_after:
+          type: string
+          maxLength: 255
+          description: Present only when another page exists.
+    StorageAssetPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/StorageAsset'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+        next_cursor:
+          type: string
+          nullable: true
+          description: Always null; this endpoint uses numbered pages.
+    StorageBackupPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/StorageBackup'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+        next_cursor:
+          type: string
+          nullable: true
+          description: Always null; this endpoint uses numbered pages.
+    OIDCProtocolError:
+      type: object
+      additionalProperties: false
+      required:
+      - error
+      properties:
+        error:
+          type: string
+          enum:
+          - invalid_request
+          - invalid_scope
+          - unsupported_response_type
+          - invalid_client
+          - invalid_grant
+          - unsupported_grant_type
+          - invalid_token
+          - slow_down
+          - temporarily_unavailable
+    OIDCTokenResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - access_token
+      - token_type
+      - expires_in
+      - id_token
+      - scope
+      properties:
+        access_token:
+          type: string
+          minLength: 43
+          maxLength: 43
+        token_type:
+          type: string
+          enum:
+          - Bearer
+        expires_in:
+          type: integer
+          enum:
+          - 300
+        id_token:
+          type: string
+          description: RS256 signed JWT; issuer/subject/audience/nonce/expiry must be verified.
+        scope:
+          type: string
+    OIDCUserInfo:
+      type: object
+      additionalProperties: false
+      required:
+      - sub
+      properties:
+        sub:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        email_verified:
+          type: boolean
+          enum:
+          - false
+    OIDCJWKS:
+      type: object
+      additionalProperties: false
+      required:
+      - keys
+      properties:
+        keys:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - kty
+            - kid
+            - alg
+            - use
+            - n
+            - e
+            properties:
+              kty:
+                type: string
+                enum:
+                - RSA
+              alg:
+                type: string
+                enum:
+                - RS256
+              use:
+                type: string
+                enum:
+                - sig
+              kid:
+                type: string
+              n:
+                type: string
+              e:
+                type: string
+    OIDCDiscovery:
+      type: object
+      additionalProperties: false
+      required:
+      - issuer
+      - authorization_endpoint
+      - token_endpoint
+      - userinfo_endpoint
+      - jwks_uri
+      - response_types_supported
+      - response_modes_supported
+      - grant_types_supported
+      - subject_types_supported
+      - id_token_signing_alg_values_supported
+      - token_endpoint_auth_methods_supported
+      - code_challenge_methods_supported
+      - scopes_supported
+      - claims_supported
+      properties:
+        issuer:
+          type: string
+          format: uri
+        authorization_endpoint:
+          type: string
+          format: uri
+        token_endpoint:
+          type: string
+          format: uri
+        userinfo_endpoint:
+          type: string
+          format: uri
+        jwks_uri:
+          type: string
+          format: uri
+        response_types_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        response_modes_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        grant_types_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        subject_types_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        id_token_signing_alg_values_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        token_endpoint_auth_methods_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        code_challenge_methods_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        scopes_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+        claims_supported:
+          type: array
+          items:
+            type: string
+          minItems: 1
+    BackendType:
+      type: string
+      enum:
+      - docker
+      description: Fixed Docker runtime for the initial release.
+    DesiredState:
+      type: string
+      enum:
+      - RUNNING
+      - STOPPED
+      - DELETED
+    ObservedState:
+      type: string
+      enum:
+      - CREATING
+      - STARTING
+      - RUNNING
+      - STOPPING
+      - STOPPED
+      - ERROR
+      - DELETING
+      - DELETED
+    CreateInstance:
+      type: object
+      additionalProperties: false
+      description: An empty object uses personal default, then organization default. Explicit model must be an owned connection
+        or the organization model. Invalid selection/default blocks acceptance; no silent fallback. Template overrides
+        still equal approved defaults. spec_id selects an enabled approved CPU/memory/storage tuple; absent uses the organization default. Binding is frozen once per idempotency receipt. Portal selects a provider account and resolves its default model; DSH may switch among eligible models in that account. An optional name is part of the same idempotency digest.
+      properties:
+        organization_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        name:
+          type: string
+          pattern: '^[\p{L}\p{N}_-]{1,32}$'
+        backend_type:
+          $ref: '#/components/schemas/BackendType'
+        template_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        spec_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        autostart:
+          type: boolean
+          default: true
+          enum:
+          - true
+          description: One-click creation always starts the instance.
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 1
+    AcceptedOperation:
+      type: object
+      additionalProperties: false
+      required:
+      - instance_id
+      - operation_id
+      - state
+      properties:
+        instance_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        operation_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        state:
+          $ref: '#/components/schemas/ObservedState'
+    Instance:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - org_id
+      - owner_id
+      - name
+      - backend_type
+      - workspace_id
+      - storage_asset_id
+      - storage
+      - desired_state
+      - observed_state
+      - version
+      - template_version
+      - model_configuration_id
+      - model_configuration_version
+      - model_display_name
+      - model_provider_name
+      - config_snapshot
+      - health
+      - ready
+      - can_enter
+      - allowed_actions
+      - active_operation_id
+      - access_host
+      - created_at
+      - updated_at
+      - deleted_at
+      - retention_until
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        org_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        owner_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        name:
+          type: string
+          pattern: '^[\p{L}\p{N}_-]{1,32}$'
+        backend_type:
+          $ref: '#/components/schemas/BackendType'
+        workspace_id:
+          description: Embedded Workspace UUID.
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        storage_asset_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        storage:
+          type: object
+          additionalProperties: false
+          required:
+          - asset_id
+          - status
+          - capacity_bytes
+          - retention_until
+          properties:
+            asset_id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            status:
+              type: string
+              enum:
+              - PREPARING
+              - READY
+              - RETAINED
+              - RESTORING
+              - RECLAIM_PENDING
+              - DELETED
+            capacity_bytes:
+              type: integer
+              format: int64
+              minimum: 1
+            retention_until:
+              type: string
+              format: date-time
+              nullable: true
+          nullable: true
+        desired_state:
+          $ref: '#/components/schemas/DesiredState'
+        observed_state:
+          $ref: '#/components/schemas/ObservedState'
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 1
+        model_display_name:
+          type: string
+          readOnly: true
+          description: Upstream model name from the instance's exact frozen owner-private version, or the original organization model name. Empty if unavailable; never an internal route alias.
+        model_provider_name:
+          type: string
+          readOnly: true
+          description: Human-readable provider name; empty if unavailable.
+        config_snapshot:
+          $ref: '#/components/schemas/ConfigurationSnapshot'
+        health:
+          $ref: '#/components/schemas/InstanceHealth'
+        ready:
+          type: boolean
+        can_enter:
+          type: boolean
+        allowed_actions:
+          type: array
+          items:
+            type: string
+            enum:
+            - start
+            - stop
+            - delete
+            - configure
+            - access
+            - retry
+        active_operation_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        latest_operation_id:
+          type: string
+          format: uuid
+          nullable: true
+        access_host:
+          type: string
+          format: hostname
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        deleted_at:
+          type: string
+          format: date-time
+          nullable: true
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+      description: Authorization/allowed_actions/can_enter computed for current caller. RUNNING alone does not imply ready.
+        Native cookies, secrets and internal IPs never returned.
+    Operation:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - instance_id
+      - type
+      - status
+      - stage
+      - retry_of
+      - build_id
+      - trace_id
+      - error
+      - retry_allowed
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        instance_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        type:
+          type: string
+          enum:
+          - CREATE
+          - START
+          - STOP
+          - DELETE
+          - CONFIGURE
+        status:
+          type: string
+          enum:
+          - ACCEPTED
+          - RUNNING
+          - UNCERTAIN
+          - SUCCEEDED
+          - FAILED
+        stage:
+          type: string
+          enum:
+          - QUEUED
+          - PREPARING_STORAGE
+          - CREATING_WORKSPACE
+          - BUILDING
+          - CONFIGURING
+          - CHECKING
+          - REVOKING_ACCESS
+          - STOPPING
+          - DELETING
+          - RECONCILING
+          - COMPLETE
+        retry_of:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        build_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        trace_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        error:
+          type: object
+          additionalProperties: false
+          required:
+          - code
+          - message
+          - request_id
+          properties:
+            code:
+              type: string
+              enum:
+              - UNAUTHENTICATED
+              - FORBIDDEN
+              - CSRF_INVALID
+              - NOT_FOUND
+              - DEFAULTS_NOT_CONFIGURED
+              - STATE_CONFLICT
+              - VERSION_CONFLICT
+              - NAME_CONFLICT
+              - IDEMPOTENCY_CONFLICT
+              - INVALID_SPEC
+              - INVALID_CURSOR
+              - CONFIGURATION_INVALID
+              - STORAGE_MISSING
+              - PAYLOAD_TOO_LARGE
+              - QUOTA_EXCEEDED
+              - RATE_LIMITED
+              - PROBE_BUDGET_EXCEEDED
+              - WORKSPACE_UNAVAILABLE
+              - NATIVE_AUTH_FAILED
+              - DEPENDENCY_UNAVAILABLE
+              - MAINTENANCE
+              - OPERATION_UNCERTAIN
+              - INTERNAL_ERROR
+              - IDENTITY_INVALID
+              - IDENTITY_CONFLICT
+              - ROLE_IN_USE
+              - BUILTIN_ROLE
+              - USER_HAS_ASSETS
+              - LAST_ADMIN_REQUIRED
+              - SELF_CHANGE_FORBIDDEN
+              - LOCAL_IDENTITY_UNAVAILABLE
+              - IDENTITY_UNAVAILABLE
+              - METHOD_NOT_ALLOWED
+            message:
+              type: string
+              maxLength: 512
+            request_id:
+              type: string
+              maxLength: 128
+            details:
+              type: object
+              additionalProperties: false
+              properties:
+                instance_id:
+                  type: string
+                  format: uuid
+                  pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                operation_id:
+                  type: string
+                  format: uuid
+                  pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+                field:
+                  type: string
+                  maxLength: 128
+                current_version:
+                  type: integer
+                  format: int64
+                  minimum: 0
+                retry_after_seconds:
+                  type: integer
+                  format: int64
+                  minimum: 0
+          nullable: true
+        retry_allowed:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    CurrentUser:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - memberships
+      - csrf_token
+      - session_expires_at
+      - permissions
+      - auth_generation
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        memberships:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - org_id
+            - role
+            - status
+            - role_id
+            - role_name
+            properties:
+              org_id:
+                type: string
+                format: uuid
+                pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+              role:
+                type: string
+                pattern: ^(ADMIN|MEMBER|[a-z][a-z0-9_]{2,31})$
+              status:
+                type: string
+                enum:
+                - ACTIVE
+                - DISABLED
+              role_id:
+                type: string
+                format: uuid
+                pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+              role_name:
+                type: string
+                maxLength: 64
+          minItems: 1
+          maxItems: 1
+        csrf_token:
+          type: string
+          minLength: 32
+          maxLength: 128
+        session_expires_at:
+          type: string
+          format: date-time
+        permissions:
+          type: array
+          uniqueItems: true
+          maxItems: 25
+          items:
+            type: string
+            enum:
+            - users:read
+            - users:manage
+            - roles:read
+            - roles:manage
+            - instances:read
+            - instances:create
+            - instances:start
+            - instances:stop
+            - instances:release-storage
+            - instances:delete
+            - instances:configure
+            - instances:access
+            - instances:retry
+            - configuration:read
+            - model:write
+            - model:validate
+            - model:revoke
+            - defaults:write
+            - audit:read
+            - audit:organization
+            - personal-model:read
+            - personal-model:write
+            - personal-model:validate
+            - personal-model:revoke
+            - models:catalog:manage
+        auth_generation:
+          type: integer
+          format: int64
+          minimum: 1
+    Template:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - backend_type
+      - template_version
+      - image_digest
+      - spec
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        name:
+          type: string
+          minLength: 1
+          maxLength: 128
+        backend_type:
+          $ref: '#/components/schemas/BackendType'
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        image_digest:
+          type: string
+          pattern: ^sha256:[a-f0-9]{64}$
+        spec:
+          $ref: '#/components/schemas/ResourceSpec'
+    OperationLog:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - org_id
+      - actor_id
+      - action
+      - resource_id
+      - outcome
+      - trace_id
+      - timestamp
+      - owner_id
+      - actor_name
+      - resource_type
+      - resource_name
+      - details
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        org_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        actor_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        action:
+          type: string
+          maxLength: 128
+        resource_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        outcome:
+          type: string
+          enum:
+          - ACCEPTED
+          - SUCCEEDED
+          - FAILED
+          - DENIED
+        trace_id:
+          type: string
+          maxLength: 128
+        timestamp:
+          type: string
+          format: date-time
+        owner_id:
+          type: string
+          format: uuid
+          nullable: true
+        actor_name:
+          type: string
+          description: Current operator display name or contact email; empty when unavailable or system initiated.
+        resource_name:
+          type: string
+          description: Current object display name within the authorized organization; empty when unavailable.
+        resource_type:
+          type: string
+          enum: [user, role, instance, provider_account, model, session, storage, backup, runtime, resource]
+        details:
+          $ref: '#/components/schemas/OperationLogDetails'
+    OperationLogDetails:
+      type: object
+      additionalProperties: false
+      description: Allowlisted metadata only. Credentials, ciphertext, request bodies and arbitrary maintenance reports are omitted. Missing historical values are not reconstructed.
+      properties:
+        operation_id:
+          type: string
+          format: uuid
+        retry_of:
+          type: string
+          format: uuid
+        instance_id:
+          type: string
+          format: uuid
+        source_asset_id:
+          type: string
+          format: uuid
+        target_asset_id:
+          type: string
+          format: uuid
+        set_id:
+          type: string
+          format: uuid
+        template_version:
+          type: string
+          format: uuid
+        previous_template_version:
+          type: string
+          format: uuid
+        reason_code:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        before_status:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        status:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        identity_source:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        role_code:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        before_role:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        operator_ref:
+          type: string
+          maxLength: 128
+          pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        schema_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        previous_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        configuration_version:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        bytes:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        asset_count:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        compute_capacity_units:
+          type: integer
+          minimum: 0
+          maximum: 9007199254740991
+        previously_configured:
+          type: boolean
+        local_only:
+          type: boolean
+        permissions:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        before_permissions:
+          type: array
+          maxItems: 100
+          items:
+            type: string
+            maxLength: 128
+            pattern: ^[A-Za-z][A-Za-z0-9_.:-]{0,127}$
+        before:
+          type: object
+          additionalProperties: false
+          properties:
+            max_instances:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            cpu_millicores:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            memory_bytes:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            storage_bytes:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+        after:
+          type: object
+          additionalProperties: false
+          properties:
+            max_instances:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            cpu_millicores:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            memory_bytes:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+            storage_bytes:
+              type: integer
+              minimum: 0
+              maximum: 9007199254740991
+    Error:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - message
+      - request_id
+      properties:
+        code:
+          type: string
+          enum:
+          - UNAUTHENTICATED
+          - FORBIDDEN
+          - CSRF_INVALID
+          - NOT_FOUND
+          - DEFAULTS_NOT_CONFIGURED
+          - STATE_CONFLICT
+          - VERSION_CONFLICT
+          - NAME_CONFLICT
+          - IDEMPOTENCY_CONFLICT
+          - INVALID_SPEC
+          - INVALID_CURSOR
+          - CONFIGURATION_INVALID
+          - STORAGE_MISSING
+          - PAYLOAD_TOO_LARGE
+          - QUOTA_EXCEEDED
+          - RATE_LIMITED
+          - PROBE_BUDGET_EXCEEDED
+          - WORKSPACE_UNAVAILABLE
+          - NATIVE_AUTH_FAILED
+          - DEPENDENCY_UNAVAILABLE
+          - MAINTENANCE
+          - OPERATION_UNCERTAIN
+          - INTERNAL_ERROR
+        message:
+          type: string
+          maxLength: 512
+        request_id:
+          type: string
+          maxLength: 128
+        details:
+          type: object
+          additionalProperties: false
+          properties:
+            instance_id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            operation_id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            field:
+              type: string
+              maxLength: 128
+            current_version:
+              type: integer
+              format: int64
+              minimum: 0
+            retry_after_seconds:
+              type: integer
+              format: int64
+              minimum: 0
+    HealthCheck:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - checked_at
+      - expires_at
+      - reason_code
+      properties:
+        status:
+          type: string
+          enum:
+          - UNKNOWN
+          - CHECKING
+          - HEALTHY
+          - UNHEALTHY
+        checked_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        reason_code:
+          type: string
+          maxLength: 128
+    InstanceHealth:
+      type: object
+      additionalProperties: false
+      required:
+      - application
+      - storage
+      - configuration
+      - access
+      - model
+      properties:
+        application:
+          $ref: '#/components/schemas/HealthCheck'
+        storage:
+          $ref: '#/components/schemas/HealthCheck'
+        configuration:
+          $ref: '#/components/schemas/HealthCheck'
+        access:
+          $ref: '#/components/schemas/HealthCheck'
+        model:
+          $ref: '#/components/schemas/HealthCheck'
+    PlatformChecks:
+      type: object
+      additionalProperties: false
+      required:
+      - ready
+      - checks
+      properties:
+        ready:
+          type: boolean
+        checks:
+          $ref: '#/components/schemas/Preflight/properties/checks'
+    Preflight:
+      type: object
+      additionalProperties: false
+      required:
+      - can_create
+      - checks
+      properties:
+        quota:
+          $ref: '#/components/schemas/CreationResourceQuota'
+        can_create:
+          type: boolean
+        checks:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - name
+            - health
+            properties:
+              name:
+                type: string
+                maxLength: 128
+              health:
+                $ref: '#/components/schemas/HealthCheck'
+        approved_models:
+          type: array
+          description: Administrator-only deployment allowlist for first configuration; omitted for members.
+          readOnly: true
+          maxItems: 100
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+        approved_endpoints:
+          type: array
+          description: Administrator-only approved HTTPS base endpoints; omitted for members.
+          readOnly: true
+          maxItems: 16
+          items:
+            type: string
+            format: uri
+            maxLength: 2048
+        approved_connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/ApprovedConnection'
+          maxItems: 8
+    CreationResourceQuota:
+      type: object
+      additionalProperties: false
+      description: Read-only quota preview; omitted if defaults or quotas are not initialized. Available is the nonnegative minimum of personal and organization remaining commitments. This observation does not reserve resources or replace admission checks.
+      required:
+      - available
+      - required
+      - concurrent_creates_available
+      properties:
+        available:
+          $ref: '#/components/schemas/UserResourceLimits'
+        required:
+          $ref: '#/components/schemas/UserResourceLimits'
+        concurrent_creates_available:
+          type: integer
+          format: int64
+          minimum: 0
+    ModelConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - version
+      - provider
+      - endpoint
+      - protocol
+      - model
+      - status
+      - credential_configured
+      - validation
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        provider:
+          type: string
+          enum:
+          - deepseek-official
+          - platform-models
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 2048
+        protocol:
+          type: string
+          enum:
+          - deepseek-messages
+          - anthropic-messages
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+        status:
+          type: string
+          enum:
+          - UNVALIDATED
+          - VALID
+          - INVALID
+          - REVOKED
+        credential_configured:
+          type: boolean
+        validation:
+          $ref: '#/components/schemas/HealthCheck'
+        manifest:
+          $ref: '#/components/schemas/ModelManifest'
+      allOf:
+      - oneOf:
+        - properties:
+            provider:
+              type: string
+              enum:
+              - deepseek-official
+            protocol:
+              type: string
+              enum:
+              - deepseek-messages
+        - properties:
+            provider:
+              type: string
+              enum:
+              - platform-models
+            protocol:
+              type: string
+              enum:
+              - anthropic-messages
+          required:
+          - manifest
+    ModelConfigurationInput:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - endpoint
+      - protocol
+      - model
+      - expected_version
+      properties:
+        provider:
+          type: string
+          enum:
+          - deepseek-official
+          - platform-models
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 2048
+        protocol:
+          type: string
+          enum:
+          - deepseek-messages
+          - anthropic-messages
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+        api_key:
+          type: string
+          format: password
+          writeOnly: true
+          minLength: 1
+          maxLength: 4096
+          pattern: ^[\x21-\x7e]+$
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+      oneOf:
+      - properties:
+          expected_version:
+            type: integer
+            enum:
+            - 0
+        required:
+        - api_key
+      - properties:
+          expected_version:
+            type: integer
+            minimum: 1
+      allOf:
+      - oneOf:
+        - properties:
+            provider:
+              type: string
+              enum:
+              - deepseek-official
+            protocol:
+              type: string
+              enum:
+              - deepseek-messages
+        - properties:
+            provider:
+              type: string
+              enum:
+              - platform-models
+            protocol:
+              type: string
+              enum:
+              - anthropic-messages
+    OrganizationDefaults:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - template_id
+      - template_version
+      - spec_id
+      - model_configuration_id
+      - model_configuration_version
+      - spec
+      - retention_days
+      - max_user_instances
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        template_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        spec_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_id:
+          type: string
+          description: Legacy organization model ID; empty for runtime-only defaults.
+          pattern: ^$|^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Zero when runtime defaults have no organization model.
+        spec:
+          $ref: '#/components/schemas/ResourceSpec'
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+        max_user_instances:
+          type: integer
+          minimum: 1
+    ApplyConfiguration:
+      type: object
+      additionalProperties: false
+      required:
+      - model_configuration_id
+      - model_configuration_version
+      - expected_instance_version
+      properties:
+        model_configuration_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_instance_version:
+          type: integer
+          format: int64
+          minimum: 1
+    ConfigurationVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+    ResourceSpec:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - cpu_millicores
+      - memory_bytes
+      - storage_bytes
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        cpu_millicores:
+          type: integer
+          format: int64
+          minimum: 1
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        storage_bytes:
+          type: integer
+          format: int64
+          minimum: 1073741824
+          maximum: 107374182400
+          multipleOf: 1073741824
+          description: Frozen integer-GiB capacity (1-100 GiB); must exist in the approved catalog. Existing disks are never resized by defaults changes.
+    ConfigurationSnapshot:
+      type: object
+      additionalProperties: false
+      required:
+      - defaults_version
+      - template_id
+      - template_version
+      - image_digest
+      - spec
+      - model_configuration_id
+      - model_configuration_version
+      - provider
+      - protocol
+      - model
+      properties:
+        defaults_version:
+          type: integer
+          format: int64
+          minimum: 1
+        template_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        image_digest:
+          type: string
+          pattern: ^sha256:[a-f0-9]{64}$
+        spec:
+          $ref: '#/components/schemas/ResourceSpec'
+        model_configuration_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 1
+        provider:
+          type: string
+          enum:
+          - deepseek-official
+          - platform-models
+        protocol:
+          type: string
+          enum:
+          - deepseek-messages
+          - anthropic-messages
+        model:
+          type: string
+          minLength: 1
+          maxLength: 128
+        model_approval_digest:
+          type: string
+          pattern: ^sha256:[a-f0-9]{64}$
+      allOf:
+      - oneOf:
+        - properties:
+            provider:
+              type: string
+              enum:
+              - deepseek-official
+            protocol:
+              type: string
+              enum:
+              - deepseek-messages
+        - properties:
+            provider:
+              type: string
+              enum:
+              - platform-models
+            protocol:
+              type: string
+              enum:
+              - anthropic-messages
+          required:
+          - model_approval_digest
+    StorageSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - asset_id
+      - status
+      - capacity_bytes
+      - retention_until
+      properties:
+        asset_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        status:
+          type: string
+          enum:
+          - PREPARING
+          - READY
+          - RETAINED
+          - RESTORING
+          - RECLAIM_PENDING
+          - DELETED
+        capacity_bytes:
+          type: integer
+          format: int64
+          minimum: 1
+        retention_until:
+          type: string
+          format: date-time
+          nullable: true
+    OrganizationDefaultsInput:
+      type: object
+      additionalProperties: false
+      required:
+      - version
+      - template_id
+      - template_version
+      - spec_id
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        template_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        template_version:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        spec_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        model_configuration_version:
+          type: integer
+          format: int64
+          minimum: 1
+        retention_days:
+          type: integer
+          minimum: 1
+          maximum: 365
+          description: Omitted on update preserves current value; initialization defaults to 7 days. Applies to future deletions, never shortens retained assets.
+        max_user_instances:
+          type: integer
+          minimum: 1
+          description: Omitted preserves organization default. Cannot exceed organization max_instances or fall below inherited committed instance count.
+    AccessRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - challenge_id
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    AccessChallenge:
+      type: object
+      additionalProperties: false
+      required:
+      - challenge_id
+      - expires_at
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        expires_at:
+          type: string
+          format: date-time
+    AccessHandoff:
+      type: object
+      additionalProperties: false
+      required:
+      - handoff_url
+      - ticket
+      - challenge_id
+      - expires_at
+      properties:
+        handoff_url:
+          type: string
+          format: uri
+          maxLength: 2048
+        ticket:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: ^[A-Za-z0-9_-]+$
+        challenge_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        expires_at:
+          type: string
+          format: date-time
+    HandoffForm:
+      type: object
+      additionalProperties: false
+      required:
+      - ticket
+      - challenge_id
+      properties:
+        ticket:
+          type: string
+          minLength: 43
+          maxLength: 43
+          pattern: ^[A-Za-z0-9_-]+$
+        challenge_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    InstanceList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total records matching the authorized filters, before page or cursor slicing. Recomputed per request.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Instance'
+        next_cursor:
+          type: string
+          nullable: true
+    OperationLogList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total records matching the authorized filters, before page or cursor slicing. Recomputed per request.
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperationLog'
+        next_cursor:
+          type: string
+          nullable: true
+    ManagedRole:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - code
+      - name
+      - description
+      - builtin
+      - version
+      - permissions
+      - user_count
+      - created_at
+      - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        code:
+          type: string
+          pattern: ^(ADMIN|MEMBER|[a-z][a-z0-9_]{2,31})$
+        name:
+          type: string
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 500
+        builtin:
+          type: boolean
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        permissions:
+          type: array
+          uniqueItems: true
+          maxItems: 25
+          items:
+            type: string
+            enum:
+            - users:read
+            - users:manage
+            - roles:read
+            - roles:manage
+            - instances:read
+            - instances:create
+            - instances:start
+            - instances:stop
+            - instances:release-storage
+            - instances:delete
+            - instances:configure
+            - instances:access
+            - instances:retry
+            - configuration:read
+            - model:write
+            - model:validate
+            - model:revoke
+            - defaults:write
+            - audit:read
+            - audit:organization
+            - personal-model:read
+            - personal-model:write
+            - personal-model:validate
+            - personal-model:revoke
+            - models:catalog:manage
+        user_count:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ManagedRoleInput:
+      type: object
+      additionalProperties: false
+      required:
+      - code
+      - name
+      - permissions
+      - expected_version
+      properties:
+        code:
+          type: string
+          pattern: ^[a-z][a-z0-9_]{2,31}$
+        name:
+          type: string
+          maxLength: 64
+          minLength: 1
+        description:
+          type: string
+          maxLength: 500
+        permissions:
+          type: array
+          uniqueItems: true
+          maxItems: 25
+          items:
+            type: string
+            enum:
+            - users:read
+            - users:manage
+            - roles:read
+            - roles:manage
+            - instances:read
+            - instances:create
+            - instances:start
+            - instances:stop
+            - instances:release-storage
+            - instances:delete
+            - instances:configure
+            - instances:access
+            - instances:retry
+            - configuration:read
+            - model:write
+            - model:validate
+            - model:revoke
+            - defaults:write
+            - audit:read
+            - audit:organization
+            - personal-model:read
+            - personal-model:write
+            - personal-model:validate
+            - personal-model:revoke
+            - models:catalog:manage
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+    UserResourceLimits:
+      type: object
+      additionalProperties: false
+      required:
+      - max_instances
+      - cpu_millicores
+      - memory_bytes
+      - storage_bytes
+      properties:
+        max_instances:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Count of committed instances; all may run within CPU and memory quotas
+        cpu_millicores:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: CPU in millicores
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Memory in bytes
+        storage_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 9007199254740991
+          description: Persistent storage in bytes, including retained volumes
+    UserResourceQuota:
+      type: object
+      additionalProperties: false
+      required:
+      - owner_id
+      - version
+      - configured
+      - limits
+      - usage
+      - organization_limits
+      properties:
+        owner_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 0
+        configured:
+          type: boolean
+        limits:
+          $ref: '#/components/schemas/UserResourceLimits'
+        usage:
+          $ref: '#/components/schemas/UserResourceLimits'
+        organization_limits:
+          $ref: '#/components/schemas/UserResourceLimits'
+    UserResourceQuotaInput:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - limits
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Zero for the first individual assignment; otherwise the last observed quota version.
+        limits:
+          $ref: '#/components/schemas/UserResourceLimits'
+    ManagedUser:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - display_name
+      - email
+      - login_email
+      - identity_source
+      - issuer
+      - subject
+      - workspace_owner_id
+      - status
+      - role_id
+      - role_code
+      - role_name
+      - version
+      - created_at
+      - updated_at
+      - last_login_at
+      - provisioning
+      - password_reset
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        display_name:
+          type: string
+          maxLength: 100
+        email:
+          type: string
+          maxLength: 254
+        login_email:
+          type: string
+          maxLength: 254
+        identity_source:
+          type: string
+          enum:
+          - oidc
+          - local
+        issuer:
+          type: string
+          maxLength: 2048
+        subject:
+          type: string
+          maxLength: 1024
+        workspace_owner_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        status:
+          type: string
+          enum:
+          - PENDING_IDENTITY
+          - ACTIVE
+          - DISABLED
+          - ARCHIVED
+        role_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        role_code:
+          type: string
+          maxLength: 32
+        role_name:
+          type: string
+          maxLength: 64
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        last_login_at:
+          type: string
+          format: date-time
+          nullable: true
+        provisioning:
+          type: object
+          additionalProperties: false
+          required:
+          - id
+          - status
+          - reason_code
+          properties:
+            id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            status:
+              type: string
+              enum:
+              - PENDING
+              - SUCCEEDED
+            reason_code:
+              type: string
+              maxLength: 64
+          nullable: true
+        password_reset:
+          type: object
+          additionalProperties: false
+          required:
+          - id
+          - status
+          - reason_code
+          properties:
+            id:
+              type: string
+              format: uuid
+              pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+            status:
+              type: string
+              enum:
+              - PENDING
+              - SUCCEEDED
+            reason_code:
+              type: string
+              maxLength: 64
+          nullable: true
+    ManagedUserCreate:
+      type: object
+      additionalProperties: false
+      required:
+      - display_name
+      - email
+      - identity_source
+      - role_id
+      - initial_password
+      properties:
+        display_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+        email:
+          type: string
+          maxLength: 254
+          format: email
+        identity_source:
+          type: string
+          enum:
+          - local
+        subject:
+          type: string
+          maxLength: 0
+        role_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        initial_password:
+          type: string
+          maxLength: 72
+          minLength: 12
+          writeOnly: true
+          description: 12–72 UTF-8 bytes, no control characters. Never returned or persisted as plaintext. A pending reset
+            stores only an encrypted bcrypt provider hash, which is cleared after confirmation.
+      description: Embedded platform account creation requires local and initial_password; subject must be omitted or empty.
+        Issuer, subject and Workspace Owner are generated by the server.
+    ManagedUserEdit:
+      type: object
+      additionalProperties: false
+      required:
+      - display_name
+      - email
+      - expected_version
+      properties:
+        display_name:
+          type: string
+          maxLength: 100
+          minLength: 1
+        email:
+          type: string
+          maxLength: 254
+          format: email
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+    ManagedUserDelete:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - confirmed_name
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        confirmed_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Exact current display name, or full user ID if the display name is empty.
+    GovernanceVersion:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+    ManagedUserRole:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - role_id
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        role_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+    ManagedUserPassword:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - password
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        password:
+          type: string
+          maxLength: 72
+          minLength: 12
+          writeOnly: true
+          description: 12–72 UTF-8 bytes, no control characters. Never returned or persisted as plaintext. A pending reset
+            stores only an encrypted bcrypt provider hash, which is cleared after confirmation.
+    PermissionDefinition:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - assignable
+      - dependencies
+      properties:
+        id:
+          type: string
+          enum:
+          - users:read
+          - users:manage
+          - roles:read
+          - roles:manage
+          - instances:read
+          - instances:create
+          - instances:start
+          - instances:stop
+          - instances:release-storage
+          - instances:delete
+          - instances:configure
+          - instances:access
+          - instances:retry
+          - configuration:read
+          - model:write
+          - model:validate
+          - model:revoke
+          - defaults:write
+          - audit:read
+          - audit:organization
+          - personal-model:read
+          - personal-model:write
+          - personal-model:validate
+          - personal-model:revoke
+          - models:catalog:manage
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 300
+          description: Concise capability, scope and important effects shown in role details and editing.
+        assignable:
+          type: boolean
+        dependencies:
+          type: array
+          uniqueItems: true
+          maxItems: 25
+          items:
+            type: string
+            enum:
+            - users:read
+            - users:manage
+            - roles:read
+            - roles:manage
+            - instances:read
+            - instances:create
+            - instances:start
+            - instances:stop
+            - instances:release-storage
+            - instances:delete
+            - instances:configure
+            - instances:access
+            - instances:retry
+            - configuration:read
+            - model:write
+            - model:validate
+            - model:revoke
+            - defaults:write
+            - audit:read
+            - audit:organization
+            - personal-model:read
+            - personal-model:write
+            - personal-model:validate
+            - personal-model:revoke
+            - models:catalog:manage
+    ManagedRolePage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      - local_accounts
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total records matching the authorized filters, before page or cursor slicing. Recomputed per request.
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ManagedRole'
+        next_cursor:
+          type: string
+          nullable: true
+        local_accounts:
+          type: boolean
+    ManagedUserPage:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - next_cursor
+      - local_accounts
+      properties:
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total records matching the authorized filters, before page or cursor slicing. Recomputed per request.
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ManagedUser'
+        next_cursor:
+          type: string
+          nullable: true
+        local_accounts:
+          type: boolean
+    PermissionCatalog:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PermissionDefinition'
+    ModelManifest:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        response_models:
+          type: array
+          items:
+            type: string
+            minLength: 1
+            maxLength: 128
+          maxItems: 16
+        revision:
+          type: string
+          minLength: 1
+          maxLength: 128
+        digest:
+          type: string
+          pattern: ^sha256:[a-f0-9]{64}$
+        context_window:
+          type: integer
+          format: int64
+          minimum: 1024
+          maximum: 10000000
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 128
+          maximum: 1000000
+        streaming:
+          type: boolean
+        tool_use:
+          type: boolean
+      required:
+      - id
+      - response_models
+      - revision
+      - digest
+      - context_window
+      - max_output_tokens
+      - streaming
+      - tool_use
+    ApprovedConnection:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+          enum:
+          - platform-models
+        protocol:
+          type: string
+          enum:
+          - anthropic-messages
+        endpoint:
+          type: string
+          format: uri
+          maxLength: 2048
+        models:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelManifest'
+          maxItems: 100
+      required:
+      - provider
+      - protocol
+      - endpoint
+      - models
+    ModelDirectory:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ModelManifest'
+          maxItems: 100
+        health:
+          $ref: '#/components/schemas/HealthCheck'
+      required:
+      - version
+      - items
+      - health
+    ModelProvider:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          maxLength: 32
+        name:
+          type: string
+          maxLength: 64
+        api_bases:
+          type: array
+          items:
+            type: string
+            format: uri
+          maxItems: 16
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - id
+      - name
+      - api_bases
+      - version
+    ModelCatalogEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        provider:
+          type: string
+          maxLength: 32
+        model:
+          type: string
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 100
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        response_models:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          maxItems: 16
+        context_window:
+          type: integer
+          format: int64
+          minimum: 1024
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 128
+        streaming:
+          type: boolean
+        tool_use:
+          type: boolean
+      required:
+      - id
+      - provider
+      - model
+      - name
+      - api_base
+      - version
+      - response_models
+      - context_window
+      - max_output_tokens
+      - streaming
+      - tool_use
+    PersonalModel:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        name:
+          type: string
+          maxLength: 100
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        catalog_entry_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        provider:
+          type: string
+          maxLength: 32
+        model:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        credential_configured:
+          type: boolean
+        sync_status:
+          type: string
+          enum:
+          - PENDING_SYNC
+          - SYNCING
+          - UNCERTAIN
+          - SYNCED
+          - FAILED
+          - REVOKING
+          - REVOKED
+        operation_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        operation_status:
+          type: string
+          enum:
+          - PENDING
+          - RUNNING
+          - UNCERTAIN
+          - SUCCEEDED
+          - FAILED
+        reason_code:
+          type: string
+          maxLength: 128
+        validation:
+          $ref: '#/components/schemas/HealthCheck'
+        gateway_check:
+          description: 路由及受限虚拟密钥的独立核对结果，最多有效60秒。与模型调用校验分开。
+          $ref: '#/components/schemas/HealthCheck'
+        created_at:
+          type: string
+          format: date-time
+      required:
+      - id
+      - name
+      - version
+      - catalog_entry_id
+      - provider
+      - model
+      - enabled
+      - credential_configured
+      - sync_status
+      - operation_id
+      - operation_status
+      - reason_code
+      - validation
+      - gateway_check
+      - created_at
+    ModelDiscoveryInput:
+      type: object
+      additionalProperties: false
+      required:
+      - api_base
+      - api_key
+      properties:
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        api_key:
+          type: string
+          maxLength: 4096
+          format: password
+          writeOnly: true
+          description: Empty only for a custom service without authentication. Used for directory read only; never returned
+            or persisted by synchronization.
+    ModelSelection:
+      type: object
+      additionalProperties: false
+      required:
+      - provider
+      - api_base
+      - model
+      properties:
+        provider:
+          type: string
+          maxLength: 32
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        model:
+          type: string
+          pattern: ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$
+        response_models:
+          type: array
+          maxItems: 16
+          uniqueItems: true
+          items:
+            type: string
+            maxLength: 128
+        context_window:
+          type: integer
+          minimum: 1024
+          maximum: 10000000
+          default: 32768
+        max_output_tokens:
+          type: integer
+          minimum: 128
+          maximum: 1000000
+          default: 4096
+    PersonalModelInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        catalog_entry_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        api_key:
+          type: string
+          minLength: 0
+          maxLength: 4096
+          pattern: ^[\x21-\x7e]*$
+          format: password
+          writeOnly: true
+          description: Write-only. Empty is accepted only for custom no-auth services. Omit on update to retain a matching
+            active credential; changing provider/root or restoring a revoked credential requires a replacement.
+        selection:
+          $ref: '#/components/schemas/ModelSelection'
+      required:
+      - name
+      - api_key
+      oneOf:
+      - required:
+        - catalog_entry_id
+        not:
+          required:
+          - selection
+      - required:
+        - selection
+        not:
+          required:
+          - catalog_entry_id
+    PersonalDefault:
+      type: object
+      additionalProperties: false
+      properties:
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        connection_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+          nullable: true
+        connection_version:
+          type: integer
+          format: int64
+          minimum: 1
+          nullable: true
+      required:
+      - version
+      - connection_id
+      - connection_version
+    PersonalDefaultInput:
+      type: object
+      additionalProperties: false
+      properties:
+        connection_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        connection_version:
+          type: integer
+          format: int64
+          minimum: 1
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - connection_id
+      - connection_version
+      - expected_version
+    ExpectedPersonalDefault:
+      type: object
+      additionalProperties: false
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+      required:
+      - expected_version
+    PersonalModelPage:
+      type: object
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PersonalModel'
+          maxItems: 20
+        next_cursor:
+          type: string
+          nullable: true
+          description: Always null; live connections are limited to 20 per owner.
+      required:
+      - items
+      - next_cursor
+    PersonalModelUpdate:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        catalog_entry_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        api_key:
+          type: string
+          description: Write-only. Empty is accepted only for custom no-auth services. Omit on update to retain a matching
+            active credential; changing provider/root or restoring a revoked credential requires a replacement.
+          minLength: 0
+          maxLength: 4096
+          pattern: ^[\x21-\x7e]*$
+          format: password
+          writeOnly: true
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+        selection:
+          $ref: '#/components/schemas/ModelSelection'
+      required:
+      - name
+      - expected_version
+      oneOf:
+      - required:
+        - catalog_entry_id
+        not:
+          required:
+          - selection
+      - required:
+        - selection
+        not:
+          required:
+          - catalog_entry_id
+    ManagedCatalogEntry:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        provider:
+          type: string
+          maxLength: 32
+        model:
+          type: string
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 100
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        response_models:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          maxItems: 16
+        context_window:
+          type: integer
+          format: int64
+          minimum: 1024
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 128
+        streaming:
+          type: boolean
+        tool_use:
+          type: boolean
+        enabled:
+          type: boolean
+      required:
+      - id
+      - provider
+      - model
+      - name
+      - api_base
+      - version
+      - response_models
+      - context_window
+      - max_output_tokens
+      - streaming
+      - tool_use
+      - enabled
+    ModelCatalogInput:
+      type: object
+      additionalProperties: false
+      properties:
+        provider:
+          type: string
+          maxLength: 32
+        model:
+          type: string
+          maxLength: 128
+        name:
+          type: string
+          maxLength: 100
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        response_models:
+          type: array
+          items:
+            type: string
+            maxLength: 128
+          maxItems: 16
+        context_window:
+          type: integer
+          format: int64
+          minimum: 1024
+        max_output_tokens:
+          type: integer
+          format: int64
+          minimum: 128
+        streaming:
+          type: boolean
+        tool_use:
+          type: boolean
+        enabled:
+          type: boolean
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - provider
+      - model
+      - name
+      - api_base
+      - response_models
+      - context_window
+      - max_output_tokens
+      - streaming
+      - tool_use
+      - enabled
+      - expected_version
+    ProviderAccountInput:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - provider
+      - api_base
+      - models
+      - expected_version
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        provider:
+          type: string
+          maxLength: 32
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        api_key:
+          type: string
+          maxLength: 4096
+          format: password
+          writeOnly: true
+          description: Required on create; omitted on edit to retain the saved encrypted key. Empty only for a custom no-auth
+            service.
+        models:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ModelSelection'
+        default_model:
+          type: string
+          maxLength: 128
+          description: Model name from models. On create defaults to the first selected model; on edit retains the existing account default if selected, otherwise uses the first retained model.
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 0
+    ProviderAccountModel:
+      type: object
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        name:
+          type: string
+          maxLength: 100
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        catalog_entry_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        provider:
+          type: string
+          maxLength: 32
+        model:
+          type: string
+          maxLength: 128
+        enabled:
+          type: boolean
+        credential_configured:
+          type: boolean
+        sync_status:
+          type: string
+          enum:
+          - PENDING_SYNC
+          - SYNCING
+          - UNCERTAIN
+          - SYNCED
+          - FAILED
+          - REVOKING
+          - REVOKED
+        operation_id:
+          type: string
+          format: uuid
+          pattern: ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$
+        operation_status:
+          type: string
+          enum:
+          - PENDING
+          - RUNNING
+          - UNCERTAIN
+          - SUCCEEDED
+          - FAILED
+        reason_code:
+          type: string
+          maxLength: 128
+        validation:
+          $ref: '#/components/schemas/HealthCheck'
+        gateway_check:
+          description: 路由及受限虚拟密钥的独立核对结果，最多有效60秒。与模型调用校验分开。
+          $ref: '#/components/schemas/HealthCheck'
+        created_at:
+          type: string
+          format: date-time
+        selection:
+          $ref: '#/components/schemas/ModelSelection'
+        in_use:
+          type: integer
+          format: int64
+          minimum: 0
+      required:
+      - id
+      - name
+      - version
+      - catalog_entry_id
+      - provider
+      - model
+      - enabled
+      - credential_configured
+      - sync_status
+      - operation_id
+      - operation_status
+      - reason_code
+      - validation
+      - gateway_check
+      - created_at
+      - selection
+      - in_use
+    ProviderAccount:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - provider
+      - api_base
+      - version
+      - status
+      - credential_configured
+      - models
+      - default_model_id
+      properties:
+        id: *id006
+        name:
+          type: string
+          maxLength: 100
+        provider:
+          type: string
+          maxLength: 32
+        api_base:
+          type: string
+          format: uri
+          maxLength: 2048
+        version: *id005
+        status:
+          type: string
+          enum:
+          - ACTIVE
+          - DELETING
+          - DELETED
+        credential_configured:
+          type: boolean
+        default_model_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Stable owner-private model ID belonging to this account. Resolve its current version and validate before workspace creation; never fall back to another account or organization model.
+        models:
+          type: array
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/ProviderAccountModel'
+x-delivery-scope: single-organization-docker-initial-release
+x-runtime-verification:
+- 'D0: pin upstream/Coder-source/provider/image and validate native credential adapter'
+- Local Docker persistence, model/tool and browser/WS validations have evidence in docs/testing.md; the full acceptance matrix
+  remains incomplete
