@@ -1,0 +1,15 @@
+This distribution contains code derived from Coder v2.37.4, licensed under the
+GNU Affero General Public License version 3 (AGPL-3.0-only).
+
+The combined program containing those derivatives is provided subject to
+AGPL-3.0-only. See third_party/coder/LICENSE for the complete license and
+third_party/coder/README.md for provenance and modification notices.
+
+The original MIT license in LICENSE and its copyright notice are retained for
+the original project code. They do not relicense Coder-derived portions under
+MIT or remove the AGPL obligations applicable to the combined program.
+
+When offering the modified program as a network service, provide its users
+access to the corresponding source, including modifications and the scripts
+needed to build and install it. Never include local secrets or user data in a
+source distribution.

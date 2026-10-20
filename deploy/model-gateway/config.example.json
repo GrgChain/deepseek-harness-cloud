@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "address": "10.51.0.1:14000",
+  "certificate_file": "/controlled/model-gateway/server.pem",
+  "certificate_key_file": "/controlled/model-gateway/server-key.pem",
+  "control_key_file": "/controlled/model-gateway/control-key",
+  "data_key_file": "/controlled/platform/data-key",
+  "data_key_id": "production-v1",
+  "environment": "production"
+}

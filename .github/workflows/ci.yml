@@ -1,0 +1,73 @@
+name: CI
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.2'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+      - run: make dev-init infra-up migrate
+      - run: make auth-init auth-apply
+      - run: make workspace-init
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_embedded
+      - run: make runtime-build storage-build network-build
+      - run: make runtime-test storage-test network-test workspace-test
+      - if: always()
+        run: docker compose -f deploy/local/compose.yaml down
+  foundation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.2'
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.21.0'
+          cache: npm
+          cache-dependency-path: apps/package-lock.json
+      - run: npm ci --prefix apps
+      - run: make ci
+      - run: make dev-init infra-up migrate
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_d1
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_bootstrap
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_workspace_bootstrap
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_workspace_names
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_identity
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_settings
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_instances
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_worker
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_monitor
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_probe
+      - run: docker exec hc-local-postgres-1 createdb -U hc_migrator hc_test_access
+      - run: make test-integration
+        env:
+          HC_TEST_DB_DSN_FILE: .local/migrator-dsn
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps
+      - run: make auth-init auth-apply
+      - run: make run-auth > .local/api.log 2>&1 &
+      - run: timeout 30 bash -c 'until curl --noproxy "*" -fsS http://127.0.0.1:18080/readyz > /dev/null; do sleep 1; done'
+      - name: Wait for password login recovery guard
+        run: |
+          timeout 180 bash -c 'until curl --noproxy "*" -fsS --get http://127.0.0.1:18080/oidc/authorize --data-urlencode client_id=harness-cloud --data-urlencode redirect_uri=https://127.0.0.1:42013/auth/callback --data-urlencode response_type=code --data-urlencode scope=openid --data-urlencode state=ci-readiness-state-000000000000000000000000000000 --data-urlencode nonce=ci-readiness-nonce-000000000000000000000000000000 --data-urlencode code_challenge=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA --data-urlencode code_challenge_method=S256 > /dev/null; do sleep 2; done'
+      - run: npm run test:e2e -- --workers=1
+        working-directory: apps
+        env:
+          HC_REAL_IDENTITY: 'true'
+      - if: always()
+        run: docker compose -f deploy/local/compose.yaml down

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "endpoints": [],
+  "models": [],
+  "gateways": [
+    {
+      "endpoint": "https://models.enterprise.example:14000",
+      "revision": "routes-v1",
+      "addresses": [
+        "10.50.0.10/32"
+      ],
+      "probe_retries_disabled": true,
+      "probe_fallbacks_disabled": true,
+      "models": []
+    }
+  ]
+}
