@@ -52,8 +52,8 @@ export function App() {
     ...(hasPermission(user, 'users:read') ? [{ key: '/app/users', icon: <ShieldCheck size={18} />, label: <Link to="/app/users">用户管理</Link> }] : []),
     ...(hasPermission(user, 'roles:read') ? [{ key: '/app/roles', icon: <LockKeyhole size={18} />, label: <Link to="/app/roles">角色与权限</Link> }] : []),
     ...(hasPermission(user, 'users:read') ? [{ key: '/app/quotas', icon: <Gauge size={18} />, label: <Link to="/app/quotas">资源配额</Link> }] : []),
-    ...(!user || hasPermission(user, 'configuration:read') ? [{ key: '/app/settings', icon: <Settings2 size={18} />, label: <Link to="/app/settings">平台配置</Link> }] : []),
     ...(hasPermission(user, 'audit:read') ? [{ key: '/app/audit', icon: <FileText size={18} />, label: <Link to="/app/audit">操作日志</Link> }] : []),
+    ...(!user || hasPermission(user, 'configuration:read') ? [{ key: '/app/settings', icon: <Settings2 size={18} />, label: <Link to="/app/settings">平台配置</Link> }] : []),
   ];
   const menuItems: MenuProps['items'] = [
     ...(workspaceItems.length ? [{ type: 'group' as const, label: '工作台', children: workspaceItems }] : []),
