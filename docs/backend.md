@@ -355,7 +355,7 @@ ModelSync每轮先扫描最多10个失效Owner/目录连接，以SECURITY DEFINE
 
 ## 内置身份模块
 
-`internal/identity/authorization_server.go` 实现授权参数验证、密码校验、签名及授权码交换；`provider_handler.go` 提供 `/oidc/*` 协议入口和限流；`login_page.go` 用 html/template 输出安全登录表单。`accounts.go` 管理 PostgreSQL 中的密码散列，供应只插入、不覆盖初始密码；重置只执行已提交的持久意图。`account_import.go` 提供受控初始化/迁移，日常用户治理仍由 ManagementService 和 IAM 函数处理。
+`internal/identity/authorization_server.go` 实现授权参数验证、密码校验、签名及授权码交换；`provider_handler.go` 提供 `/oidc/*` 协议入口和限流；`login_page.go` 用 html/template 输出安全登录表单。`accounts.go` 管理 PostgreSQL 中的密码散列，供应只插入、不覆盖初始密码；重置只执行已提交的持久意图。`account_import.go` 提供受控初始化/迁移，日常用户治理仍由 ManagementService 和 IAM 函数处理。迁移52按当前 `users:manage` / `roles:manage` 校验对应治理写入，显式获授权的自定义角色与内置管理员复用同一事务边界；密码重置确认另复核当前管理权限和原操作租约。用户筛选及分配使用 `ListUserRoleOptions` 的精简投影，只要求 `users:read`，完整角色和权限目录仍要求 `roles:read`。
 
 bootstrap用 `NewAuthorizationServer` 装配同源内置 issuer，再调用 `Client()` 创建BFF验证器，不对自身进行启动期HTTP发现；httpserver将公开 `/oidc/` 路由交给Provider，其余业务接口保持Portal Cookie授权。API持有签名私钥和账号散列读写权限；Worker/Gateway无账号密码表权限。Go依赖不包含独立身份服务的SDK或gRPC管理客户端。
 
@@ -485,6 +485,6 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 `services/internal/connectors` 负责个人 HTTPS 地址与平台出口例外校验、官方Go MCP SDK客户端、Owner隔离的配置与工具快照、手动调用、JSON配置迁移。迁移49新增 `mcp_connectors`、`mcp_calls` 和三项独立权限，迁移50为个人地址及目录关联增加 `endpoint_url/catalog_id`；管理员/成员默认拥有本人权限，自定义角色显式授权。凭据使用 `connector-credential` 加密上下文并纳入密钥轮换；调用意图在出站前持久提交，数据库仅保存状态、版本和请求摘要。调用前重新发现并比较完整工具定义，复核当前权限、配置、目录、启用状态和批准目标。 细节见[实施记录](connectors-implementation.md)。
 
-内置目录由 `connectors/catalog.json` 编译嵌入，版本化保存29种条目的接入元数据及厂商文档链接。`LoadPolicy` 校验可选 `catalog_id` 与目录一致；5种OAuth服务默认提供固定地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
+内置目录由 `connectors/catalog.json` 编译嵌入，版本化保存35种条目的接入元数据及厂商文档链接。`LoadPolicy` 校验可选 `catalog_id` 与目录一致；16种远程服务（其中9种OAuth）默认提供固定地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
 
 连接器迁移51增加OAuth类型和一次性加密授权事务，`oauth_http.go`负责固定服务配置、授权元数据及受限出站，`oauth.go`负责动态注册、PKCE、会话绑定、回调和令牌刷新。API契约见[API-115/116](api.md#工作台连接器req-23api-100111api-115116)，参数见[部署与复验](../deploy/connectors/README.md)，数据约束见[迁移49～51](data-model.md#工作台连接器迁移4951)。企查查五类聚合及专用远端解绑尚未实现，当前删除仅擦除本地连接凭据。

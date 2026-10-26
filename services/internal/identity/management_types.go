@@ -31,6 +31,14 @@ type RoleInput struct {
 	Permissions     []string `json:"permissions"`
 	ExpectedVersion int64    `json:"expected_version"`
 }
+
+// RoleOption exposes only the identity needed by user filters and assignment.
+// Reading permissions and other role metadata still requires roles:read.
+type RoleOption struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
 type Provisioning struct {
 	ID         string `json:"id"`
 	Status     string `json:"status"`

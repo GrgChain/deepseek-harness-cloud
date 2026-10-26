@@ -255,3 +255,9 @@ storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模
 Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使用`connector-credential`加密上下文；一次性事务的PKCE verifier与客户端信息使用`connector-oauth`上下文。两类密文均纳入主密钥轮换，state本身不持久明文保存。OAuth客户端管理员配置来自私有策略文件，不由列表API读回。
 
 当前没有企查查五类资源聚合或远端待撤销状态的专用数据结构；第6.17.2节要求的功能应随实现增加契约与迁移，不能把本段视为已实现设计。接口语义见[连接器API](api.md#工作台连接器req-23api-100111api-115116)，现有流程见[实施说明](connectors-implementation.md)。
+
+## 委派治理权限（迁移52）
+
+`000052_delegated_governance.sql` 更新既有受控函数，不修改任何角色的权限集合。`hc_iam_profile_change` 按动作检查 `users:manage` 或 `roles:manage`；`hc_iam_change` 的用户归档边界和 `hc_iam_password_reset` 的开始、重试、确认均检查当前 `users:manage`，自定义角色显式获授权后可执行对应操作。密码重置确认仍绑定已提交的操作租约，允许自重置撤销旧会话后完成确认；管理权限被撤销时保留待确认意图。
+
+组织写入串行锁、membership锁顺序、版本/幂等、审计及会话撤销保持在同一事务内；内置角色、在用角色、自改角色/自禁用及最后管理员规则仍生效。运行身份仍不能直接调用内部profile函数或任意修改角色授权表。

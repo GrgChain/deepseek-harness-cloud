@@ -18,6 +18,7 @@ type CatalogEntry struct {
 	Category     string   `json:"category"`
 	Mode         string   `json:"mode"`
 	AuthKind     string   `json:"auth_kind"`
+	DefaultURL   string   `json:"default_url,omitempty"`
 	DocURL       string   `json:"doc_url"`
 	GuideURL     string   `json:"guide_url"`
 	SetupHint    string   `json:"setup_hint"`

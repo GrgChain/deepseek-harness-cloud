@@ -142,7 +142,7 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := listed.(map[string]any)
-	if len(list["catalog"].(Catalog).Entries) != 29 || list["endpoints"].([]Endpoint)[0].CatalogID != "notion" {
+	if len(list["catalog"].(Catalog).Entries) != 35 || list["endpoints"].([]Endpoint)[0].CatalogID != "notion" {
 		t.Fatal("catalog metadata or approved binding missing")
 	}
 	// Each account can configure a public service without a platform binding.
@@ -184,6 +184,34 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 	if err = s.Delete(ctx, owner, personal.ID, Input{ExpectedVersion: personal.Version, ConfirmedName: personal.Name}, ""); err != nil {
 		t.Fatal(err)
 	}
+	t.Run("native credentials encrypt and preserve both Lexiang fields", func(t *testing.T) {
+		native := Input{Name: "乐享配置", URL: "https://mcp.lexiang-app.com/mcp", CatalogID: "tencent-lexiang", Protocol: "2025-11-25", Auth: "bearer", Credential: `{"token":"lexiang-secret","company_from":"private-company"}`, Enabled: true}
+		created, err := s.Save(ctx, owner, "", native, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, _ := json.Marshal(created)
+		if bytes.Contains(body, []byte("lexiang-secret")) || bytes.Contains(body, []byte("private-company")) {
+			t.Fatal("native credential returned to browser")
+		}
+		plain, err := cipher.Decrypt(created.envelope, s.aad(owner, created.ID))
+		if err != nil || string(plain) != native.Credential {
+			t.Fatal("native credential fields not encrypted together", err)
+		}
+		clear(plain)
+		native.Credential, native.ExpectedVersion = "", created.Version
+		updated, err := s.Save(ctx, owner, created.ID, native, "")
+		if err != nil {
+			t.Fatal("cannot retain native credentials", err)
+		}
+		native.Credential, native.ExpectedVersion = `{"token":"new-token"}`, updated.Version
+		if _, err = s.Save(ctx, owner, created.ID, native, ""); !problemIs(err, "CONNECTOR_INVALID") {
+			t.Fatal("incomplete native credentials persisted", err)
+		}
+		if err = s.Delete(ctx, owner, updated.ID, Input{ExpectedVersion: updated.Version, ConfirmedName: updated.Name}, ""); err != nil {
+			t.Fatal(err)
+		}
+	})
 	// The exact platform-approved local fixture is also usable as a personal URL.
 	input := Input{Name: "测试连接器", URL: endpoint.URL, CatalogID: "notion", Protocol: "2026-07-28", Auth: "bearer", Credential: "private-test-token", Enabled: true}
 	conn, err := s.Save(ctx, owner, "", input, "")

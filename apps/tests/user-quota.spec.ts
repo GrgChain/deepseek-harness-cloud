@@ -19,7 +19,7 @@ async function session(page: Page, permissions = admin.permissions) {
   await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
   await page.route('**/v1/me', r => r.fulfill({ json: { ...admin, permissions } }));
   await page.route('**/v1/users?*', r => r.fulfill({ json: { items: [target], next_cursor: null, local_accounts: false } }));
-  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
+  await page.route('**/v1/users/role-options?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
 }
 async function open(page: Page) {
   await page.goto('/app/quotas');

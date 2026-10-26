@@ -54,7 +54,7 @@ func filterHash(scope Scope) string {
 	return hex.EncodeToString(hash[:])
 }
 func (scope Scope) valid() bool {
-	return uuid.MatchString(scope.Subject) && uuid.MatchString(scope.Organization) && (scope.Resource == "instances" || scope.Resource == "audit-events" || scope.Resource == "users" || scope.Resource == "roles")
+	return uuid.MatchString(scope.Subject) && uuid.MatchString(scope.Organization) && (scope.Resource == "instances" || scope.Resource == "audit-events" || scope.Resource == "users" || scope.Resource == "roles" || scope.Resource == "user-role-options")
 }
 func (c *Codec) Encode(scope Scope, position Position, now time.Time) (string, error) {
 	if !scope.valid() || !uuid.MatchString(position.ID) || position.Timestamp.IsZero() || now.IsZero() {

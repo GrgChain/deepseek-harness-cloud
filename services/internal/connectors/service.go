@@ -277,6 +277,11 @@ func (s *Service) Save(ctx context.Context, p identity.Principal, id string, in 
 		}
 	}
 	defer clear(credential)
+	if in.Auth == "bearer" && nativeProvider(target.URL) == "tencent-lexiang" {
+		if _, err := parseLexiangCredential(string(credential)); err != nil {
+			return old, err
+		}
+	}
 	envelope, err := s.cipher.Encrypt(credential, s.aad(p, id))
 	if err != nil {
 		return old, err

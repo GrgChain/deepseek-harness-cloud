@@ -3,6 +3,7 @@ import { APIError } from './error';
 
 export interface Permission { id: string; name: string; description?: string; assignable: boolean; dependencies: string[] }
 export interface ManagedRole { id: string; code: string; name: string; description: string; builtin: boolean; version: number; permissions: string[]; user_count: number; created_at: string; updated_at: string }
+export type RoleOption = Pick<ManagedRole, 'id' | 'code' | 'name'>;
 export interface Provisioning { id: string; status: 'PENDING' | 'SUCCEEDED'; reason_code: string }
 export interface ManagedUser { id: string; display_name: string; email: string; login_email: string; identity_source: 'oidc' | 'local'; issuer: string; subject: string; workspace_owner_id: string; status: 'PENDING_IDENTITY' | 'ACTIVE' | 'DISABLED' | 'ARCHIVED'; role_id: string; role_code: string; role_name: string; version: number; created_at: string; updated_at: string; last_login_at: string | null; provisioning: Provisioning | null; password_reset: Provisioning | null }
 export interface UserQuotaLimits { max_instances: number; cpu_millicores: number; memory_bytes: number; storage_bytes: number }
@@ -43,6 +44,7 @@ export class ManagementClient {
   private query(filter: ListFilter) { const query = new URLSearchParams(); for (const [key, value] of Object.entries(filter)) if (value !== undefined && value !== '') query.set(key, String(value)); return query.size ? `?${query}` : ''; }
   users(user: CurrentUser, filter: ListFilter = {}, signal?: AbortSignal) { return this.request<ManagementPage<ManagedUser>>('/v1/users' + this.query(filter), user, 'GET', undefined, undefined, signal); }
   roles(user: CurrentUser, filter: ListFilter = {}, signal?: AbortSignal) { return this.request<ManagementPage<ManagedRole>>('/v1/roles' + this.query(filter), user, 'GET', undefined, undefined, signal); }
+  userRoleOptions(user: CurrentUser, filter: ListFilter = {}, signal?: AbortSignal) { return this.request<ManagementPage<RoleOption>>('/v1/users/role-options' + this.query(filter), user, 'GET', undefined, undefined, signal); }
   permissions(user: CurrentUser, signal?: AbortSignal) { return this.request<{ items: Permission[] }>('/v1/permissions', user, 'GET', undefined, undefined, signal); }
   userQuota(user: CurrentUser, targetId: string, signal?: AbortSignal) { return this.request<UserQuota>('/v1/users/' + targetId + ':quota', user, 'GET', undefined, undefined, signal); }
   saveUserQuota(user: CurrentUser, targetId: string, limits: UserQuotaLimits, expectedVersion: number) { return this.request<UserQuota>('/v1/users/' + targetId + ':quota', user, 'PUT', { limits, expected_version: expectedVersion }); }

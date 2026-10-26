@@ -31,6 +31,8 @@ var oauthProviders = []oauthProvider{
 	{"openalex", "OpenAlex", "https://mcp.openalex.org/mcp", "https://mcp.openalex.org", "https://mcp.openalex.org/mcp", "openalex:query"},
 	{"dida365", "滴答清单", "https://mcp.dida365.com", "https://dida365.com", "https://mcp.dida365.com/", "tasks:read tasks:write"},
 	{"qcc", "企查查", "https://agent.qcc.com/mcp/company/stream", "https://agent.qcc.com", "https://agent.qcc.com/mcp/company/stream", "mcp:tools"},
+	// Vercel publishes a trailing slash in its resource identifier.
+	{"vercel", "Vercel", "https://mcp.vercel.com", "https://vercel.com", "https://mcp.vercel.com/", "openid"},
 }
 
 func (s *Service) loadPolicy() (Policy, error) {
@@ -40,7 +42,10 @@ func (s *Service) loadPolicy() (Policy, error) {
 	}
 	// Never replace an administrator's binding or reserved ID.
 	p.Endpoints = slices.Clone(p.Endpoints)
-	for _, v := range oauthProviders {
+	for _, v := range builtinCatalog().Entries {
+		if v.DefaultURL == "" {
+			continue
+		}
 		exists := false
 		for _, e := range p.Endpoints {
 			if e.CatalogID == v.ID || e.ID == "builtin-"+v.ID {
@@ -48,7 +53,7 @@ func (s *Service) loadPolicy() (Policy, error) {
 			}
 		}
 		if !exists {
-			p.Endpoints = append(p.Endpoints, Endpoint{ID: "builtin-" + v.ID, Name: v.Name, URL: v.URL, CatalogID: v.ID})
+			p.Endpoints = append(p.Endpoints, Endpoint{ID: "builtin-" + v.ID, Name: v.Name, URL: v.DefaultURL, CatalogID: v.ID})
 		}
 	}
 	return p, nil

@@ -1582,7 +1582,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询组织用户
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply. Without a status filter, archived (deleted) users are excluded.
         Use status=ARCHIVED to query deleted identity history.
       responses:
@@ -1624,7 +1624,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 创建本地账号或绑定已有组织身份
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '201':
@@ -1652,6 +1652,34 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ManagedUserCreate'
+  /v1/users/role-options:
+    get:
+      operationId: listUserRoleOptions
+      x-api-id: API-117
+      tags:
+      - IdentityManagement
+      summary: 查询用户筛选和分配所需的精简角色选项
+      description: Requires current users:read, independently of roles:read. Returns only id, code and name for roles
+        in the current organization. Does not grant role detail, permission catalog or user mutation access.
+        Supports q and either page or cursor pagination. Cursors are bound to this resource, user, organization and query.
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 100
+      responses:
+        '200':
+          description: Authorized role options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRoleOptionPage'
+        default:
+          $ref: '#/components/responses/Error'
   /v1/users/{id}:
     parameters:
     - $ref: '#/components/parameters/ResourceId'
@@ -1661,7 +1689,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询用户及身份供应结果
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1678,7 +1706,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 编辑联系资料
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1777,7 +1805,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询内置及自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1803,7 +1831,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 创建自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '201':
@@ -1833,7 +1861,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询角色权限与分配数
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1850,7 +1878,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 修改自定义角色与权限
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1876,7 +1904,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 删除未分配的自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '204':
@@ -1899,7 +1927,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 读取固定权限目录及依赖
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1919,7 +1947,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：role
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1948,7 +1976,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：disable
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1977,7 +2005,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：enable
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -2006,7 +2034,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：archive
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -2035,7 +2063,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：retry-identity
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -4382,7 +4410,7 @@ components:
           type: string
           maxLength: 4096
           writeOnly: true
-          description: Bearer only. OAuth credentials are obtained by the authorization flow; leave this field empty.
+          description: Required for bearer authentication. Exact official defaults use their native token header or query encoding; Lexiang uses a JSON string containing token and company_from, encrypted together. Personal gateways use standard Bearer. OAuth credentials are obtained by the authorization flow; leave this field empty.
         enabled:
           type: boolean
         expected_version:
@@ -4628,6 +4656,7 @@ components:
         auth_kind: { type: string, enum: [personal_token, api_key, oauth2, imap_app_password, custom_fields] }
         doc_url: { type: string, format: uri }
         guide_url: { type: string, format: uri }
+        default_url: { type: string, format: uri, description: Official MCP endpoint when a shared remote service exists; deployment-specific services omit it. }
         setup_hint: { type: string }
         requirements:
           type: array
@@ -7157,6 +7186,38 @@ components:
             - personal-model:validate
             - personal-model:revoke
             - models:catalog:manage
+    UserRoleOption:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    UserRoleOptionPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, next_cursor, local_accounts]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/UserRoleOption'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        next_cursor:
+          type: string
+          nullable: true
+        local_accounts:
+          type: boolean
+          description: Unused for role options; always false.
     ManagedRolePage:
       type: object
       additionalProperties: false

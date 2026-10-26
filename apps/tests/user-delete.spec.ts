@@ -14,7 +14,7 @@ test('user deletion requires a matching name, supports cancellation and removes 
   await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
   await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
   await page.route('**/v1/me', r => r.fulfill({ json: admin }));
-  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
+  await page.route('**/v1/users/role-options?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/v1/users?*', r => {
     const archived = new URL(r.request().url()).searchParams.get('status') === 'ARCHIVED';
     return r.fulfill({ json: { items: archived ? deleted ? [{ ...target, status: 'ARCHIVED', version: 4 }] : [] : deleted ? [] : [target], next_cursor: null, local_accounts: false } });
@@ -68,7 +68,7 @@ test('failed user deletion preserves the row and lets the administrator reread a
   await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
   await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
   await page.route('**/v1/me', r => r.fulfill({ json: admin }));
-  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
+  await page.route('**/v1/users/role-options?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/v1/users?*', r => r.fulfill({ json: { items: [target, { ...target, id: admin.id, display_name: '当前管理员', email: 'admin@example.com' }], next_cursor: null } }));
   await page.route('**/v1/users/' + target.id, r => r.fulfill({ status: 409, json: { code: ++commands === 1 ? 'USER_HAS_ASSETS' : 'VERSION_CONFLICT' } }));
   await page.goto('/app/users');
@@ -96,7 +96,7 @@ test('users with read permission have no delete action', async ({ page }) => {
   await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
   await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
   await page.route('**/v1/me', r => r.fulfill({ json: { ...admin, permissions: ['users:read', 'roles:read'] } }));
-  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
+  await page.route('**/v1/users/role-options?*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/v1/users?*', r => r.fulfill({ json: { items: [target], next_cursor: null } }));
   await page.goto('/app/users');
   await expect(page.getByRole('row').filter({ hasText: target.email })).toBeVisible();

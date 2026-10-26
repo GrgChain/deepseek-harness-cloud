@@ -271,6 +271,8 @@ h3 { font-size: 15px; font-weight: 600; }
 .role-editor-permission-group { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
 .role-editor-permission-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .role-editor-permission-heading > strong { font-size: 13px; font-weight: 600; }
+.role-editor-permission-heading > .ant-btn { margin-left: auto; flex-shrink: 0; }
+.role-permission-help { margin: 8px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .role-editor-permission-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .role-editor-permission-options .ant-checkbox-wrapper { min-width: 0; align-items: flex-start; margin: 0; line-height: 1.6; }
 .role-editor-permission-options .ant-checkbox { margin-top: 3px; }
@@ -281,6 +283,8 @@ h3 { font-size: 15px; font-weight: 600; }
   .role-basic-fields, .role-editor-permission-groups { grid-template-columns: minmax(0, 1fr); }
   .role-description-field { grid-column: auto; }
   .role-editor-dialog .ant-modal-footer .ant-btn { min-height: 44px; }
+  .role-editor-permission-heading > .ant-btn { min-width: 44px; min-height: 44px; }
+  .role-editor-permission-options .ant-checkbox-wrapper { min-height: 44px; }
   .role-permission-group ul { grid-template-columns: minmax(0, 1fr); }
   .role-permissions-dialog .ant-modal-footer .ant-btn { min-height: 44px; }
 }

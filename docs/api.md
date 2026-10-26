@@ -58,6 +58,7 @@
 | API-040 | `GET /v1/roles/{id}` | 查询角色权限与分配数 |
 | API-041 | `PUT /v1/roles/{id}` | 修改自定义角色与权限 |
 | API-042 | `DELETE /v1/roles/{id}` | 删除未分配的自定义角色 |
+| API-117 | `GET /v1/users/role-options` | 以users:read读取本组织精简角色选项，支持搜索与分页 |
 | API-043 | `GET /v1/permissions` | 读取固定权限目录、中文名称、用途说明、可分配性及依赖 |
 | API-044 | `GET /v1/model-directory` | 读取已保存配置版本的批准目录 |
 | API-045 | `POST /v1/model-directory:refresh` | 刷新已保存配置版本的批准目录 |
@@ -214,7 +215,7 @@ POST /v1/instances已有可选name字段，Portal创建抽屉现提交用户填�
 
 模型字段可省略：新建运行默认值不需要组织模型，返回 model_configuration_id=""、model_configuration_version=0。兼容调用若显式提交组织模型，须同时提供合法 ID/版本并通过现有组织归属、凭据及能力校验；省略不清除已有模型绑定。平台页面不发送这两个字段，创建时独立验证所选本人模型提供商账号。
 
-API-043 返回当前有效权限目录（包含 `skills:read` 与 `skills:manage`），新增能力沿用既有授权：数据资产、文件浏览/预览/下载使用instances:read，手动释放使用instances:release-storage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。
+API-043 返回当前34项有效权限目录（包含技能包、连接器、记忆及知识库权限），新增能力沿用既有授权：数据资产、文件浏览/预览/下载使用instances:read，手动释放使用instances:release-storage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。API-117仅返回角色的id/code/name，需users:read；不返回权限集合、说明、版本或用户数。完整角色、权限目录读取仍需roles:read，用户写入与角色分配仍需users:manage；搜索及page/cursor规则与列表一致。
 
 ## 存储资产查询（REQ-19）
 
@@ -266,8 +267,8 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[实施记录](connectors-implementation.md)。
 
-`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/doc_url/guide_url/setup_hint/requirements/color`；`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。平台服务连接提交固定的 `endpoint_id`；“自定义 MCP”提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存不发起外部请求。
+`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为10种官方远程服务提供预填地址，其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。推荐服务可预填地址，允许用户修改；旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存不发起外部请求。
 
-`auth_type`支持`none`、`bearer`、`oauth2`；OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
+`auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
 
 回调处理后返回 `/app/connectors`，查询参数`connector_oauth`为`ready`、`verify_failed`、`cancelled`或`failed`之一，页面展示后清除该参数。返回URL不含授权码、Token或厂商错误正文；登录失效时返回工作台登录流程。授权成功只同步工具，不自动启用或调用。厂商账号完整验收与企查查专用聚合/解绑是独立待完成项，当前没有对应聚合或远端撤销API契约。

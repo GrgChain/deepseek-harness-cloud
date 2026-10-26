@@ -152,10 +152,9 @@ func (t *boundedTransport) RoundTrip(r *http.Request) (*http.Response, error) {
 	c := r.Clone(r.Context())
 	c.Header = r.Header.Clone()
 	c.GetBody = nil
-	c.Header.Del("Authorization")
 	c.Header.Del("Cookie")
-	if t.credential != "" {
-		c.Header.Set("Authorization", "Bearer "+t.credential)
+	if err := applyEndpointCredential(c, t.endpoint, t.credential); err != nil {
+		return nil, err
 	}
 	if c.ContentLength > maxBytes {
 		return nil, errors.New("MCP request exceeds limit")

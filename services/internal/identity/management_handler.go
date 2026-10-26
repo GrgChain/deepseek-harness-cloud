@@ -69,6 +69,17 @@ func (h *ManagementHandler) serve(w http.ResponseWriter, r *http.Request, p Prin
 		return nil, 0, managementInvalid("写入请求不接受查询参数")
 	}
 	path := r.URL.Path
+	if path == "/v1/users/role-options" {
+		if r.Method == http.MethodGet {
+			in, err := managementList(r)
+			if err != nil {
+				return nil, 0, err
+			}
+			v, e := h.service.ListUserRoleOptions(ctx, p, in)
+			return v, 200, e
+		}
+		return nil, 0, webapi.Fail(405, "METHOD_NOT_ALLOWED", "角色选项仅支持读取")
+	}
 	if path == "/v1/permissions" && r.Method == http.MethodGet {
 		if r.URL.RawQuery != "" {
 			return nil, 0, managementInvalid("权限目录不接受查询参数")
