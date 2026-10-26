@@ -16,11 +16,20 @@ type Permission struct {
 }
 
 var permissionCatalog = []Permission{
+	{"connectors:read", "查看本人连接器", "查看MCP连接、工具目录及脱敏调用记录。", true, []string{}},
+	{"connectors:manage", "管理本人连接器", "配置、授权连接、验证、同步工具目录及选择工具；不隐含调用权限。", true, []string{"connectors:read"}},
+	{"connectors:invoke", "调用本人连接器工具", "确认参数后手动调用已授权MCP工具。", true, []string{"connectors:read"}},
 	{"users:read", "查看用户与资源配额", "查看组织用户及其资源额度和占用。", true, []string{}},
 	{"users:manage", "管理用户与资源配额", "管理账号、角色分配及用户资源额度。", true, []string{"users:read"}},
 	{"roles:read", "查看角色与权限目录", "查看角色拥有的权限及各权限的用途和依赖。", true, []string{}},
 	{"roles:manage", "管理角色与权限", "新增、编辑和删除自定义角色；内置角色受保护。", true, []string{"roles:read"}},
 	{"instances:read", "查看本人工作空间与数据", "包含数据资产、目录浏览、文件预览和下载。", true, []string{}},
+	{"skills:read", "查看本人 Skill 库", "查看技能正文与资源清单，下载单项或导出技能包。", true, []string{}},
+	{"skills:manage", "管理本人 Skill 库", "创建、编辑、删除、导入与手动同步外部 Skill；不修改 DSH 容器。", true, []string{"skills:read"}},
+	{"memory:read", "查看本人记忆", "查看和检索授权记忆，下载本人记忆迁移包。", true, []string{}},
+	{"memory:manage", "管理本人记忆", "配置外部连接、维护和迁移记忆；绑定实例还需实例配置权限。", true, []string{"memory:read"}},
+	{"knowledge:read", "查看本人知识库", "查看授权语料、试检索及访问有权限的原文引用。", true, []string{}},
+	{"knowledge:manage", "管理本人知识库", "配置外部知识库、导入文档和维护索引；绑定实例还需实例配置权限。", true, []string{"knowledge:read"}},
 	{"instances:create", "创建本人工作空间", "按所选规格和模型创建；运行还需启动权限。", true, []string{"instances:read"}},
 	{"instances:start", "启动本人工作空间", "启动及维持运行；停止后保留数据。", true, []string{"instances:read"}},
 	{"instances:stop", "停止本人工作空间", "释放计算资源，保留数据及存储占用。", true, []string{"instances:read"}},

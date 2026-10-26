@@ -47,6 +47,13 @@ func (s *AuthorizationServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 		}
 		w.Header().Set("Content-Type", "text/css; charset=utf-8")
 		_, _ = w.Write([]byte(loginCSS))
+	case "/oidc/login.js":
+		if r.Method != http.MethodGet {
+			w.WriteHeader(405)
+			return
+		}
+		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+		_, _ = w.Write([]byte(loginJS))
 	case "/oidc/authorize":
 		if r.Method != http.MethodGet || len(r.URL.RawQuery) > 4096 {
 			protocolFailure(w, 400, "invalid_request")
@@ -60,6 +67,17 @@ func (s *AuthorizationServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			protocolFailure(w, 400, err.Error())
 			return
 		}
+		if browserNavigation(r) {
+			path, active, err := s.browserLogin(ctx, a.State, cookieValue(r, LoginCookie))
+			if err != nil {
+				protocolFailure(w, 503, "temporarily_unavailable")
+				return
+			}
+			if !active {
+				restartBrowserLogin(w, r, path)
+				return
+			}
+		}
 		id, browser, csrf := newID(), randomSecret(), randomSecret()
 		_, err = s.pool.Exec(ctx, `INSERT INTO identity_authorizations(id,browser_sha256,csrf_sha256,client_id,redirect_uri,state,nonce,challenge,scope,expires_at)
    VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,clock_timestamp()+interval '5 minutes')`, id, digest(browser), digest(csrf), a.ClientID, a.RedirectURI, a.State, a.Nonce, a.Challenge, a.Scope)
@@ -68,7 +86,7 @@ func (s *AuthorizationServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		setCookie(w, ProviderCookie, browser, 300)
-		s.loginPage(w, 200, id, csrf, "")
+		s.loginPage(w, 200, id, csrf, "", "")
 	case "/oidc/login":
 		if r.Method != http.MethodPost || r.URL.RawQuery != "" || r.Header.Get("Origin") != s.options.PublicURL || !strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
 			protocolFailure(w, 403, "invalid_request")
@@ -93,13 +111,29 @@ func (s *AuthorizationServer) ServeHTTP(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 		id, csrf := r.PostForm.Get("request"), r.PostForm.Get("csrf")
+		if browserNavigation(r) {
+			state, err := s.browserFormState(ctx, id, cookieValue(r, ProviderCookie), csrf)
+			if err != nil {
+				protocolFailure(w, 503, "temporarily_unavailable")
+				return
+			}
+			path, active, err := s.browserLogin(ctx, state, cookieValue(r, LoginCookie))
+			if err != nil {
+				protocolFailure(w, 503, "temporarily_unavailable")
+				return
+			}
+			if !active {
+				restartBrowserLogin(w, r, path)
+				return
+			}
+		}
 		target, err := s.passwordLogin(ctx, id, cookieValue(r, ProviderCookie), csrf, r.PostForm.Get("login"), r.PostForm.Get("password"))
 		if err != nil {
 			if !errors.Is(err, ErrUnauthenticated) {
 				protocolFailure(w, 503, "temporarily_unavailable")
 				return
 			}
-			s.loginPage(w, 401, id, csrf, "邮箱或密码不正确，或账户暂不可用")
+			s.loginPage(w, 401, id, csrf, "邮箱或密码不正确，或账户暂不可用，请检查后重试。", r.PostForm.Get("login"))
 			return
 		}
 		setCookie(w, ProviderCookie, "", -1)

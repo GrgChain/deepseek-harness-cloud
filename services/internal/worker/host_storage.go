@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/config"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/runtimeapproval"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -134,33 +135,45 @@ func (h *LocalHost) network(ctx context.Context, id, action string) error {
 		return ErrHostIdentity
 	}
 	payload := map[string]any{"schema_version": 1, "instance_id": id}
-	raw, readErr := config.ReadPrivateFile(filepath.Join(h.options.RuntimeRoot, id, "config.json"))
-	if readErr == nil {
+	configPath := filepath.Join(h.options.RuntimeRoot, id, "config.json")
+	_, statErr := os.Lstat(configPath)
+	if statErr == nil {
+		raw, readErr := config.ReadPrivateFile(configPath)
+		if readErr != nil {
+			slog.Warn("Worker network cleanup could not read runtime identity", "instance_id", id, "phase", "runtime_read")
+			return ErrHostIdentity
+		}
 		var runtime runtimeConfiguration
 		if webapi.StrictUnmarshal(raw, &runtime) != nil || runtime.InstanceID != id {
+			slog.Warn("Worker network cleanup rejected runtime identity", "instance_id", id, "phase", "runtime_identity")
 			return ErrHostIdentity
 		}
 		if runtime.SchemaVersion == 2 {
 			endpoint, parseErr := url.Parse(runtime.Endpoint)
 			if parseErr != nil || endpoint.Scheme != "https" || endpoint.Hostname() == "" || endpoint.Path != "" || endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" {
+				slog.Warn("Worker network cleanup rejected runtime endpoint", "instance_id", id, "phase", "runtime_endpoint")
 				return ErrHostIdentity
 			}
 			port := 443
 			if endpoint.Port() != "" {
 				port, parseErr = strconv.Atoi(endpoint.Port())
 				if parseErr != nil {
+					slog.Warn("Worker network cleanup rejected runtime endpoint port", "instance_id", id, "phase", "runtime_endpoint_port")
 					return ErrHostIdentity
 				}
 			}
 			payload = map[string]any{"schema_version": 2, "instance_id": id, "gateway": map[string]any{"addresses": runtime.ApprovedNetworks, "port": port}}
 		} else if runtime.SchemaVersion != 1 {
+			slog.Warn("Worker network cleanup rejected runtime schema", "instance_id", id, "phase", "runtime_schema")
 			return ErrHostIdentity
 		}
-	} else if !errors.Is(readErr, os.ErrNotExist) {
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		slog.Warn("Worker network cleanup could not read runtime identity", "instance_id", id, "phase", "runtime_read")
 		return ErrHostIdentity
 	}
 	data, err := h.helper(ctx, "network", action, payload)
 	if err != nil {
+		slog.Warn("Worker network helper failed", "instance_id", id, "action", action, "reason_code", retryReason(err))
 		return err
 	}
 	var proof struct {
@@ -169,6 +182,7 @@ func (h *LocalHost) network(ctx context.Context, id, action string) error {
 		Isolated      bool   `json:"isolated"`
 	}
 	if webapi.StrictUnmarshal(data, &proof) != nil || proof.SchemaVersion != 1 || proof.InstanceID != id || proof.Isolated != (action != "remove") {
+		slog.Warn("Worker network helper returned mismatched proof", "instance_id", id, "action", action, "phase", "network_proof")
 		return ErrHostIdentity
 	}
 	return nil
@@ -179,12 +193,15 @@ func (h *LocalHost) network(ctx context.Context, id, action string) error {
 func (h *LocalHost) ConfirmAbsent(ctx context.Context, p ExecutionPlan, workspaceAbsent bool) (Completion, error) {
 	container, err := h.container(ctx, p.InstanceID)
 	if err != nil {
+		slog.Warn("Worker could not inspect target container during cleanup", "instance_id", p.InstanceID, "phase", "container_inspect", "reason_code", retryReason(err))
 		return Completion{}, err
 	}
 	if container != nil {
+		slog.Warn("Worker found a container while cleanup expected it absent", "instance_id", p.InstanceID, "phase", "container_present")
 		return Completion{}, ErrHostIdentity
 	}
 	if err = h.network(ctx, p.InstanceID, "remove"); err != nil {
+		slog.Warn("Worker could not remove stale network state during cleanup", "instance_id", p.InstanceID, "phase", "network_remove", "reason_code", retryReason(err))
 		return Completion{}, err
 	}
 	result := Completion{ComputeAbsent: true, WorkspaceAbsent: workspaceAbsent}

@@ -1,0 +1,82 @@
+.connectors-panel{min-width:0}.connectors-panel>.ant-alert{margin-bottom:16px}.connector-note{color:var(--text-muted,#64748b);font-size:13px;overflow-wrap:anywhere;margin:8px 0}.connector-description{margin:4px 0;color:var(--text-muted,#64748b);max-width:440px;overflow-wrap:anywhere}.connector-json{white-space:pre-wrap;overflow-wrap:anywhere;max-height:420px;overflow:auto;background:var(--surface-subtle,#f6f8fa);padding:16px;border-radius:8px;font-size:13px}.connector-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}.connector-toolbar>.ant-input{max-width:360px}.connector-info{display:grid;grid-template-columns:auto 1fr;gap:12px 24px}.connector-info dt{color:var(--text-muted,#64748b)}.connector-info dd{margin:0;overflow-wrap:anywhere}.connector-confirmations{display:flex;flex-direction:column;gap:12px}.connector-call-id{font-size:12px;overflow-wrap:anywhere}.connector-details .ant-drawer-body{overflow-x:hidden}.connectors-panel+.ant-drawer label{display:block}@media(max-width:640px){.connector-toolbar{flex-wrap:wrap}.connector-toolbar>.ant-input{max-width:none}.connectors-panel button,.connector-details button{min-height:44px}.connector-info{grid-template-columns:auto 1fr;gap:10px}.connector-json{padding:12px}}
+
+.connector-modal .ant-modal-body{max-height:calc(100dvh - 220px);overflow-y:auto;overscroll-behavior:contain}.connector-modal .ant-modal-footer{margin-top:16px}@media(max-width:640px){.connector-modal{top:20px}.connector-modal .ant-modal-body{max-height:calc(100dvh - 200px)}.connector-modal .ant-modal-footer .ant-space{flex-wrap:wrap;justify-content:flex-end}.connector-modal .ant-btn{min-height:44px}}
+
+.connector-catalog .ant-drawer-body{display:flex;flex-direction:column;overflow:hidden;padding:24px;background:var(--color-background)}
+.connector-catalog .ant-drawer-content-wrapper{max-width:100%}
+.connector-catalog .ant-drawer-extra .ant-btn{min-height:40px}
+.connector-catalog-controls{flex-shrink:0}
+.connector-catalog-controls>.ant-input-affix-wrapper{min-height:44px;background:var(--color-surface)}
+.connector-catalog-controls .ant-input-prefix{margin-right:10px;color:var(--muted)}
+.connector-catalog-categories{display:flex;flex-wrap:wrap;gap:4px;margin-top:16px}
+.connector-catalog-categories>button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:8px 10px;border:0;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap;transition:background-color .15s,color .15s}
+.connector-catalog-categories>button:hover{background:var(--color-surface);color:var(--color-foreground)}
+.connector-catalog-categories>button.is-selected{background:var(--color-selected);color:var(--color-primary);font-weight:600}
+.connector-catalog-categories>button>span{font-size:12px;font-variant-numeric:tabular-nums;opacity:.8}
+.connector-catalog-caption{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:24px 0 12px;flex-shrink:0}
+.connector-catalog-caption h3{font-size:14px;font-weight:600}
+.connector-catalog-caption>span{font-size:12px;color:var(--muted)}
+.connector-catalog-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:12px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px;margin:-4px;scrollbar-gutter:stable}
+.connector-preset{min-width:0}
+.connector-preset-select{display:flex;flex-direction:column;gap:14px;width:100%;height:100%;padding:18px;border:1px solid var(--line);border-radius:10px;background:var(--color-surface);color:var(--color-foreground);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s,background-color .15s}
+.connector-preset-select:hover{border-color:var(--color-primary);box-shadow:0 2px 8px rgb(15 23 42 / 5%)}
+.connector-preset-select:active{background:var(--color-selected)}
+.connector-preset-select:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
+.connector-preset-heading{display:flex;align-items:center;gap:12px;min-width:0}
+.connector-preset-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 40px;border-radius:10px}
+.connector-preset-title{display:flex;flex-direction:column;gap:3px;min-width:0}
+.connector-preset-title strong{font-size:15px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
+.connector-preset-title>span{font-size:12px;line-height:1.4;color:var(--muted)}
+.connector-preset-description{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;font-size:13px;line-height:1.6;color:var(--muted);min-height:42px;overflow-wrap:anywhere}
+.connector-preset-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:auto;width:100%;font-size:12px}
+.connector-preset-status{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}
+.connector-preset-status::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor;flex-shrink:0}
+.connector-preset-status.is-configured{color:var(--color-success)}
+.connector-preset-action{display:inline-flex;align-items:center;gap:6px;color:var(--color-primary);white-space:nowrap}
+.connector-catalog-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;padding:48px 16px}
+.connector-preset-summary{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.connector-preset-summary>div{min-width:0}
+.connector-preset-summary strong{font-size:16px;font-weight:600}
+.connector-preset-summary p{margin:4px 0 0;color:var(--muted);font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.connector-preset-setup{padding-bottom:16px;margin-bottom:20px;border-bottom:1px solid var(--line)}
+.connector-preset-setup .ant-alert{margin-bottom:12px}
+.connector-preset-setup .ant-collapse-header{padding:8px 0!important;color:var(--muted)!important}
+.connector-preset-setup .ant-collapse-content-box{padding:4px 0!important}
+.connector-preset-setup ul{padding-left:20px;margin:8px 0 12px}
+.connector-preset-setup li{margin:4px 0;font-size:13px}
+.connector-preset-setup a{display:inline-flex;align-items:center;gap:4px;font-size:13px}
+.connector-editor-back.ant-btn{margin:0 0 16px -8px;color:var(--muted)}
+.connector-editor .ant-form-item{margin-bottom:20px}
+.connector-editor .ant-input,.connector-editor .ant-select-selector{min-height:40px}
+.connector-editor .ant-select-selection-item{display:flex;align-items:center}
+.connector-editor .connector-endpoint-url{margin:-12px 0 20px;font-size:12px}
+.connector-editor-advanced.ant-collapse{margin-bottom:20px}
+.connector-editor-advanced .ant-collapse-header{padding:8px 0!important}
+.connector-editor-advanced .ant-collapse-content-box{padding:12px 0 0!important}
+.connector-editor-enabled{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 16px;border-radius:8px;background:var(--color-background)}
+.connector-editor-enabled .ant-form-item{margin:0}
+.connector-editor-enabled label{font-size:13px}
+.connector-editor-enabled .ant-switch{min-height:22px}
+.connector-editor-note{font-size:12px;color:var(--muted);margin-top:16px}
+.connector-editor-preparation .connector-preset-setup{border:0;padding:0;margin:0}
+@media(max-width:640px){
+ .connector-catalog .ant-drawer-body{padding:16px}
+ .connector-catalog .ant-drawer-header{padding:16px}
+ .connector-catalog .ant-drawer-title{font-size:16px;white-space:nowrap}
+ .connector-catalog .ant-drawer-extra .ant-btn{min-height:44px;padding-inline:10px}
+ .connector-catalog-categories{gap:4px;margin-top:12px}
+ .connector-catalog-categories>button{min-height:44px;padding:8px;font-size:12px;gap:6px}
+ .connector-catalog-caption{margin-top:16px}
+ .connector-catalog-list{grid-template-columns:minmax(0,1fr);gap:10px}
+ .connector-preset-select{padding:14px 16px;gap:10px}
+ .connector-preset-heading{gap:10px}
+ .connector-preset-icon{width:36px;height:36px;flex-basis:36px;border-radius:8px}
+ .connector-preset-title{flex:1;flex-direction:row;align-items:baseline;justify-content:space-between;gap:10px}
+ .connector-preset-title strong{font-size:14px}
+ .connector-preset-title>span{font-size:12px;white-space:nowrap}
+ .connector-preset-description{min-height:0}
+ .connector-editor .ant-input,.connector-editor .ant-select-selector{min-height:44px}
+ .connector-editor .ant-switch{min-height:22px}
+}
+@media(max-height:520px){.connector-catalog .ant-drawer-body{display:block;overflow-y:auto}.connector-catalog-list{overflow:visible;scrollbar-gutter:auto}}
+@media(prefers-reduced-motion:reduce){.connector-catalog-categories>button,.connector-preset-select{transition:none}}

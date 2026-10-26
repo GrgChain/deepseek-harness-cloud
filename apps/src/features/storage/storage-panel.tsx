@@ -175,7 +175,7 @@ export function StoragePanel({user}:{user:CurrentUser}){
  const assets=useQuery({queryKey:['storage',user.id,'list',filter,pagination.page,pagination.pageSize],queryFn:({signal})=>client.assets(user,{...filter,page:pagination.page,limit:pagination.pageSize},signal),retry:false,refetchInterval:30_000});
  useExpiredSession(assets.error);
  const rows=assets.isError?[]:assets.data?.items??[];
- return <section className="settings-section storage-panel" aria-label="数据管理"><div className="provider-page-heading"><div><h2>数据资产</h2><p>查看本人的工作空间数据盘与保留数据。</p></div></div>
+ return <section className="settings-section storage-panel" aria-label="工作数据"><div className="provider-page-heading"><div><h2>数据资产</h2><p>查看本人的工作空间数据盘与保留数据。</p></div></div>
   <div className="workspace-toolbar"><Select aria-label="筛选数据资产状态" value={filter.status} options={[{value:'',label:'全部状态'},...Object.entries(assetStatuses).map(([value,label])=>({value,label}))]} onChange={status=>setFilter(current=>({...current,status}))}/><ListSearch label="搜索数据资产" placeholder="搜索原工作空间名称" value={search} onChange={setSearch} onSubmit={()=>setFilter(current=>({...current,q:search.trim()}))} onRefresh={()=>void assets.refetch()} loading={assets.isFetching} refreshLabel="刷新数据资产"/></div>
   {assets.isError&&<Alert type="error" showIcon message={assets.error.message} action={<Button onClick={()=>void assets.refetch()}>重新加载</Button>}/>}
   {assets.isPending?<Spin aria-label="加载数据资产"/>:!rows.length?<Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={assets.isError?'数据暂不可用':filter.q||filter.status?'没有符合条件的数据资产':'暂无数据资产'}/>:<div className="storage-asset-list">{rows.map(asset=><article key={asset.id} className="storage-asset-row" aria-label={`数据资产 ${asset.workspace_name}`}>
@@ -195,11 +195,11 @@ export function StorageBrowsePage({user}:{user:CurrentUser}){
  const details=useQuery({queryKey:['storage',user.id,'asset',assetId],queryFn:({signal})=>client.details(user,assetId,signal),retry:false});
  useExpiredSession(details.error);
  if(details.isPending)return <div className="storage-browser-loading"><Spin aria-label="加载数据资产"/></div>;
- if(details.isError)return <Alert type="error" showIcon message="无法打开数据资产" description={details.error.message} action={<Button onClick={()=>navigate('/app/storage')}>返回数据管理</Button>}/>;
+ if(details.isError)return <Alert type="error" showIcon message="无法打开数据资产" description={details.error.message} action={<Button onClick={()=>navigate('/app/storage')}>返回工作数据</Button>}/>;
  const asset=details.data;
  return <section className="storage-browser-page" aria-label="数据浏览">
   <header className="storage-browser-heading">
-   <Button className="storage-browser-back" type="text" icon={<ArrowLeft size={16} aria-hidden="true"/>} onClick={()=>navigate('/app/storage')}>返回数据管理</Button>
+   <Button className="storage-browser-back" type="text" icon={<ArrowLeft size={16} aria-hidden="true"/>} onClick={()=>navigate('/app/storage')}>返回工作数据</Button>
    <div className="storage-browser-identity"><div className="storage-browser-title"><h2>{asset.workspace_name}</h2><AssetStatus status={asset.status}/></div><div className="storage-browser-meta"><span className="storage-browser-capacity"><small>已分配</small><strong>{bytes(asset.capacity_bytes)}</strong></span><span className="storage-browser-meta-divider" aria-hidden="true"/><span className="storage-browser-usage"><small>数据用量</small><Usage asset={asset}/></span></div></div>
   </header>
   <FileBrowser user={user} asset={asset}/>

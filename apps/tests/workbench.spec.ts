@@ -68,6 +68,7 @@ test('administrator reaches management through the navigation', async ({ page })
   await page.route('**/v1/users*', r => r.fulfill({ json: { items: [], next_cursor: null } }));
   await page.route('**/v1/roles*', r => r.fulfill({ json: { items: [] } }));
   await page.goto('/app/instances');
+  await expect(page.getByRole('heading', { name: '工作空间实例', exact: true })).toBeVisible();
   const menu = page.getByRole('button', { name: '打开导航' });
   if (await menu.isVisible()) await menu.click();
   await expect(page.getByRole('link', { name: '用户管理', exact: true }).filter({ visible: true })).toBeVisible();

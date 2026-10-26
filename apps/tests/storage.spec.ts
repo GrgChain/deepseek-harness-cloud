@@ -55,7 +55,7 @@ test('storage shows retained assets and actual use separately with responsive de
  await setup(page);const writes:string[]=[];page.on('request',r=>{if(r.url().includes('/v1/storage-assets')&&r.method()!=='GET')writes.push(r.method());});
  await page.goto('/app/storage');await expect(page.getByRole('heading',{name:'数据资产',exact:true})).toBeVisible();
  const retained=page.getByRole('article',{name:'数据资产 测试',exact:true});
- await expect(retained).toContainText('10 GiB');await expect(retained).toContainText('未采集');await expect(retained).toContainText('保留已到期，尚未回收');await expect(retained).toContainText('备份失败');
+ await expect(retained).toContainText('10 GiB');await expect(retained).toContainText('未采集');await expect(retained).toContainText('保留已到期，尚未回收');await expect(retained).not.toContainText('备份失败');await expect(retained).not.toContainText('最近备份');
  const running=page.getByRole('article',{name:'数据资产 运行数据',exact:true});await expect(running).toContainText('0 GiB 已用');await expect(running).toContainText('9 GiB 可用 · 待刷新');
  await retained.getByRole('button',{name:'查看测试的数据详情'}).click();
  const drawer=page.getByRole('dialog',{name:'数据资产详情'});await expect(drawer).toBeVisible();await expect(drawer).toContainText('最近有效备份：');await expect(drawer.getByText('资产标识',{exact:true})).toHaveCount(0);await drawer.getByRole('button',{name:'更多信息'}).click();await drawer.getByRole('button',{name:'维护条件'}).click();await expect(drawer).toContainText('受法律保留保护');await expect(drawer).toContainText('恢复后不自动启动');
@@ -130,7 +130,7 @@ test('asset name opens the directory tree and browsing stays read-only',async({p
  await expect(breadcrumbs.getByRole('button',{name:'dsh',exact:true})).toHaveAttribute('aria-current','page');
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  expect(writes).toEqual([]);
- await page.getByRole('button',{name:'返回数据管理'}).click();
+ await page.getByRole('button',{name:'返回工作数据'}).click();
  await expect(page).toHaveURL('/app/storage');
 });
 test('directory tree has no horizontal overflow when names fit',async({page})=>{
@@ -205,11 +205,12 @@ for(const scenario of ['refresh','updated','unavailable'])test(`PDF viewer handl
  page.on('framenavigated',frame=>{if(frame===page.mainFrame())navigations++;});
  await page.route('**/v1/storage-assets/'+base.id+'/files?*',route=>route.fulfill({json:{root:'workspace',path:'',entries:[{name:'report.pdf',type:'FILE',size_bytes:pdf.length,modified_at:'2026-10-15T00:00:00Z'}]}}));
  await page.route('**/v1/storage-assets/'+base.id+'/file?*',route=>route.fulfill({contentType:'application/octet-stream',body:pdf}));
- await page.route('**/assets/pdf-preview-*.js',async route=>{moduleRequests++;if(moduleRequests===1||persistent)return route.fulfill({status:404,contentType:'text/html',body:'<!doctype html><html>Resource removed by a newer build</html>'});return route.continue();});
+ // Exercise the same lazy import in both Vite development and built assets.
+ await page.route(/\/(?:assets\/pdf-preview-[^/]+\.js|src\/features\/storage\/pdf-preview\.tsx)(?:\?.*)?$/,async route=>{moduleRequests++;if(moduleRequests===1||persistent)return route.fulfill({status:404,contentType:'text/html',body:'<!doctype html><html>Resource removed by a newer build</html>'});return route.continue();});
  await page.route(`**/app/storage/${base.id}/browse`,async route=>{
   if(route.request().isNavigationRequest())return route.continue();
   versionChecks++;const response=await route.fetch();const html=await response.text();
-  return route.fulfill({response,body:staleBuild?html.replace(/(src="\/assets\/index-[^"]+\.js)(")/,'$1?new-build$2'):html});
+  return route.fulfill({response,body:staleBuild?html.replace(/(<script\b(?=[^>]*type="module")[^>]*src=")([^"]+)(")/,'$1$2?new-build$3'):html});
  });
  await page.goto('/app/storage');await page.getByRole('button',{name:'浏览 测试 数据目录'}).click();const before=navigations;await page.getByRole('button',{name:'预览 report.pdf'}).click();
  if(!staleBuild){
@@ -261,9 +262,13 @@ test('storage list failure retries and empty data stays distinct from failures',
 });
 test('storage rechecks sessions and rejects owner mismatches',async({page})=>{
  await setup(page);
+ await page.route('**/auth/login?*',route=>{
+  expect(new URL(route.request().url()).searchParams.get('return_to')).toBe('/app/storage');
+  return route.fulfill({contentType:'text/html; charset=utf-8',body:'<h1>登录账户</h1>'});
+ });
  await page.route('**/v1/storage-assets?*',r=>r.fulfill({json:{items:[{...base,owner_id:'another-owner'}],total:1,next_cursor:null}}));
  await page.goto('/app/storage');await expect(page.getByRole('alert')).toContainText('存储资产数据无效');await expect(page.getByRole('article')).toHaveCount(0);
- await page.route('**/v1/me',r=>r.fulfill({status:401,json:{code:'UNAUTHENTICATED'}}));await page.route('**/v1/storage-assets?*',r=>r.fulfill({status:401,json:{code:'UNAUTHENTICATED'}}));await page.getByRole('button',{name:'重新加载',exact:true}).click();await expect(page.getByText('请先登录组织账户',{exact:true})).toBeVisible();
+ await page.route('**/v1/me',r=>r.fulfill({status:401,json:{code:'UNAUTHENTICATED'}}));await page.route('**/v1/storage-assets?*',r=>r.fulfill({status:401,json:{code:'UNAUTHENTICATED'}}));await page.getByRole('button',{name:'重新加载',exact:true}).click();await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
 });
 test('organization audit authority does not grant storage access',async({page})=>{
  await setup(page,['audit:read','audit:organization']);let reads=0;await page.route('**/v1/storage-assets**',r=>{reads++;return r.fulfill({json:{items:[],total:0,next_cursor:null}});});

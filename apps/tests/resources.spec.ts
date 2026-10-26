@@ -28,10 +28,14 @@ test('authenticated instance queries filter, show details and load owner operati
 });
 test('resource session expiry clears protected data and returns to login', async ({ page }) => {
  await session(page);
+ await page.route('**/auth/login?*', route => {
+  expect(new URL(route.request().url()).searchParams.get('return_to')).toBe('/app/instances');
+  return route.fulfill({contentType:'text/html; charset=utf-8',body:'<h1>登录账户</h1>'});
+ });
  await page.route('**/v1/instances?*', route => route.fulfill({ status: 401, json: { code: 'UNAUTHENTICATED' } }));
  await page.goto('/app/instances');
- await expect(page).toHaveURL(/\/login$/);
- await expect(page.getByRole('button', { name: '登录账户', exact: true })).toBeVisible();
+ await expect(page).toHaveURL(/\/auth\/login\?return_to=/);
+ await expect(page.getByRole('heading', { name: '登录账户', exact: true })).toBeVisible();
 });
 
 test('workspace transport recovery automatically continues in the same isolated window', async ({ page, context, baseURL }) => {

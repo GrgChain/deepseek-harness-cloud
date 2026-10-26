@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -19,6 +20,21 @@ func cookieValue(r *http.Request, name string) string {
 }
 func setCookie(w http.ResponseWriter, name, value string, maxAge int) {
 	http.SetCookie(w, &http.Cookie{Name: name, Value: value, Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode, MaxAge: maxAge})
+}
+
+func browserNavigation(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+func callbackFailure(w http.ResponseWriter, r *http.Request, err error) {
+	setCookie(w, LoginCookie, "", -1)
+	if browserNavigation(r) && errors.Is(err, ErrUnauthenticated) {
+		setCookie(w, ProviderCookie, "", -1)
+		w.Header().Del("Content-Type")
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	WriteError(w, r, err)
 }
 func (h *Handler) Authenticate(r *http.Request) (Principal, error) {
 	return h.service.Authenticate(r.Context(), cookieValue(r, SessionCookie))
@@ -61,15 +77,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		state, code, denial := q.Get("state"), q.Get("code"), q.Get("error")
 		if len(q["state"]) != 1 || len(q["code"]) > 1 || len(q["error"]) > 1 || (code == "") == (denial == "") || len(code) > 4096 || len(denial) > 128 {
-			WriteError(w, r, ErrUnauthenticated)
+			callbackFailure(w, r, ErrUnauthenticated)
 			return
 		}
 		result, err := h.service.Callback(r.Context(), state, cookieValue(r, LoginCookie), code, cookieValue(r, SessionCookie))
-		setCookie(w, LoginCookie, "", -1)
 		if err != nil {
-			WriteError(w, r, err)
+			callbackFailure(w, r, err)
 			return
 		}
+		setCookie(w, LoginCookie, "", -1)
 		setCookie(w, SessionCookie, result.SessionSecret, int(time.Until(result.ExpiresAt).Seconds()))
 		w.Header().Del("Content-Type")
 		http.Redirect(w, r, result.ReturnPath, 303)

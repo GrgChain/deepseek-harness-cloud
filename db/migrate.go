@@ -146,13 +146,31 @@ var ownerStorageRelease string
 //go:embed migrations/000045_storage_file_browsing.sql
 var storageFileBrowsing string
 
+//go:embed migrations/000046_personal_skill_library.sql
+var personalSkillLibrary string
+
+//go:embed migrations/000047_external_context_services.sql
+var externalContextServices string
+
+//go:embed migrations/000048_workbench_context_permissions.sql
+var workbenchContextPermissions string
+
+//go:embed migrations/000049_mcp_connectors.sql
+var mcpConnectors string
+
+//go:embed migrations/000050_personal_mcp_endpoints.sql
+var personalMCPEndpoints string
+
+//go:embed migrations/000051_connector_oauth.sql
+var connectorOAuth string
+
 type migration struct {
 	version int64
 	sql     string
 }
 
 func migrations() []migration {
-	return []migration{{1, baseline}, {2, workerAuthority}, {3, modelProbeSchedule}, {4, accessAuthority}, {5, boundedCleanup}, {6, storageMaintenance}, {7, auditRetention}, {8, recoveryQuotaHolds}, {9, embeddedWorkspaces}, {10, workspaceNames}, {11, identityManagement}, {12, modelGateways}, {13, personalModels}, {14, modelRegistryIdempotency}, {15, personalModelCreateReplay}, {16, personalModelExecution}, {17, personalModelAuthority}, {18, modelCatalogAvailability}, {19, personalDefaultTombstone}, {20, personalModelCompensation}, {21, passwordResetIntent}, {22, modelGatewayChecks}, {23, internalOIDC}, {24, nativeModelGateway}, {25, customModelCatalog}, {26, userResourceQuotas}, {27, personalProviderConnections}, {28, providerAccountNaming}, {29, selectableResourceSpecs}, {30, authorityReferenceLocks}, {31, unifiedInstanceQuota}, {32, providerDefaultModels}, {33, instanceDisplayNames}, {34, runtimeDefaults}, {35, assignableRolePermissions}, {36, openAIResponses}, {37, pendingIdentityLoginEmail}, {38, identityProvisioningLock}, {39, defaultUserQuota}, {40, personalWorkspaceAuthority}, {41, systemResourceDefaults}, {42, expandedComputeSpecs}, {43, storageManagement}, {44, ownerStorageRelease}, {45, storageFileBrowsing}}
+	return []migration{{1, baseline}, {2, workerAuthority}, {3, modelProbeSchedule}, {4, accessAuthority}, {5, boundedCleanup}, {6, storageMaintenance}, {7, auditRetention}, {8, recoveryQuotaHolds}, {9, embeddedWorkspaces}, {10, workspaceNames}, {11, identityManagement}, {12, modelGateways}, {13, personalModels}, {14, modelRegistryIdempotency}, {15, personalModelCreateReplay}, {16, personalModelExecution}, {17, personalModelAuthority}, {18, modelCatalogAvailability}, {19, personalDefaultTombstone}, {20, personalModelCompensation}, {21, passwordResetIntent}, {22, modelGatewayChecks}, {23, internalOIDC}, {24, nativeModelGateway}, {25, customModelCatalog}, {26, userResourceQuotas}, {27, personalProviderConnections}, {28, providerAccountNaming}, {29, selectableResourceSpecs}, {30, authorityReferenceLocks}, {31, unifiedInstanceQuota}, {32, providerDefaultModels}, {33, instanceDisplayNames}, {34, runtimeDefaults}, {35, assignableRolePermissions}, {36, openAIResponses}, {37, pendingIdentityLoginEmail}, {38, identityProvisioningLock}, {39, defaultUserQuota}, {40, personalWorkspaceAuthority}, {41, systemResourceDefaults}, {42, expandedComputeSpecs}, {43, storageManagement}, {44, ownerStorageRelease}, {45, storageFileBrowsing}, {46, personalSkillLibrary}, {47, externalContextServices}, {48, workbenchContextPermissions}, {49, mcpConnectors}, {50, personalMCPEndpoints}, {51, connectorOAuth}}
 }
 func checksumOf(sql string) string {
 	sum := sha256.Sum256([]byte(sql))

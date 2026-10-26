@@ -187,8 +187,8 @@ func TestEmbeddedOIDCRejectsCSRFPasswordChallengeReplayAndStaleCredentials(t *te
 	if w := f.submit(id, randomSecret(), f.password, cookie); w.Code != 401 {
 		t.Fatal("forged CSRF accepted")
 	}
-	if w := f.submit(id, csrf, "synthetic-wrong-password", cookie); w.Code != 401 || strings.Contains(w.Body.String(), f.password) {
-		t.Fatal("wrong password accepted or exposed")
+	if w := f.submit(id, csrf, "synthetic-wrong-password", cookie); w.Code != 401 || strings.Contains(w.Body.String(), f.password) || strings.Contains(w.Body.String(), "synthetic-wrong-password") || !strings.Contains(w.Body.String(), `value="`+f.user.LoginEmail+`"`) {
+		t.Fatal("wrong password accepted, exposed, or login email lost")
 	}
 	if w := f.submit(id, csrf, f.password, cookie); w.Code != 303 {
 		t.Fatal("correct password rejected")
@@ -289,6 +289,94 @@ func TestEmbeddedOIDCBFFSessionAndDisableRevokeAuthority(t *testing.T) {
 	}
 	if _, err = reloaded.Client().verifier.Verify(f.ctx, bearer.IDToken); err != nil {
 		t.Fatal("persisted signing key cannot verify prior signature", err)
+	}
+}
+
+func TestBrowserLoginRejectsExpiredOrUnboundBFFTransactions(t *testing.T) {
+	f := providerDatabase(t)
+	service := NewService(f.app, f.server.Client(), f.cipher, "test", f.org, f.server.options.PublicURL)
+	for _, scenario := range []string{"active", "expired", "missing", "foreign-browser", "missing-cookie", "expired-form"} {
+		t.Run(scenario, func(t *testing.T) {
+			login, err := service.Login(f.ctx, "", "/app/skills")
+			if err != nil {
+				t.Fatal(err)
+			}
+			browser := &http.Cookie{Name: LoginCookie, Value: login.BrowserSecret}
+			authorize := func(cookie *http.Cookie) *httptest.ResponseRecorder {
+				r := httptest.NewRequest("GET", login.URL, nil)
+				r.Header.Set("Accept", "text/html")
+				if cookie != nil {
+					r.AddCookie(cookie)
+				}
+				w := httptest.NewRecorder()
+				f.server.ServeHTTP(w, r)
+				return w
+			}
+			w := authorize(browser)
+			if w.Code != 200 {
+				t.Fatal("active browser login rejected", w.Code)
+			}
+			field := func(name string) string {
+				m := regexp.MustCompile(`name="` + name + `" value="([^"]+)"`).FindStringSubmatch(w.Body.String())
+				if len(m) != 2 {
+					t.Fatal("missing login challenge")
+				}
+				return m[1]
+			}
+			id, csrf := field("request"), field("csrf")
+			providerCookie := w.Result().Cookies()[0]
+			target, _ := url.Parse(login.URL)
+			stateHash := digest(target.Query().Get("state"))
+			expected := "/auth/login"
+			switch scenario {
+			case "expired":
+				_, err = f.root.Exec(f.ctx, `UPDATE oidc_transactions SET expires_at=clock_timestamp()-interval '1 second' WHERE state_sha256=$1`, stateHash)
+				expected += "?return_to=%2Fapp%2Fskills"
+			case "missing":
+				_, err = f.root.Exec(f.ctx, `DELETE FROM oidc_transactions WHERE state_sha256=$1`, stateHash)
+			case "foreign-browser":
+				browser = &http.Cookie{Name: LoginCookie, Value: randomSecret()}
+			case "missing-cookie":
+				browser = nil
+			case "expired-form":
+				_, err = f.root.Exec(f.ctx, `UPDATE identity_authorizations SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1`, id)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if scenario != "active" && scenario != "expired-form" {
+				refresh := authorize(browser)
+				if refresh.Code != 303 || refresh.Header().Get("Location") != expected {
+					t.Fatal("stale or foreign authorization was not restarted safely")
+				}
+			}
+			form := url.Values{"request": {id}, "csrf": {csrf}, "login": {f.user.LoginEmail}, "password": {f.password}}
+			r := httptest.NewRequest("POST", f.server.options.Issuer+"/login", strings.NewReader(form.Encode()))
+			r.Header.Set("Accept", "text/html")
+			r.Header.Set("Origin", f.server.options.PublicURL)
+			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			r.AddCookie(providerCookie)
+			if browser != nil {
+				r.AddCookie(browser)
+			}
+			result := httptest.NewRecorder()
+			f.server.ServeHTTP(result, r)
+			if scenario == "active" {
+				callback, _ := url.Parse(result.Header().Get("Location"))
+				session, err := service.Callback(f.ctx, callback.Query().Get("state"), login.BrowserSecret, callback.Query().Get("code"), "")
+				if result.Code != 303 || err != nil || session.ReturnPath != "/app/skills" {
+					t.Fatal("valid browser flow lost its session or destination", err)
+				}
+				return
+			}
+			if result.Code != 303 || result.Header().Get("Location") != expected {
+				t.Fatal("stale form submission did not restart login")
+			}
+			var codes int
+			if err = f.root.QueryRow(f.ctx, `SELECT count(*) FROM identity_codes WHERE nonce=$1`, target.Query().Get("nonce")).Scan(&codes); err != nil || codes != 0 {
+				t.Fatal("stale form minted an unusable authorization code", err)
+			}
+		})
 	}
 }
 func TestAuthorizationValidationRejectsOpenRedirectAndProtocolDowngrade(t *testing.T) {

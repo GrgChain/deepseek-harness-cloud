@@ -1,6 +1,8 @@
 # DSH Cloud 初始版本测试与验收
 
-版本：V0.1。97 项 TC 定义完整产品验收范围，表中“未执行”表示尚无该整项全部分支的验收结论；模块单元/集成证据不能自动把整项标为通过。REQ-13～15新增用户、角色和权限管理，TC-51～60完整验收未执行；REQ-16为Go原生模型接入，TC-61～68完整验收未执行；REQ-17个人模型对应TC-69～76。当前已验证范围和剩余工作统一见[验证范围](#11-当前验证范围与剩余工作)，需求见[功能需求](requirements.md)。
+版本：V0.1。下表TC定义产品验收范围，表中“未执行”表示尚无该整项全部分支的验收结论；模块单元/集成证据不能自动把整项标为通过。REQ-13～15新增用户、角色和权限管理，TC-51～60完整验收未执行；REQ-16为Go原生模型接入，TC-61～68完整验收未执行；REQ-17个人模型对应TC-69～76；REQ-20调整为Portal个人技能库；REQ-23对应TC-102～109。当前已验证范围和剩余工作统一见[验证范围](#11-当前验证范围与剩余工作)，需求见[功能需求](requirements.md)。
+
+连接器阅读入口：[当前实现](connectors-implementation.md) · [部署与复验](../deploy/connectors/README.md) · [OAuth实现验证记录](#工作台-oauth-连接器2026-10-26) · [2026-10-26实网检查](connectors-oauth-availability-2026-10-26.md)。下文带日期的专项为历史执行记录，本次文档整理不改变用例状态，也不表示重新执行。
 
 ## 1 测试层级
 
@@ -24,7 +26,7 @@ Mock 只验证相应逻辑层，不替代真实 Docker、模型/工具和浏览�
 | TC-03 | 并发生命周期 | 单活跃操作，冲突拒绝，UNCERTAIN 占槽 | REQ-08 | 未执行 |
 | TC-04 | 启停持久化 | 恢复原卷，文件校验和及受支持配置一致 | REQ-08 | 本机通过：原资产/配置保持，模型生成文件重启SHA一致 |
 | TC-05 | 原生会话持久化 | 刷新和启停后已完成会话/工具记录仍可读，明确不恢复在途进程 | REQ-07、REQ-08 | 本机通过：已完成真实任务同会话ID、回答和write/read记录重启/刷新可读；不承诺在途恢复 |
-| TC-06 | 软删除保护 | 清理计算/入口、保留原卷和审计，无永久删除 | REQ-09 | 未执行 |
+| TC-06 | 软删除保护 | 清理计算/入口、保留原卷和审计，无永久删除；无活跃操作的异常实例可确认名称后删除，不依赖模型健康 | REQ-09 | 未执行 |
 | TC-07 | Owner 边界 | 跨用户/伪造组织拒绝，管理员无隐式内容访问 | REQ-02 | 未执行 |
 | TC-08 | Host/路由 | 未知域名、任意上游、伪造代理来源拒绝，直连/共享端口不能绕过授权 | REQ-06 | 未执行 |
 | TC-09 | 票据重放 | 并发一次，过期/撤销/主体域名不匹配拒绝 | REQ-06 | 未执行 |
@@ -108,8 +110,19 @@ Mock 只验证相应逻辑层，不替代真实 Docker、模型/工具和浏览�
 | TC-94 | 数据盘备份 | 计算未停止/活动任务拒绝；原盘绑定、加密归档和校验完成才成功；失败保留有效备份；独立故障域单独验证 | REQ-19、REQ-11 | 本机验证通过；独立备份目标及灾备验收后续另做 |
 | TC-95 | 同Owner另盘恢复 | 跨Owner/原盘/容量不符/法律保留/坏备份拒绝；目标原数据先加密保留，恢复后文件校验一致，不自动启动或恢复旧授权 | REQ-19、REQ-11 | 本机验证通过（证据见下文） |
 | TC-96 | 永久回收保护与对账 | 未满7天/未到保留期/法律保留/挂载冲突拒绝；预览和精确确认；超时保守计额，物理回收确认后只释放一次 | REQ-19、REQ-09、REQ-10 | 本机验证通过（证据见下文） |
-| TC-97 | 数据管理交互与审计 | 桌面/手机列表详情、分页筛选、空/失败/过期状态和刷新；维护指引明确；审计失败/并发/中断不误报完成，跨Owner不泄漏内容与秘密 | REQ-19、REQ-12、REQ-15 | 本机验证通过（证据见下文） |
+| TC-97 | 工作数据交互与审计 | 桌面/手机列表详情、分页筛选、空/失败/过期状态和刷新；维护指引明确；审计失败/并发/中断不误报完成，跨Owner不泄漏内容与秘密 | REQ-19、REQ-12、REQ-15 | 本机验证通过（证据见下文） |
 | TC-98 | 数据目录浏览 | 固定workspace/dsh根、Owner权限、运行/停止/软删除状态、运行中只读卷、路径穿越/符号链接拒绝；目录分页、512 KiB文本预览、64 MiB下载及界面错误恢复 | REQ-19 | Go参数与加密结果单测、Python语法和前端构建通过；真实运行中Worker浏览新增到Worker集成测试，需配置隔离数据库与容器环境执行 |
+| TC-99 | 个人技能包与迁移 | 用户隔离与事务权限；编辑版本冲突；Markdown/ZIP 导入预览、默认关闭调用、同名跳过/替换；链接导入与手动更新、文件差异和本地修改保护；上一版下载；坏包/路径/符号链接/超限及 SSRF 拒绝；导出相对目录一致、桌面/手机交互 | REQ-20、REQ-02、REQ-06、REQ-11、REQ-15 | 单元、受限 API 角色 PostgreSQL 集成与桌面/手机页面验证见下文；外部来源实网全矩阵待验收 |
+| TC-100 | 外接可迁移记忆 | OpenViking、Mem0、Graphiti适配分别验证真实开源服务、支持操作与无隐式切换；批准服务与密文凭据、范围隔离、写入确认、工作台范围检索、同Owner工作空间关联与服务间迁移、包内容/来源校验、图谱实体/关系/来源与有效时间保留及不兼容提示、冲突及中断保护、远端删除待确认、工作台检索与故障反馈；不改容器 | REQ-21、REQ-02、REQ-06、REQ-11、REQ-15 | 部分实现与执行；详见[实施记录](context-implementation.md)，验收限工作台与外接服务 |
+| TC-101 | 外接知识库 | Milvus、Weaviate、Qdrant适配分别验证真实服务及所需开源RAG配套：向量维度/索引就绪、原文可重建索引、database/collection/tenant及Qdrant payload字段映射与服务端授权过滤、后端/模块能力校验及无隐式切换、文档解析/索引状态、工作台按工作空间范围复用语料、版本与引用定位、未就绪/无命中/故障、更新删除与撤销竞争、缓存清理及跨Owner拒绝、工作台真实检索；不改容器 | REQ-22、REQ-02、REQ-06、REQ-11、REQ-15 | 部分实现与执行；详见[实施记录](context-implementation.md)，验收限工作台与外接服务 |
+| TC-102 | MCP连接与协议 | 真实Streamable HTTP服务验证配置、认证、固定协议版本、JSON/SSE响应、工具分页和循环游标/限额拒绝；验证不调用工具；凭据加密无读回；不支持的协议或OAuth流程明确拒绝，不降级匿名 | REQ-23、REQ-02、REQ-11 | 本机专项通过，实际覆盖与后续边界见[实施记录](connectors-implementation.md) |
+| TC-103 | MCP工具授权与执行 | 首次工具默认关闭、目录/Schema变化暂停授权、服务端参数校验、只读声明不扩大权限；显式确认、工具业务错误、重复提交、取消/超时/迟到结果、并发与限额；真实有副作用工具验证不自动重试 | REQ-23、REQ-15 | 本机专项通过，实际覆盖与后续边界见[实施记录](connectors-implementation.md) |
+| TC-104 | MCP隔离与撤销 | 两用户及管理员跨Owner拒绝、三项权限独立、出站前复核、连接停用/密钥失效/权限撤销；DNS重绑定、私网/元数据/重定向及凭据外泄拒绝；目录/结果不可信文本渲染，调用审计不含正文或密钥 | REQ-23、REQ-02、REQ-11、REQ-15 | 本机专项通过，实际覆盖与后续边界见[实施记录](connectors-implementation.md) |
+| TC-105 | MCP工作台与迁移 | 桌面/手机连接CRUD、搜索分页、状态/错误恢复、工具选择、试调用与记录；配置JSON预览、同名跳过、导出无密钥、导入重新认证且关闭工具、stdio条目拒绝；验证不修改DSH | REQ-23、REQ-15 | 本机专项通过，实际覆盖与后续边界见[实施记录](connectors-implementation.md) |
+| TC-106 | OAuth逐厂商真实验收 | Ardot、Notion、OpenAlex、滴答清单、企查查分别完成元数据、注册/配置、用户真实同意、平台回调、工具发现及显式调用；支持刷新时验证真实轮换及重启恢复，无刷新能力时验证到期重新授权；回调拒绝和过期/重放/跨会话安全分支 | REQ-23、REQ-02、REQ-11、REQ-15 | 部分验证：基础模拟OAuth及安全用例通过；四家实网注册和授权入口通过，企查查回环回调注册通过；五家真实账号同意、成功回调及业务工具验收待执行，见[可用性检查](connectors-oauth-availability-2026-10-26.md) |
+| TC-107 | 企查查双模式与回调 | 同一卡片OAuth/API Key入口；允许回环与正式HTTPS登记、被拒绝回调错误指引；实际平台会话回调；两种认证分别接入，切换原子替换且旧事务/工具授权失效，失败保留原认证；API Key无OAuth刷新，无静默降级及秘密读回 | REQ-23、REQ-02、REQ-11、REQ-15 | 完整功能待实现、验收待执行；现有通用OAuth/Bearer能力和回环注册探测不等同于本项通过 |
+| TC-108 | 企查查五类MCP聚合 | 企业信息/风险/知识产权/经营/人员固定资源及前缀；共享本人凭据、逐资源元数据及令牌适用范围校验；完整类别目录、工具默认关闭、部分无权/故障明确展示并阻断失败类别；具备相应权限的真实账号按OAuth/API Key两种方式覆盖五类并各显式调用至少一项 | REQ-23、REQ-02、REQ-11、REQ-15 | 待实现、待执行；当前只配置企业信息MCP，五类服务须在本项目逐项验收 |
+| TC-109 | 企查查凭据生命周期 | OAuth真实刷新轮换、跨请求/进程协调、刷新与切换/解绑竞争；进程重启后恢复认证和选择并复核权限；401发现至多刷新重试一次、工具不自动重试；解绑先封闭使用再撤销最新refresh token，失败/未知保留待撤销记录，成功后本地清理及旧入口失效；API Key只清本地并提示远端撤销 | REQ-23、REQ-02、REQ-11、REQ-15 | 专用流程待实现、真实厂商验收待执行；通用模拟刷新通过不代替本项 |
 
 ## 3 需求追踪
 
@@ -134,6 +147,10 @@ Mock 只验证相应逻辑层，不替代真实 Docker、模型/工具和浏览�
 | REQ-17 | settings个人模型/ModelSync、实例绑定和前端模型提供商 | API-046～060及创建/预检/显式应用扩展 | 提供商/目录、Owner绑定密文、连接版本、同步操作、个人默认 | TC-69～76 |
 | REQ-18 | identity用户配额、userquota共享统计/校验、instances命令与settings预检、用户配额弹窗 | API-070～071 | user_quota_policies、quota_commitments、audit_events | TC-84～89 |
 | REQ-19 | StoragePanel、QueryService、StorageUsageCollector、StorageBrowser及operations.StorageService | API-077～082本人只读查询和固定目录浏览；备份/恢复/回收继续受信CLI | storage_assets、浏览短时请求、存储预留/恢复保留、备份元数据与维护审计 | TC-91～98 |
+| REQ-20 | Portal 个人 Skill 库 | `/v1/skills`、导入预览/应用、来源获取/更新及导出接口 | 加密技能包、来源摘要、短期预览与上一版包 | TC-99 |
+| REQ-21 | contextservice控制面、Portal与独立OpenViking/Mem0/Graphiti适配；功能加载到工作台 | API-095～099 | 连接、命名空间绑定、记忆内容引用与迁移回执；内容在外部服务 | TC-100（部分通过，见实施记录） |
+| REQ-22 | contextservice、Portal、三种真实向量后端及LlamaIndex/FastEmbed；功能加载到工作台 | API-095～099 | 语料与后端collection/tenant映射、文档引用、实例绑定及索引状态；向量在所选外部检索后端，原文在配套文档存储 | TC-101（部分通过，见实施记录） |
+| REQ-23 | 工作台 `/app/connectors`、Go connectors模块及迁移49～51；基础连接及OAuth已实现，企查查双模式、五类聚合及专用解绑待实现，真实厂商验收未完成 | API-100～111、API-115/116；聚合及解绑契约须随实现同步 | 本人密文凭据、一次性授权事务、工具授权快照、脱敏调用状态；参数和结果不持久保存 | TC-102～109；[实现说明](connectors-implementation.md)、[OAuth专项](#工作台-oauth-连接器2026-10-26)、[实网检查](connectors-oauth-availability-2026-10-26.md) |
 
 映射不代替分支覆盖。细化版本/租约、重投/回写失败、未知占槽/额度、健康过期、Key 撤销、磁盘满、CSRF、SSRF 和 WS 失权分支。
 
@@ -228,7 +245,7 @@ D1 CI顺序固定为文档/格式/静态契约→领域/前端单元→PG17/Redi
 
 ## 10 内嵌 Workspace 验证
 
-当前 Workspace、版本化 Terraform 模板和构建记录由平台 Go 模块与 PostgreSQL schema10 管理，Terraform 在 Worker 受控目录执行，计算资源运行在本机 Docker。源码锁与许可见 [第三方说明](../third_party/coder/README.md)。
+当前 Workspace、版本化 Terraform 模板和构建记录由平台 Go 模块与 PostgreSQL schema10 管理，Terraform 在 Worker 受控目录执行，计算资源运行在本机 Docker。复用范围与许可边界见[ADR-01](decisions/0001-coder-integration.md)。
 
 | 当前验证 | 结果与边界 |
 | --- | --- |
@@ -272,6 +289,9 @@ schema 10 已在隔离库及本机服务库验证：原业务列、唯一约束�
 | 恢复核对/保留/接纳 | 旧备份漏记资源可只读核对、保守占额、可信检查点接纳及账本转换；差异/Owner/扫描变化/审计失败拒绝；仍保持目标隔离 | `.local/recovery-ledger-evidence.json`、`.local/recovery-adoption-evidence.json`、`make test-recovery-ledger` |
 | 来源授权隔离 | 独立 PG 实际旧连接关闭/重连拒绝、原子撤销回滚、提交后中断继续及精确重放；服务库只读预览 | `.local/recovery-source-fence-evidence.json`、`make test-recovery-source-fence` |
 | 当前内嵌编排 | schema10 与命名迁移、真实 Terraform/Worker 原卷生命周期、原实例真实登录/HTTP/WS | `.local/workspace-rename/evidence.json`、`make workspace-test` |
+| 个人 Skill 页面 | 桌面/手机 6 项模拟接口测试：列表排版、编辑冲突保留输入、关闭确认、下载、文件/链接导入预览及只读权限 | `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/skills.spec.ts`；真实本机流程设置 `HC_REAL_SKILLS=true` |
+| 个人 Skill 本机真实流程 | 桌面/手机共 2 项：真实成员 OIDC 登录、创建并编辑、Markdown 导出、文件导入预览与确认替换、两类调用关闭、上一版下载、缺少 CSRF 拒绝；最后清理测试技能 | `HC_REAL_SKILLS=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/skills.spec.ts --grep 'live personal' --workers=1` |
+| 个人 Skill 库 | frontmatter 与归档校验、路径/容量拒绝、策略与资源导出往返、公网 URL 校验；受限 API 角色验证用户隔离、加密、版本与预览冲突、来源更新及故障保护 | `GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" go test -race ./services/internal/skills` |
 
 前端单元/桌面移动页面和真实 OIDC 登录分开执行；真实身份用例受 `HC_REAL_IDENTITY` 控制，关闭时明确跳过。Gateway 生命周期浏览器测试使用预建 BFF 会话，不等同于 OIDC 端到端测试。模型测试需显式受控私有 Key 和费用预算，本次文档/代码清理不触发计费请求。CI 已定义基础/真实 Docker 契约流程，远端执行情况必须另查，不能以本机通过推定。
 
@@ -281,10 +301,13 @@ schema 10 已在隔离库及本机服务库验证：原业务列、唯一约束�
 | 平台模型网关外部模型接入（REQ-16） | 已有网关配置/批准目录、虚拟密钥、Messages/流式/工具适配、私网出口及版本应用；至少一个非DeepSeek真实DSH闭环；TC-61～68完整验收待执行 |
 | 未知恢复资源与物理缺额释放 | 对没有可信原元数据的资源定义受信处置、确认/审计及失败继续；物理消失前保守占额 |
 | 恢复目标重新授权与三进程切换 | 目标保持隔离直至来源围栏、Owner/模型重新授权、最小角色、连接切换及真实登录/原数据验证；来源围栏本身不开放目标 |
+| 技能包完整验收 | 外部来源实网全矩阵（DNS 重绑定、多跳重定向、TLS、超时）、多用户大规模容量与故障恢复验收 |
+| 外接记忆与知识库（REQ-21～22） | 控制面与Portal、六种真实后端、迁移及试检索引用已验证。本次按用户确认加载在工作台，不将DSH自动调用作为验收项。生产模型动态治理、独立备份及压力测试仍属后续；TC-100～101记录Portal与真实外部服务证据，见实施记录 |
+| 连接器后续范围（REQ-23） | 工作台远程连接、工具授权、手动调用及通用OAuth已实现并完成本机专项；五家真实账号授权与业务工具完整验收仍待执行。企查查双模式、五类聚合、资源授权及远端解绑按TC-107～109继续实现；stdio/Resources/Prompts/Agent自动调用、生产实网与压力矩阵另行验收，见[实施记录](connectors-implementation.md) |
 | 正式单机安装及控制面回退 | 固定制品/配置、最小身份、DNS/TLS/入口、维护/健康、兼容迁移与二进制回退演练；兼容运行默认值回滚不证明 DB 降级 |
 | 持续核对验证边界 | 周期核对、租约/审计及个人版本新用门槛已实现；核对有效期60秒仍存在有界外部变化窗口，真实提供商Key内容不可读，完整产品故障矩阵仍需验收 |
 | 组织共享提供商Key统一管理 | 个人模型已由平台收取真实Key并管理网关；现有组织设置仍只接收预建虚拟Key，共享连接真实Key入口与后台同步尚待统一 |
-| 完整权限/工具/故障矩阵 | 按83项 TC 补全部分支、角色组合、取消/迟到/中断/磁盘满/泄漏/越界与浏览器可访问性，不用模块覆盖率代替产品验收 |
+| 完整权限/工具/故障矩阵 | 按用例目录补全部分支、角色组合、取消/迟到/中断/磁盘满/泄漏/越界与浏览器可访问性，不用模块覆盖率代替产品验收 |
 | 性能与撤销目标 | 默认规格至少20次创建 P95≤120秒；10并发读者5分钟 P95≤500ms；100次撤销全部 WS≤30秒，记录全部失败/环境/样本 |
 | 独立故障域与恢复指标 | 当前仅本机演练；另行配置独立存储并证明 RPO≤24小时/RTO≤4小时、连续真实日备份和完整恢复切换 |
 | 自动契约与安全检查 | OpenAPI↔手写 DTO/响应一致性、秘密/依赖扫描尚未完整接入 CI；现有 make check 只含格式/vet/TS |
@@ -672,8 +695,181 @@ REQ-19的当前展示规则以需求第6.12.1节四类状态为准：可用、�
 
 ## 角色权限目录与说明同步（2026-10-20）
 
-REQ-14～15同步最近功能：25项权限显示中文名称及用途，数据管理单列永久释放本人存储；数据资产、目录浏览、预览和下载沿用instances:read，用户额度及系统上限分别沿用users和configuration/defaults权限，DSH插件与预设沿用实例进入及Owner边界。OpenAPI的当前用户、角色读取/写入及目录等五处权限枚举补齐instances:release-storage，数组上限同步为25；PermissionDefinition增加可选description。旧文档中的治理权限仅限内置ADMIN说明已按迁移35的实际可分配规则修正，本次不变更权限标识、数据库授权或角色权限集合。
+REQ-14～15同步最近功能：25项权限显示中文名称及用途，工作数据单列永久释放本人存储；数据资产、目录浏览、预览和下载沿用instances:read，用户额度及系统上限分别沿用users和configuration/defaults权限，DSH插件与预设沿用实例进入及Owner边界。OpenAPI的当前用户、角色读取/写入及目录等五处权限枚举补齐instances:release-storage，数组上限同步为25；PermissionDefinition增加可选description。旧文档中的治理权限仅限内置ADMIN说明已按迁移35的实际可分配规则修正，本次不变更权限标识、数据库授权或角色权限集合。
 
-验证通过：类型检查与生产构建；identity的Go vet；隔离PostgreSQL竞态用例核对完整目录与数据库的ID、可分配性及依赖，并验证角色读取权限、释放存储缺依赖拒绝、完整依赖可显式授权及原角色生命周期。桌面/手机共4项既有角色页面用例通过，旧“名称”定位同步为当前“角色名称”。真实管理员只读验收确认两端均展示25项名称与说明、数据管理分组、默认无勾选及显式依赖门禁；取消编辑后，角色版本与权限集合前后相同，未发送角色写请求。
+验证通过：类型检查与生产构建；identity的Go vet；隔离PostgreSQL竞态用例核对完整目录与数据库的ID、可分配性及依赖，并验证角色读取权限、释放存储缺依赖拒绝、完整依赖可显式授权及原角色生命周期。桌面/手机共4项既有角色页面用例通过，旧“名称”定位同步为当前“角色名称”。真实管理员只读验收确认两端均展示25项名称与说明、工作数据分组、默认无勾选及显式依赖门禁；取消编辑后，角色版本与权限集合前后相同，未发送角色写请求。
 
 当前API已更新并就绪。证据位于`.local/qa/permission-catalog/`：catalog.json、verification.json、两端详情/编辑截图，以及构建、Go、模拟页面和真实账号日志。本次不执行真实角色授权变更，不代表完整治理安全与产品验收完成。
+
+2026-10-22 异常实例删除修复：`Lifecycle.Plan` 与查询能力一致允许无活跃操作的 ERROR 实例排队删除，保留 Owner、名称确认、幂等和维护任务限制。受限 PostgreSQL 集成验证坏模型下可删除、跨用户拒绝、错误名称拒绝、重复提交重放及删除尚未完成；Worker 终态集成验证原卷保留和额度确认规则；桌面/手机页面验证删除确认和受理后进度。对应命令：`go test -race ./services/internal/instances -run 'TestOwnerQueriesWithRestrictedPostgres|TestLifecycle'`（真实库设置 `HC_TEST_DB_DSN_FILE`）、`go test -race ./services/internal/worker -run '^TestTerminalPublicationIsAtomicFencedAndRetainsOriginalStorage$'`，及 `npx playwright test tests/instance-details.spec.ts --grep 'error instance'`。测试库与实际数据隔离，未删除用户实例。
+
+2026-10-22 小规格容量误报修复：Worker 基础容量检查改为最小支持规格 1CPU/2GiB，API 继续按所选规格检查，保留 4CPU/8GiB 控制面余量；旧的 2CPU/4GiB 单位仅用于构建并发。`go test -race ./services/internal/hostcapacity ./services/internal/admission ./services/internal/worker` 通过，补充 2GiB 可用、4GiB 不足及预留边界用例。本机 Worker 更新后只读预检验证：主机可用内存约 11.4GiB 时，1CPU/2GiB 的 capacity 为 HEALTHY，1CPU/4GiB 为 CAPACITY_UNAVAILABLE，两者 quota 均健康。未创建、停止或删除用户实例，未修改 DSH 容器。
+
+2026-10-22 登录体验优化：未登录或业务401自动进入BFF登录，保留受控业务路径；依赖503保留恢复入口，拒绝外部返回地址且不重放查询参数。Go内嵌登录页统一DSH Cloud视觉，提供密码切换、登录中反馈、错误后保留邮箱/清空密码及移动端布局。`go test -race ./services/internal/identity ./services/internal/httpserver`、identity的`go vet`、前端类型检查与生产构建通过；隔离PostgreSQL的CSRF/挑战重放/失效凭据/BFF撤销用例通过。桌面和手机模拟页面验证自动跳转、存储与实例401、503恢复和返回路径安全；本机真实OIDC验证管理员/成员登录、会话恢复、退出、错误密码、未授权账号、密码切换、提交反馈和成功返回技能包。真实页面截图已检查，两端无横向溢出。真实测试命令为`HC_REAL_IDENTITY=true npx playwright test tests/login.spec.ts`；提交中状态通过暂时阻止原生导航检查，后续密码失败与成功返回均走真实服务。未修改DSH容器或用户工作数据。
+
+2026-10-22 登录页留白调整：桌面改为1080px上限的品牌介绍/表单分栏，统一卡片与浅色背景；880px及以下收起介绍、保留单列表单。用当前HTML模板与实际CSS检查320/390/768/880/900/1440/1920px及错误提示，无横向溢出。更新API后，桌面/手机真实OIDC的密码切换、提交反馈、错误重试、成功返回原页面和退出用例共2项通过；`go test ./services/internal/identity`通过。布局证据位于`.local/qa/login-layout/`。
+
+2026-10-22 失效登录回调恢复：浏览器失效回调303返回固定登录入口，JSON调用仍401；登录页刷新及提交前检查BFF事务与浏览器绑定，避免旧表单签发无法兑换的授权码。隔离PostgreSQL竞态测试覆盖有效登录、过期/已清理事务、不同浏览器、缺少Cookie及过期表单，验证失效时不签发授权码，正常登录保留业务返回路径；既有CSRF、重放、凭据变化和会话撤销回归通过。命令：`go test -race ./services/internal/identity -run 'TestBrowserLogin|TestExpiredCallback|TestEmbeddedOIDC|TestHTTPIdentity|TestReturnPath|TestAuthorizationValidation|TestCookies' -count=1`，设置绝对路径的`HC_TEST_DB_DSN_FILE`。HTTP服务竞态测试、identity vet、前端类型检查及OpenAPI解析通过。本机API已更新；桌面/手机真实登录共6项通过，覆盖失效回调恢复、旧页面刷新和提交恢复、凭据不自动重交，以及正常密码重试、返回原页面与退出。浏览器命令：`HC_REAL_IDENTITY=true npx playwright test tests/login.spec.ts --grep 'expired callback|stale login pages|login form supports'`。测试使用合成失效参数与专用账号，未使用用户提供的授权码，未修改DSH容器。
+
+
+### 2026-10-23 新增需求回归
+
+外接记忆、知识库、技能包及相关页面的最终结果和未完成边界见[实施记录](context-implementation.md#2026-10-23-最终回归记录)。完整页面250项通过、56项条件跳过；真实账号套件单独启用执行，不能将默认跳过计为成功。`make ci`及14包独立数据库集成通过。
+
+技能包生产HTTPS下载链可选实测（只写入可销毁测试库）：
+
+```bash
+HC_SKILL_SOURCE_PROXY_FILE="$PWD/.local/skill-source-proxy.json" HC_REAL_SKILL_SOURCE_URL=https://raw.githubusercontent.com/anthropics/skills/main/skills/frontend-design/SKILL.md HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build go test -race -count=1 ./services/internal/skills -run TestPersonalLibraryWithPostgres
+```
+
+本机已使用显式配置的回环CONNECT代理完成此项，直连出口仍存在DNS超时与TLS重置。用例要求实际下载、预览确认、保存、手动检查无更新、默认关闭调用及导出正文一致，不以模拟来源替代。环境代理不会被来源下载器采用；显式代理只接收平台已验证的公网IP:443，保持来源TLS与SSRF边界。公网全部网络故障组合仍未验收。
+
+
+技能链接下载器另有14个受控网络回归：使用真实TLS服务及显式注入的测试DNS/拨号器，验证生产下载与重定向逻辑，生产入口始终使用系统DNS、公网地址校验及固定IP连接；仅运维显式配置时使用回环CONNECT代理。此测试证明拒绝和限额行为，不代替公网连通性验收。
+
+
+工作台范围按用户确认：记忆与知识库加载在Portal，不接入DSH。迁移48向内置管理员/成员提供本人内容权限，自定义角色不自动加权；权限迁移幂等和审计、新组织默认值及Owner隔离由数据库集成验证。新增真实浏览器用例检查两类账号的桌面/手机入口；`skill-source-live.spec.ts`可用 `HC_REAL_SKILLS=true HC_REAL_SKILL_SOURCE_URL=公开HTTPS直链` 启用，使用独立合成账号验证链接预览、确认导入、无变化同步及下载一致性并清理测试数据。
+
+2026-10-23 工作台最终验证：真实管理员/成员桌面与手机导航、六后端账号流程共10项通过（另6项条件跳过）；公网技能链接桌面/手机真实流程2项通过（13.9秒），并清理合成账号内容。最终静态检查、单测和构建通过；全量页面250项通过、56项条件跳过，跳过项不计作通过。默认角色变更已应用迁移48，API及外接服务已运行。
+
+## 工作台连接器专项（2026-10-23）
+
+迁移49已应用，API及独立Docker MCP测试服务已运行。`make ci`、15包隔离PostgreSQL集成通过；MCP官方SDK协议/网络边界及受限API角色数据库专项通过；桌面/手机模拟页面6项和真实登录/MCP/配置迁移2项通过。真实用例创建合成成员并在结束时清理连接和归档账号；管理员跨Owner读取返回404。新增分页/循环游标/恶意Schema、业务错误、认证失败、禁用删除及凭据擦除回归详见[实施记录](connectors-implementation.md)。既有250项页面结论来自新增连接器前，本次未将其当作连接器验证。
+
+
+## GitHub 技能来源专项（2026-10-23）
+
+支持公开仓库地址（含 `.git`）、`tree` 目录和 `blob` 文件链接。仓库扫描默认分支，目录限制扫描范围；只读取技能子目录，保留附属文件，导入前仍需预览确认。单元测试新增链接解析、分支编码、目录边界、根技能与多技能识别、托管元数据排除、重名/嵌套/路径/符号链接/大小拒绝，以及 GitHub 归档重定向的真实 TLS 测试；PostgreSQL 验证只更新当前技能，不创建或覆盖同仓库邻居，远端技能缺失不修改本地。相关 Go 竞态测试和 vet、OpenAPI YAML 校验、前端生产构建及桌面/手机 8 项技能包页面测试通过（2 项真实个人库用例未启用，不计作通过）。
+
+公开 GitHub 实网验证分别使用 `https://github.com/vercel-labs/skills`、`/tree/main/skills/find-skills` 与 `/blob/main/skills/find-skills/SKILL.md`：仓库发现 3 个技能，目录和文件各 1 个；三种来源的隔离数据库预览、确认导入、无变化检查与导出内容一致性均通过。测试不执行技能中的指令或脚本，临时数据库在结束后清理。
+
+本机 API 已更新。`skill-source-live.spec.ts` 在桌面和手机均通过真实仓库链接预览、导入 3 项技能、单项检查更新与下载一致性验证，共 2 项；测试使用临时成员，完成后清理技能并归档测试账号。
+
+```sh
+HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" \
+HC_REAL_SKILL_SOURCE_URL=https://github.com/vercel-labs/skills \
+go test -count=1 -v ./services/internal/skills -run TestPersonalLibraryWithPostgres
+```
+
+
+## 技能包文本文件编辑（2026-10-23）
+
+工作台移除自动调用、手动调用开关及导入/编辑中的相关提示。编辑抽屉增加已有文件选择，支持 UTF-8 文本、中文路径、脚本和空文件；图片等二进制文件只能下载查看。API-112～113 为文件读取和整包版本校验的单文件保存，不提供文件创建或删除，也不执行脚本。
+
+受限 PostgreSQL 角色集成及 Go 竞态测试、vet 通过：验证跨 Owner 拒绝、路径穿越和未列出文件拒绝、二进制/无效 UTF-8/NUL/超限拒绝、空文本保存、版本冲突、其他文件及来源元数据保留、导出内容一致、附属文件本地修改进入同步差异，以及严格请求字段和查询参数。OpenAPI 校验、前端生产构建通过；桌面/手机模拟页面共 10 项通过，另 4 项真实个人库用例在该轮未启用，其结果单独记录如下。
+
+本机 API 已更新。真实浏览器共 6 项通过：桌面/手机各验证 GitHub 仓库导入与来源检查、原有正文编辑流程、附属文件选择与编辑、二进制提示、未保存内容保护、整包导出一致及 CSRF 拒绝；创建的测试技能均已清理。复现：
+
+```sh
+cd apps
+HC_REAL_SKILLS=true HC_REAL_SKILL_SOURCE_URL=https://github.com/vercel-labs/skills \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome \
+npx playwright test tests/skills.spec.ts tests/skill-source-live.spec.ts --grep 'live ' --workers=1
+```
+
+
+## 新建技能添加脚本（2026-10-26）
+
+技能编辑器新增“新建文件”，填写技能包内的相对路径和 UTF-8 文本内容，可在新建技能后直接添加 `scripts/run.py`、`scripts/run.sh` 等文件。提交成功后保持编辑器打开、选中新文件并刷新列表；失败保留路径和内容，关闭前确认丢弃，当前文件未保存时先确认。
+
+API-114（`POST /v1/skills/{id}:file`）复用 Owner 权限、CSRF、整包版本、加密、路径/文件数/大小/个人额度检查，拒绝已有路径、大小写重名和文件目录冲突。Go 竞态与隔离 PostgreSQL 集成、vet、OpenAPI 校验、生产构建通过。桌面/手机模拟页面共 12 项通过（6 项真实流程条件跳过，另行执行）；覆盖创建失败保留输入、成功后打开脚本、只读用户无创建入口。
+
+
+本机 API 已更新。桌面/手机真实流程各 1 项通过：新建技能后直接创建 `scripts/run.py`，自动打开新脚本，下载 ZIP 后脚本内容与原 `SKILL.md` 均一致，缺少 CSRF 的创建被拒绝；测试结束清理所建技能。新建文件取消保护、失败后输入保留、手机无横向溢出另专项 2 项通过，截图已检查。复现（在 `apps` 目录执行）：
+
+```sh
+HC_REAL_SKILLS=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome \
+npx playwright test tests/skills.spec.ts --grep 'live newly created' --workers=1
+```
+
+
+## 技能包上传上限 5 MiB（2026-10-26）
+
+技能包上传、公开文件来源和导出包上限统一调整为 5 MiB，页面提示及 OpenAPI 同步；单文件 1 MiB、解压总量 12 MiB 和文件数 128 项不变。JSON 请求上限调整为 7 MiB，容纳 5 MiB 文件的 Base64 内容（最大 6,990,508 字符）。
+
+新增有效 ZIP 的精确边界验证：5 MiB 可解析、超过 1 字节拒绝；实际 Base64 JSON（超过原 6 MiB 限额）可读取并还原，超过 7 MiB 的请求拒绝。技能包 Go 竞态、隔离 PostgreSQL 集成及前端生产构建通过；桌面/手机 4 项页面验证通过，覆盖 5 MiB 文件发送预览、超限不发送及原有导入确认流程。本机 API 已更新，readiness 返回 200。
+
+
+## 内置连接器目录（2026-10-26）
+
+工作台“添加连接器”已包含29种连接器，支持7类筛选、名称/用途搜索、接入说明、外部文档和配置入口。管理员以批准文件的可选 `catalog_id` 绑定兼容服务；目录不会自动批准外部地址。无绑定时可查看准备项但禁止保存，不创建占位连接。此次范围不含厂商适配服务、CLI安装和一键OAuth授权，不修改DSH。
+
+- Go专项 `go test -race -count=1 ./services/internal/connectors` 通过，包含独立PostgreSQL集成：29项完整性、唯一ID、文档链接、目录与批准绑定返回、旧批准文件兼容、未知绑定拒绝，保留原有未批准地址、HTTP及查询参数限制。
+- 前端生产构建、专项vet、OpenAPI YAML解析通过。
+- 桌面/手机模拟页面10项通过：目录完整加载、分类搜索/空状态、未配置禁止保存、接入文档、配置仅选择对应批准服务、凭据提交和编辑恢复说明，以及原有工具授权、调用确认、只读权限和导入预览。
+- 桌面/手机真实页面2项通过：真实登录后API返回完整目录，查看语雀准备项不新增连接，再使用独立Docker MCP合成服务完成添加、验证、选择工具、中文调用和无秘密导入导出，最后清理测试记录。首次运行遇到API重启的既有120秒认证限流恢复窗口，恢复后完整重跑通过。截图已检查，readiness为200。
+
+验证命令见[部署说明](../deploy/connectors/README.md)。真实MCP调用针对独立合成服务，不代表29家供应商的实际接口均已接入或验收。
+
+
+## 添加连接器界面优化（2026-10-26）
+
+服务选择改为桌面双列、手机单列网格，整块可点击；分类直接展示数量，搜索和分类固定在顶部，自定义MCP放到右上角。未接入服务不再展示空表单，增加返回选择；协议和说明收入“更多设置”，必要表单保持直接可见，来源链接保持移除。
+
+生产构建、桌面/手机模拟页面10项和真实MCP流程2项通过；截图已检查，另验证375px小屏、横屏和减少动效模式无横向溢出。低高度视口改为整个内容区滚动，避免筛选区域挤占服务操作。此项只调整Portal界面。
+
+
+## 个人 MCP 与添加记忆界面（2026-10-26）
+
+个人 MCP 可直接填写公网 HTTPS 服务地址和本人凭据；平台绑定作为地址建议，内网/HTTP 仍须精确例外。迁移50增加个人地址和目录关联，旧 `endpoint_id` 继续兼容。以下验证更新前述仅限批准服务的验收范围。
+
+- Go 竞态与隔离 PostgreSQL 集成、迁移及专项 vet 通过：不同 Owner 可独立配置同一服务，管理员跨 Owner 拒绝；凭据密文保存；变更地址不可沿用原凭据；公开地址导入预览和确认、目录关联导出、私网例外撤销均验证。
+- 公网 HTTPS 无需预配置；HTTP、回环/私网/元数据及特殊地址、嵌入凭据、查询参数和片段的拒绝规则通过。保留 DNS 全答案校验、固定 IP 拨号和重定向拒绝的协议测试。
+- 桌面/手机受控页面22项通过（8项真实服务用例未启用，另行执行）：个人地址无平台绑定时可保存、失败保留输入、目录回退及配置恢复、权限与导入确认；记忆方案搜索、仅展示相应后端、默认名称和唯一服务、未配置提示、返回选择，以及内容发送前的预览确认。
+- 前端生产构建及 OpenAPI YAML 解析通过，保留既有大包提示。记忆服务选择和手机表单截图已检查。
+
+真实登录6项通过：桌面/手机各验证个人 MCP 添加、验证、工具授权、中文调用、脱敏记录和无秘密配置迁移，以及管理员/成员的记忆服务选择、默认表单和工作台导航；合成 MCP 连接和测试账号已清理。平台数据库已应用迁移50，四个原生平台进程已更新，readiness返回200，DSH未改动。复现（`apps`目录）：
+
+```sh
+HC_REAL_IDENTITY=true HC_REAL_CONNECTORS=true HC_REAL_CONTEXT=true \
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome \
+npx playwright test tests/connectors-live.spec.ts tests/context.spec.ts --grep 'live workbench' --workers=1
+```
+
+真实 MCP 调用使用独立本机合成服务的精确HTTP例外；公网个人地址的保存/导入及出站限制由隔离测试覆盖，不代表全部供应商兼容性已验收。
+
+
+## 添加记忆与知识库交互补齐（2026-10-26）
+
+修复配置弹窗必填校验不定位错误字段的问题：通过表单提交触发校验并滚动、聚焦首个错误，打开后聚焦名称。保存期间禁用配置输入，统一紧凑启用开关，密码输入去除重复高度；低高度横屏弹窗靠上，操作按钮完整可见。
+
+桌面/手机受控流程14项通过（8项真实服务用例另行启用），新增验证名称/凭据错误定位、知识库方案隔离、保存期间锁定输入和停用创建结果；375px竖屏、844×390横屏与减少动效模式专项2项通过，截图已检查。真实 Mem0、Qdrant 各1项通过：从工作台页面选择方案和创建连接，再验证、写入、检索、授权原文查看和删除；合成连接、内容、账号及测试角色已清理。未修改DSH。生产构建通过，保留既有包体积提示。
+
+```sh
+cd apps
+PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/context.spec.ts --workers=2
+HC_REAL_IDENTITY=true HC_REAL_CONTEXT=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome \
+npx playwright test tests/context.spec.ts --grep 'live platform uses' --project=desktop --workers=1
+```
+
+
+## 平台连接器地址固定选择（2026-10-26）
+
+目录中的平台服务改为下拉选择，服务地址只读显示，保存提交 `endpoint_id`；只有“自定义 MCP”可手工输入并提交 `url`。平台未接入时禁止保存，提供单独的自定义入口。旧平台连接的设置和复制保持固定地址；此前按个人地址保存的目录连接，在地址精确匹配对应平台绑定时恢复固定选择。
+
+桌面/手机受控页面16项通过：固定地址、仅展示对应服务、编辑/复制、已有目录连接兼容、未接入提示与自定义入口、个人服务配置及原工具/导入流程。生产构建通过，保留既有包体积提示。真实登录专项另外验证自定义地址完整流程和平台连接只读编辑、保存后保留凭据并重新验证；合成记录清理。
+
+
+## 移除连接器配置导入导出入口（2026-10-26）
+
+工作台连接器主操作区仅保留“添加连接器”。移除配置导入/导出抽屉及其前端状态和未使用类型，后端原兼容API保留；添加、平台固定地址、自定义MCP、编辑/复制、工具授权和手动调用不变。桌面/手机既有16项页面回归与生产构建通过，测试明确检查两个入口不存在；保留既有构建包体积提示。真实页面用例同步移除下载/导入步骤，本轮未额外执行真实服务用例。
+
+## 工作台 OAuth 连接器（2026-10-26）
+
+迁移51新增 OAuth 认证类型及加密的一次性授权事务。Go 竞态与隔离 PostgreSQL 专项通过：`connectors`、`db`、`operations`、`security`、`httpserver`；对应 `go vet` 通过。覆盖动态注册、PKCE、官方回调地址、组织/Owner/登录会话隔离、过期与一次性消费、重复参数、配置版本变更、取消授权、私网/元数据地址和重定向拒绝，以及自定义服务的资源绑定与S256要求。合成HTTP OAuth/MCP服务测试完成授权码交换、MCP发现、工具默认关闭、访问令牌到期刷新、轮换刷新令牌保存、调用前刷新，以及invalid_grant转需授权；工具不自动重试。
+
+桌面/手机受控页面22项通过，覆盖固定地址OAuth入口、官方页面导航、CSRF提交、失败保留输入、重试更新原连接、返回提示清理和只读权限；前端生产构建通过，保留既有大包体积提示。真实登录及独立Docker MCP的桌面/手机流程2项通过，覆盖原有配置、工具发现/授权/调用和清理；其中桌面还使用Ardot真实授权元数据及动态注册服务，验证生成的官方授权地址、平台回调和取消授权返回，临时平台连接及合成账号已清理。
+
+没有使用用户厂商账号完成真实同意授权或读取其业务数据；Ardot授权页生成与取消不代表5家厂商的实际工具均已验收。当次Notion元数据曾返回403，后续当日实网检查已成功，详见下一节和[检查报告](connectors-oauth-availability-2026-10-26.md)。厂商账号、回调域名或服务策略受限时保留安全失败提示，不能把配置入口显示为已授权。
+
+复验环境、命令及清理规则统一见[连接器部署与复验](../deploy/connectors/README.md#5-复验命令)。
+
+平台已应用迁移51、更新API授权表权限和原生服务。本次不改DSH容器、镜像、配置或数据；授权回调必须使用当前 `HC_PUBLIC_URL`，平台API重启后等待既有限流保护窗口恢复再执行真实登录。
+
+## OAuth实网检查与企查查需求补齐（2026-10-26）
+
+本轮实网检查和既有测试复验见[可用性报告](connectors-oauth-availability-2026-10-26.md)：连接器Go竞态/隔离PostgreSQL、前端类型检查、桌面/手机22项受控页面和2项真实Portal测试通过；厂商用户授权后的业务调用尚未执行。Ardot、Notion、OpenAlex和滴答清单通过平台实际出站策略的元数据发现、动态注册与授权入口探测；Notion本次可访问，不将历史403作为当前固定结论。
+
+企查查拒绝当前 `portal.harness.localhost` 回调；分别使用 `http://127.0.0.1:42013`、`http://localhost:42013`、`https://127.0.0.1:42013` 及本项目回调路径注册均返回HTTP 201。此结果只证明回调地址被注册接口接受，未更改现有Portal源站/证书/登录会话，也未完成企查查账号授权。正式域名白名单及本机完整会话回调须单独验收。
+
+需求第6.17.1～6.17.2节新增逐厂商完整验收、企查查双模式/五类服务及专用生命周期要求，并分配TC-106～109；需求更新不表示这些功能已实现。接口/数据/前后端与部署文档须随后续实现同步，当前没有新增聚合、远端撤销或解绑状态的运行契约。

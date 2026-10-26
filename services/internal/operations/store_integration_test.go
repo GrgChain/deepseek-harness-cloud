@@ -99,15 +99,32 @@ func TestRotationAndBoundedCleanupOnRestrictedPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	must(`INSERT INTO identity_password_resets(id,org_id,user_id,actor_id,key_id,nonce,ciphertext) VALUES($1,$2,$3,$3,$4,$5,$6)`, reset, org, user, e.KeyID, e.Nonce, e.Ciphertext)
+	// New personal libraries and pending external requests must survive removal of
+	// the old key too. Replacement ciphertext keeps the original skill's AAD.
+	skill, skillPreview, contextConnection, operation, contextPreview := webapi.ID(), webapi.ID(), webapi.ID(), webapi.ID(), webapi.ID()
+	e = encrypt(skill, "skill-bundle")
+	must(`INSERT INTO personal_skills(id,org_id,owner_id,name,description,model_invocable,user_invocable,file_count,size_bytes,key_id,nonce,ciphertext) VALUES($1,$2,$3,'rotation-skill','fixture',true,true,1,24,$4,$5,$6)`, skill, org, user, e.KeyID, e.Nonce, e.Ciphertext)
+	must(`INSERT INTO skill_replacements(skill_id,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4)`, skill, e.KeyID, e.Nonce, e.Ciphertext)
+	e = encrypt(skillPreview, "skill-import")
+	must(`INSERT INTO skill_import_previews(id,org_id,owner_id,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4,$5,$6)`, skillPreview, org, user, e.KeyID, e.Nonce, e.Ciphertext)
+	e = encrypt(contextConnection, "context-credential")
+	must(`INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,key_id,nonce,ciphertext) VALUES($1,$2,$3,'memory','mem0','fixture','rotation-memory',$4,$5,$6)`, contextConnection, org, user, e.KeyID, e.Nonce, e.Ciphertext)
+	e = encrypt(operation, "context-operation")
+	must(`INSERT INTO context_operations(id,org_id,owner_id,connection_id,connection_version,action,idempotency_sha256,request_sha256,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4,1,'apply',$5,$5,'UNKNOWN',$6,$7,$8)`, operation, org, user, contextConnection, hash[:], e.KeyID, e.Nonce, e.Ciphertext)
+	e = encrypt(contextPreview, "context-preview")
+	must(`INSERT INTO context_previews(id,org_id,owner_id,connection_id,connection_version,purpose,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4,1,'memory-write',$5,$6,$7)`, contextPreview, org, user, contextConnection, e.KeyID, e.Nonce, e.Ciphertext)
+	connector := webapi.ID()
+	e = encrypt(connector, "connector-credential")
+	must(`INSERT INTO mcp_connectors(id,org_id,owner_id,name,endpoint_id,protocol_version,auth_type,key_id,nonce,ciphertext) VALUES($1,$2,$3,'rotation-mcp','fixture','2026-07-28','bearer',$4,$5,$6)`, connector, org, user, e.KeyID, e.Nonce, e.Ciphertext)
 	rotator := NewRotator(pool, ring, "test", org, "integration-operator")
 	counts, err := rotator.Count(ctx, "old")
-	if err != nil || counts != 6 {
+	if err != nil || counts != 13 {
 		t.Fatalf("rotation preview: %d %v", counts, err)
 	}
 	if changed, err := rotator.Batch(ctx, "old", 1); err != nil || changed != 1 {
 		t.Fatalf("bounded batch: %d %v", changed, err)
 	}
-	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 5 {
+	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 12 {
 		t.Fatalf("resume: %d %v", changed, err)
 	}
 	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 0 {
@@ -139,6 +156,26 @@ func TestRotationAndBoundedCleanupOnRestrictedPostgres(t *testing.T) {
 		t.Fatal("pending password reset was stranded by key rotation", err)
 	}
 	clear(plain)
+	for _, record := range []struct{ table, idColumn, id, purpose string }{
+		{"personal_skills", "id", skill, "skill-bundle"},
+		{"skill_replacements", "skill_id", skill, "skill-bundle"},
+		{"skill_import_previews", "id", skillPreview, "skill-import"},
+		{"context_connections", "id", contextConnection, "context-credential"},
+		{"context_operations", "id", operation, "context-operation"},
+		{"context_previews", "id", contextPreview, "context-preview"},
+		{"mcp_connectors", "id", connector, "connector-credential"},
+	} {
+		query := "SELECT key_id,nonce,ciphertext FROM " + record.table + " WHERE " + record.idColumn + "=$1"
+		if err := pool.QueryRow(ctx, query, record.id).Scan(&e.KeyID, &e.Nonce, &e.Ciphertext); err != nil {
+			t.Fatal(err)
+		}
+		plain, err := newOnly.Decrypt(e, security.Context{Environment: "test", OrganizationID: org, RecordID: record.id, Purpose: record.purpose})
+		matches := string(plain) == "private rotation fixture"
+		clear(plain)
+		if err != nil || !matches {
+			t.Fatalf("%s stranded after old key removal: %v", record.table, err)
+		}
+	}
 	if remaining, err := rotator.Count(ctx, "old"); err != nil || remaining != 0 {
 		t.Fatal("old key remains in database")
 	}

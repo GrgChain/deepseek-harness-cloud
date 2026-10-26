@@ -181,7 +181,9 @@ func (s *Service) Admission(ctx context.Context) AdmissionFacts {
 		port = 443
 	}
 	compute, computeErr := hostcapacity.Read()
-	return AdmissionFacts{SchemaVersion: 1, Domain: s.host.options.Domain, PublicPort: port, RuntimeImage: s.host.options.RuntimeImage, PreviousRuntimeImages: append([]string(nil), s.host.options.PreviousRuntimeImages...), StorageImage: s.host.options.StorageImage, NetworkImage: s.host.options.NetworkImage, Workspace: s.workspaceReady(ctx) == nil, Docker: s.host.Probe(ctx) == nil, Storage: s.host.Capacity() == nil, Capacity: computeErr == nil && compute.Slots() > 0, HostCPUCount: compute.CPUs, HostAvailableMemory: compute.AvailableMemory}
+	// Report whether the smallest supported instance fits. The API checks the
+	// selected specification against these facts; fixed build slots use 2 CPU/4 GiB.
+	return AdmissionFacts{SchemaVersion: 1, Domain: s.host.options.Domain, PublicPort: port, RuntimeImage: s.host.options.RuntimeImage, PreviousRuntimeImages: append([]string(nil), s.host.options.PreviousRuntimeImages...), StorageImage: s.host.options.StorageImage, NetworkImage: s.host.options.NetworkImage, Workspace: s.workspaceReady(ctx) == nil, Docker: s.host.Probe(ctx) == nil, Storage: s.host.Capacity() == nil, Capacity: computeErr == nil && compute.Fits(1000, 2<<30), HostCPUCount: compute.CPUs, HostAvailableMemory: compute.AvailableMemory}
 }
 func (h *LocalHost) Probe(ctx context.Context) error {
 	ids := []string{h.options.RuntimeImage, h.options.StorageImage, h.options.NetworkImage}

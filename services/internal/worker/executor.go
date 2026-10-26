@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	workspaceengine "github.com/jonluo94/deepseek-harness-cloud/services/internal/workspace"
@@ -421,6 +422,7 @@ func failureCode(err error) string {
 func (e *Executor) cleanup(ctx context.Context, lease Lease) error {
 	p, err := e.checkpoint(ctx, lease, "REVOKING_ACCESS", true)
 	if err != nil {
+		slog.Warn("Worker cleanup checkpoint failed", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 		return err
 	}
 	defer p.Destroy()
@@ -428,15 +430,22 @@ func (e *Executor) cleanup(ctx context.Context, lease Lease) error {
 	if errors.Is(err, workspaceengine.ErrNotFound) || deleted {
 		completion, err := e.host.ConfirmAbsent(ctx, p, deleted)
 		if err != nil {
+			slog.Warn("Worker cleanup could not confirm absent compute", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 			return err
 		}
-		return e.store.Fail(ctx, lease, p.FailureCode, completion)
+		err = e.store.Fail(ctx, lease, p.FailureCode, completion)
+		if err != nil {
+			slog.Warn("Worker cleanup terminal publication failed", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
+		}
+		return err
 	}
 	if err != nil {
+		slog.Warn("Worker cleanup could not verify workspace identity", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 		return err
 	}
 	p.WorkspaceID = &w.ID
 	if err = e.host.Quiesce(ctx, p); err != nil {
+		slog.Warn("Worker cleanup could not quiesce workspace", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 		return err
 	}
 	if p.External != nil && !p.External.Completed {
@@ -459,9 +468,14 @@ func (e *Executor) cleanup(ctx context.Context, lease Lease) error {
 	}
 	completion, err := e.host.ConfirmAbsent(ctx, p, false)
 	if err != nil {
+		slog.Warn("Worker cleanup could not confirm stopped compute", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 		return err
 	}
-	return e.store.Fail(ctx, lease, p.FailureCode, completion)
+	err = e.store.Fail(ctx, lease, p.FailureCode, completion)
+	if err != nil {
+		slog.Warn("Worker cleanup terminal publication failed", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
+	}
+	return err
 }
 
 // Execute ends only after terminal publication or a durable UNCERTAIN retry.
@@ -490,6 +504,7 @@ func (e *Executor) Execute(ctx context.Context, lease Lease) error {
 	}
 	cleanupPlan, readErr := e.store.CleanupPlan(ctx, lease)
 	if readErr != nil {
+		slog.Warn("Worker reconciliation could not load cleanup evidence", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(readErr))
 		return readErr
 	}
 	code := cleanupPlan.FailureCode
@@ -500,12 +515,14 @@ func (e *Executor) Execute(ctx context.Context, lease Lease) error {
 		}
 		code = failureCode(err)
 		if err = e.store.RequestCleanup(ctx, lease, code); err != nil {
+			slog.Warn("Worker reconciliation could not request cleanup", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 			return err
 		}
 	}
 	if err = e.cleanup(ctx, lease); err == nil {
 		return nil
 	}
+	slog.Warn("Worker cleanup evidence was incomplete", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 	if errors.Is(err, ErrLostLease) || ctx.Err() != nil {
 		return err
 	}

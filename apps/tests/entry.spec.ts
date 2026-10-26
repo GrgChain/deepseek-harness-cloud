@@ -22,8 +22,7 @@ test('reports connection errors and recovers through the refresh control', async
   await page.getByRole('button', { name: '重新检查' }).click();
   await expect(page.getByText('暂时无法登录，请稍后重试。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '查看平台配置', exact: true }).click();
-  await page.getByRole('button', { name: '诊断信息', exact: true }).click();
-  await expect(page.getByText('未就绪', { exact: true })).toHaveCount(2);
+  await expect(page.getByRole('region', { name: '平台连接状态' }).getByText('未就绪', { exact: true })).toHaveCount(2);
   await page.getByRole('button', { name: '尚未登录', exact: true }).click();
   await expect(page.getByRole('button', { name: '登录账户' })).toBeDisabled();
 });

@@ -14,7 +14,11 @@ const client = new ManagementClient();
 const userStatuses: Record<string, string> = { ACTIVE: '已启用', DISABLED: '已禁用', PENDING_IDENTITY: '身份待确认', ARCHIVED: '已删除' };
 const permissionGroups: { name: string; prefixes: string[]; ids?: string[] }[] = [
   { name: '工作空间', prefixes: ['instances'] },
-  { name: '数据管理', prefixes: [], ids: ['instances:release-storage'] },
+  { name: '工作数据', prefixes: [], ids: ['instances:release-storage'] },
+  { name: '技能包', prefixes: ['skills'] },
+ {name:'连接器',prefixes:['connectors']},
+  { name: '记忆', prefixes: ['memory'] },
+  { name: '知识库', prefixes: ['knowledge'] },
   { name: '模型提供商', prefixes: ['personal-model', 'model', 'models'] },
   { name: '用户管理', prefixes: ['users'] },
   { name: '角色与权限', prefixes: ['roles'] },

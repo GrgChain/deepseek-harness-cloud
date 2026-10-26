@@ -240,3 +240,18 @@ storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模
 ### 固定目录只读浏览（schema45）
 
 迁移`000045_storage_file_browsing.sql`新增短时`storage_browse_requests`，以组织、Owner、实例、资产复合外键约束请求归属；每个资产最多一个QUEUED/RUNNING请求，记录固定根、相对路径、分页游标、操作状态及不超过2分钟的过期时间。文件读取请求保存API的一次性X25519公钥；Worker仅写入AES-GCM加密结果，API持有私钥在本次请求内解密，避免数据库WAL和备份持久化明文。API处理后删除结果行，Worker定期清除过期请求。API只能SELECT/INSERT/DELETE，Worker只能SELECT/UPDATE/DELETE；该表不用于审计或长期文件缓存。
+
+## 工作台连接器（迁移49～51）
+
+| 迁移 | 对象与事实 | 约束及边界 |
+| --- | --- | --- |
+| 49 | `mcp_connectors`：个人配置、认证密文、工具目录、配置/目录版本、启用与验证状态 | `org_id/owner_id/id`复合归属，活动连接同Owner名称唯一；凭据只写不读回，软删除保留审计及调用关联 |
+| 49 | `mcp_calls`：工具名、连接/目录版本、请求摘要、幂等键、执行状态及取消标记 | 同组织/Owner幂等键唯一，复合外键绑定本人连接；不保存参数及结果正文，未知外部结果不自动重试 |
+| 50 | `mcp_connectors.endpoint_url/catalog_id`：个人服务地址及目录关联 | URL最多1000字节、目录ID最多64字符；地址/协议合法性及出口策略由应用校验 |
+| 51 | `mcp_oauth_transactions`：一次授权的会话、连接版本、state摘要、过期时间及加密上下文 | state摘要唯一，复合外键绑定组织/Owner/连接，`session_id`引用Portal会话，nonce为12字节；回调按有效会话及期限单次消费 |
+
+迁移49新增`connectors:read/manage/invoke`权限，管理和调用均依赖读取；内置角色默认获得本人权限。迁移51扩展`auth_type`为`none/bearer/oauth2`。服务端事务仍须核对当前角色、Owner、配置版本、启用状态及授权目标，数据库外键不代替业务授权。
+
+Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使用`connector-credential`加密上下文；一次性事务的PKCE verifier与客户端信息使用`connector-oauth`上下文。两类密文均纳入主密钥轮换，state本身不持久明文保存。OAuth客户端管理员配置来自私有策略文件，不由列表API读回。
+
+当前没有企查查五类资源聚合或远端待撤销状态的专用数据结构；第6.17.2节要求的功能应随实现增加契约与迁移，不能把本段视为已实现设计。接口语义见[连接器API](api.md#工作台连接器req-23api-100111api-115116)，现有流程见[实施说明](connectors-implementation.md)。

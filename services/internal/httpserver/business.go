@@ -10,10 +10,19 @@ import (
 type BusinessHandler interface {
 	ServeAuthenticated(http.ResponseWriter, *http.Request, identity.Principal)
 }
-type BusinessMux struct{ Configuration, Resources, Access, Commands, Management BusinessHandler }
+type BusinessMux struct{ Configuration, Resources, Access, Commands, Management, Skills, Context, Connectors BusinessHandler }
 
 func (m BusinessMux) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 	handler := m.Configuration
+	if r.URL.Path == "/v1/connectors" || strings.HasPrefix(r.URL.Path, "/v1/connectors/") {
+		handler = m.Connectors
+	}
+	if strings.HasPrefix(r.URL.Path, "/v1/context/") {
+		handler = m.Context
+	}
+	if r.URL.Path == "/v1/skills" || strings.HasPrefix(r.URL.Path, "/v1/skills/") || strings.HasPrefix(r.URL.Path, "/v1/skills:") {
+		handler = m.Skills
+	}
 	if r.URL.Path == "/v1/permissions" || r.URL.Path == "/v1/users" || strings.HasPrefix(r.URL.Path, "/v1/users/") || r.URL.Path == "/v1/roles" || strings.HasPrefix(r.URL.Path, "/v1/roles/") {
 		handler = m.Management
 	}

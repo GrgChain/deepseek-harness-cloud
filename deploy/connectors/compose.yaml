@@ -1,0 +1,22 @@
+name: hc-mcp
+services:
+  fixture:
+    image: hc-mcp-fixture:0.1.0
+    user: "${HC_MCP_UID:-1000}:${HC_MCP_GID:-1000}"
+    environment:
+      HC_MCP_FIXTURE_ADDR: 0.0.0.0:18781
+      HC_MCP_FIXTURE_KEY_FILE: /run/secrets/fixture-key
+    secrets:
+      - fixture-key
+    ports:
+      - 127.0.0.1:18781:18781
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    cpus: 0.25
+    mem_limit: 128m
+    restart: unless-stopped
+secrets:
+  fixture-key:
+    file: ../../.local/connectors/test-key

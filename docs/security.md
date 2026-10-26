@@ -112,7 +112,7 @@ Portal空闲期限在每个已授权Portal请求以及DSH实际HTTP/WS业务消�
 
 `AuthorizationServer`、`Accounts` 与 BFF 均位于平台 Go API 中。OIDC issuer 为精确的 `HC_PUBLIC_URL/oidc`，客户端 ID/秘密为部署受控输入；只接受该客户端与 `HC_PUBLIC_URL/auth/callback`，拒绝通配、额外查询/片段、未知客户端、重复参数及未支持的协议参数。仅授权码、query 响应模式、PKCE S256 与 openid/profile/email scope；state 和 nonce 必填。发现文档只声明已实现能力。
 
-`identity_authorizations` 保存浏览器/CSRF摘要、固定客户端/回调和协议上下文，5分钟有效、最多10次密码失败。`__Host-hc_identity` 是随机256-bit、Secure/HttpOnly/SameSite=Lax、Path=/、无Domain Cookie，成功登录清除。密码 POST 必须同源 Origin 与表单 CSRF；页面不嵌入 state、nonce、PKCE 或密码，不包含第三方资源；CSP 禁止脚本、跨源表单、frame 和 base URI。登录HTML使用Referrer-Policy=strict-origin以保留Chrome表单的同源Origin，仅发送origin、不发送授权查询；其余协议响应no-referrer。未知邮箱和错误密码使用一致反馈，未知账号仍执行 cost=12 的散列比较；导入的旧散列cost可为10～14，不承诺跨所有迁移账号的完全恒时。
+`identity_authorizations` 保存浏览器/CSRF摘要、固定客户端/回调和协议上下文，5分钟有效、最多10次密码失败。`__Host-hc_identity` 是随机256-bit、Secure/HttpOnly/SameSite=Lax、Path=/、无Domain Cookie，成功登录清除。密码 POST 必须同源 Origin 与表单 CSRF；页面不嵌入 state、nonce、PKCE 或密码，不包含第三方资源；登录HTML的CSP仅允许同源样式与脚本，禁止内联脚本、跨源表单、frame 和 base URI；协议JSON响应继续禁止脚本。交互脚本不存储凭据或调用额外接口，仍由原生表单同源提交；密码失败只回显转义后的邮箱。登录HTML使用Referrer-Policy=strict-origin以保留Chrome表单的同源Origin，仅发送origin、不发送授权查询；其余协议响应no-referrer。未知邮箱和错误密码使用一致反馈，未知账号仍执行 cost=12 的散列比较；导入的旧散列cost可为10～14，不承诺跨所有迁移账号的完全恒时。
 
 Redis 对每分钟来源授权请求90次、密码请求120次、Token请求120次及每账号密码请求15次分别计数，只使用连接来源、不信任任意 Forwarded 头。共享代理来源会共享来源额度；故障或冷启动保护期间认证暂不可用，不能绕过限流。请求正文上限4096字节；认证查询、密码、Cookie、授权码和Token不得写普通访问日志。
 
@@ -121,6 +121,8 @@ Redis 对每分钟来源授权请求90次、密码请求120次、Token请求120�
 ID Token 使用成熟 JOSE 库 RS256 签名，包含 iss/sub/aud/iat/exp/auth_time/nonce/at_hash；内部授权代次和凭据版本用于防止重置前 Token 在 BFF 回调重新建立会话。RSA PKCS8 私钥2048～4096位、0600，独立于TLS和数据加密密钥，kid 为公钥 SHA-256 指纹；JWKS只公开公钥，重启不重新生成私钥。ID Token/Access Token均5分钟有效；Access Token为随机256-bit，数据库只存摘要，UserInfo逐次检查账号/组织/成员及版本。profile/email按请求scope返回，email_verified=false，不以邮箱证明身份。
 
 BFF在进程内调用同一 Token 签发逻辑并用 go-oidc StaticKeySet 验证签名，避免启动时回调本机 Discovery；公开HTTPS Discovery/JWKS/Token端点仍供协议验证使用。浏览器只有平台会话 Cookie，不能将 ID Token 或 UserInfo Bearer 当作平台业务 API 凭据。退出撤销当前Portal/Gateway会话；没有独立SSO会话或 refresh_token。
+
+原生浏览器加载、刷新登录页及提交密码前，还检查对应BFF事务的有效期和浏览器Cookie绑定，避免旧登录页生成无法兑换的授权码。失效时303重新建立登录；仅在旧事务与浏览器仍匹配时保留受控业务返回路径，否则使用默认工作台。浏览器回调认证失败也303到固定`/auth/login`，清理握手Cookie，不创建会话、不携带旧授权参数、不自动重交密码。JSON调用仍返回401；依赖故障不按失效登录循环重试。最终BFF回调的一次性state、nonce、PKCE及当前账号资格校验继续生效。
 
 签名私钥须纳入受控备份且与数据库密码散列备份分开保护。首版更换签名私钥需维护窗口，撤销全部未完成登录/授权码及Access Token，再更新只读文件和重启API；不提供在线重叠JWKS轮换。恢复库关闭组织并撤销全部身份协议状态，重新授权后才开放。
 
@@ -137,3 +139,20 @@ BFF在进程内调用同一 Token 签发逻辑并用 go-oidc StaticKeySet 验证
 ## DSH内模型切换的授权边界
 
 账号模型范围以运行密钥的数据库锚定路由推导，拒绝客户端指定Owner或账号作为授权来源。范围扩展只限锚定账号，使用同一主机TLS/IP出口；上游提供商Key只由网关解密并短暂使用。默认单模型探测和控制管理密钥权限保持，DSH显式账号范围才支持其他模型。每次推理核对目标的当前资格与能力，不信任DSH缓存目录；停用、归档、撤销、能力/网关证据过期均拒绝目标，其他账号和用户不受影响。限流按原密钥共用，不能通过模型切换绕过。锚定凭据失效则整个账号范围不可用，须显式重新应用可用配置。
+
+
+## 外接记忆与知识库
+
+新增 `memory:read/manage`、`knowledge:read/manage`；内置管理员和成员默认拥有本人内容权限，迁移48同步已有内置角色；自定义角色仍显式授权。每个请求再次检查当前角色、组织和Owner，工作空间范围还检查实例归属与权限。批准端点来自私有策略文件，HTTP仅显式允许私网，DNS固定、不跟随重定向、不使用环境代理。凭据和待确认操作请求使用AES-GCM及环境/组织/记录/用途AAD加密；Owner由事务内查询和复合外键校验，正文不写审计。技能包及上一版包、导入预览、外接凭据和操作回执均纳入受信密钥轮换，重加密不改变版本或待确认状态。外部请求另加时间戳HMAC，浏览器不能自行指定tenant、filter或namespace。未知删除暂停召回，未知索引保留上一可用版本，核实只能重放原始幂等请求。独立测试模型配置是私有凭据快照，平台模型撤销后应同步轮换/删除该测试配置；它不代表生产模型治理闭环。详见[实施记录](context-implementation.md)。
+
+
+技能来源可由运维通过私有 `HC_SKILL_SOURCE_PROXY_FILE` 显式选择本机CONNECT代理；环境代理仍不采用。来源域名先由平台解析，所有答案均通过公网校验后，CONNECT仅传递固定公网IP:443；浏览器不能选择代理。TLS仍校验原始来源域名，代理不能豁免证书、重定向或文件限额。
+
+
+## 工作台连接器（MCP）
+
+MCP按组织和Owner隔离，管理员无隐式跨Owner读取。Bearer凭据独立加密且不读回，仅发送给本人配置的精确URL；公网 HTTPS 可由用户添加，私网/HTTP 仍须精确平台例外，更换地址不可复用旧凭据；不复用平台Cookie或其他服务密钥。检查全部DNS答案并固定拨号IP，拒绝环境代理、重定向、元数据地址及未批准私网，TLS正常校验证书。JSON/Schema、分页、响应大小、调用时间和并发均有界；拒绝远程Schema加载、递归引用及导入stdio命令。工具目录和结果不可信，仅文本呈现。调用先记录意图再出站，未知结果不重试，审计不保存参数、结果或凭据。 细节见[实施记录](connectors-implementation.md)。
+
+外部连接器OAuth与平台登录OIDC分别管理。授权请求使用PKCE S256与有效10分钟的一次性state，绑定组织、Owner、当前Portal会话、连接版本及精确目标；回调从配置的公共源站生成，不信任请求Host。state只存摘要，verifier和动态客户端信息使用`connector-oauth`上下文加密；访问/刷新令牌使用`connector-credential`上下文加密，均参与密钥轮换。回调先消费state再交换授权码，不重试授权码，授权后不自动启用工具。
+
+OAuth元数据、注册与Token端点分别执行出口校验、响应上限及超时限制，MCP目标的私网例外不扩大到整个授权域名。列表、导出、工作台返回URL和调用记录不包含密钥或令牌。当前连接删除只清除本地凭据及待授权事务；企查查远端撤销、待撤销状态及五类资源共享凭据属于[待实现要求](requirements.md#6172-企查查完整接入扩展交付)，不能将本地删除宣称为远端授权已吊销。

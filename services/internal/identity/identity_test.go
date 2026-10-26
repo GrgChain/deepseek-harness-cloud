@@ -95,3 +95,41 @@ func TestCookiesUseSecureHostBoundary(t *testing.T) {
 		t.Fatal("insecure session cookie")
 	}
 }
+
+func TestExpiredCallbackRestartsBrowserLoginWithoutCreatingSession(t *testing.T) {
+	h := NewHandler(closedService{})
+	for _, path := range []string{
+		"/auth/callback?state=expired&code=private-code",
+		"/auth/callback?state=one&state=two&code=private-code",
+		"/auth/callback?state=expired&error=access_denied",
+	} {
+		for _, accept := range []string{"text/html,application/xhtml+xml", "application/json"} {
+			r := httptest.NewRequest(http.MethodGet, path, nil)
+			r.Header.Set("Accept", accept)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			if accept == "application/json" {
+				if w.Code != 401 || !strings.Contains(w.Body.String(), "UNAUTHENTICATED") {
+					t.Fatal("API authentication failures must remain JSON 401")
+				}
+			} else {
+				if w.Code != 303 || w.Header().Get("Location") != "/auth/login" {
+					t.Fatal("expired browser callback did not restart login")
+				}
+				cleared := map[string]bool{}
+				for _, c := range w.Result().Cookies() {
+					if c.Name == SessionCookie || c.MaxAge >= 0 || c.Value != "" {
+						t.Fatal("failed callback must only clear handshake cookies")
+					}
+					cleared[c.Name] = true
+				}
+				if !cleared[LoginCookie] || !cleared[ProviderCookie] {
+					t.Fatal("stale login cookies retained")
+				}
+			}
+			if strings.Contains(w.Body.String(), "private-code") || w.Header().Get("Cache-Control") != "no-store" {
+				t.Fatal("callback leaked credentials or could be cached")
+			}
+		}
+	}
+}

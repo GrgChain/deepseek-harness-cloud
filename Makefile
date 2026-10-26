@@ -6,6 +6,9 @@ GO_ENV := GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build
 RUN_ENV = HC_DB_DSN_FILE=$(CURDIR)/.local/$(ROLE)-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password
 ROLE ?= api
 ACCESS_ENV = $(if $(wildcard .local/access-config.json),HC_ACCESS_CONFIG_FILE=$(CURDIR)/.local/access-config.json HC_ACCESS_CA_FILE=$(CURDIR)/.local/auth/cert.pem,)
+CONTEXT_ENV = $(if $(wildcard .local/context/endpoints.local.json),HC_CONTEXT_ENDPOINTS_FILE=$(CURDIR)/.local/context/endpoints.local.json,)
+CONNECTOR_ENV = $(if $(wildcard .local/connectors/endpoints.json),HC_CONNECTOR_ENDPOINTS_FILE=$(CURDIR)/.local/connectors/endpoints.json,)
+SKILL_SOURCE_ENV = $(if $(wildcard .local/skill-source-proxy.json),HC_SKILL_SOURCE_PROXY_FILE=$(CURDIR)/.local/skill-source-proxy.json,)
 AUTH_ENV = HC_PUBLIC_URL=$(if $(wildcard .local/access-config.json),https://portal.harness.localhost:42013,https://127.0.0.1:42013) HC_OIDC_ISSUER=$(if $(wildcard .local/access-config.json),https://portal.harness.localhost:42013/oidc,https://127.0.0.1:42013/oidc) HC_OIDC_CLIENT_ID=harness-cloud HC_OIDC_CLIENT_SECRET_FILE=$(CURDIR)/.local/auth/client-secret HC_ORGANIZATION_ID=$$(cat .local/auth/organization-id) HC_ENVIRONMENT=local HC_DATA_KEY_FILE=$(CURDIR)/.local/auth/data-key HC_DATA_KEY_ID=local-v1 HC_OIDC_SIGNING_KEY_FILE=$(CURDIR)/.local/auth/signing-key.pem HC_MODEL_ALLOWLIST_FILE=$(CURDIR)/.local/auth/model-allowlist.json
 
 .PHONY: dev-init infra-up infra-stop migrate run portal test test-integration check build ci auth-init auth-apply run-auth runtime-build runtime-test runtime-model-test storage-build storage-test network-build network-test run-worker worker-runtime-test worker-init access-init run-gateway gateway-browser-test
@@ -78,7 +81,7 @@ gateway-browser-test:
 	HC_TEST_DB_DSN_FILE="$(abspath $(HC_TEST_DB_DSN_FILE))" HC_WORKER_CONFIG_FILE=$(CURDIR)/.local/worker-config.json HC_GATEWAY_BROWSER=true HC_TEST_TERRAFORM_OPTIONS_FILE=$(CURDIR)/.local/workspace-engine/options.json $(GO_ENV) $(GO) test -race -count=1 -v ./services/internal/worker -run '^TestDurableExecutorRunsEmbeddedLifecycleAndRetainsData$$'
 
 run-auth:
-	$(GO_ENV) $(RUN_ENV) $(AUTH_ENV) $(ACCESS_ENV) $(GO) run ./services/cmd/api
+	$(GO_ENV) $(RUN_ENV) $(AUTH_ENV) $(ACCESS_ENV) $(CONTEXT_ENV) $(SKILL_SOURCE_ENV) $(CONNECTOR_ENV) $(GO) run ./services/cmd/api
 dev-init:
 	$(GO_ENV) $(GO) run ./services/cmd/hcctl dev-init
 
@@ -112,7 +115,7 @@ test:
 
 test-integration:
 	test -n "$$HC_TEST_DB_DSN$$HC_TEST_DB_DSN_FILE"
-	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" $(GO) test -race -count=1 -v ./db ./services/cmd/hcctl ./services/internal/devlocal ./services/internal/identity ./services/internal/settings ./services/internal/ratelimit ./services/internal/instances ./services/internal/access ./services/internal/admission ./services/internal/runtimeapproval ./services/internal/operations ./services/internal/worker
+	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" $(GO) test -race -count=1 -v ./db ./services/cmd/hcctl ./services/internal/devlocal ./services/internal/identity ./services/internal/settings ./services/internal/skills ./services/internal/contextservice ./services/internal/connectors ./services/internal/ratelimit ./services/internal/instances ./services/internal/access ./services/internal/admission ./services/internal/runtimeapproval ./services/internal/operations ./services/internal/worker
 
 check:
 	set -e; formatting=$$(gofmt -l db services); test -z "$$formatting"
@@ -160,3 +163,14 @@ model-gateway-init:
 
 run-model-gateway:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/model_gateway-dsn HC_MODEL_GATEWAY_CONFIG_FILE=$(CURDIR)/.local/model-gateway/config.json $(GO) run ./services/cmd/model-gateway
+
+.PHONY: context-init context-up context-test
+context-init:
+	python3 deploy/context/prepare.py
+
+context-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile knowledge --profile memory up -d --build
+
+context-test:
+	python3 deploy/context/test_services.py
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml run --rm --no-deps bridge python test_recovery.py

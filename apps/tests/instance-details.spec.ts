@@ -88,3 +88,31 @@ test('a failed progress read supports retry without claiming completion', async 
  await expect(page.getByRole('region', { name: '最近操作', exact: true })).toHaveCount(0);
  await expect(page.getByRole('button', { name: /^重\s*试$/ })).toBeEnabled();
 });
+
+test('an error instance can request deletion with its name and keeps cleanup pending', async ({ page }) => {
+ let deleting=false;
+ const failed={...instance,observed_state:'ERROR',ready:false,can_enter:false,allowed_actions:['delete'],model_display_name:'',model_provider_name:''};
+ await session(page,failed);
+ await page.route('**/v1/instances/'+id,async route=>{
+  if(route.request().method()==='DELETE'){
+   expect(route.request().headers()['x-confirm-instance-name']).toBe(encodeURIComponent(instance.name));
+   expect(route.request().headers()['x-csrf-token']).toBe(user.csrf_token);
+   expect(route.request().headers()['idempotency-key']).toBeTruthy();
+   deleting=true;await route.fulfill({status:202,json:{instance_id:id,operation_id:operationID,state:'DELETING'}});
+  }else await route.fulfill({json:deleting?{...failed,observed_state:'DELETING',desired_state:'DELETED',allowed_actions:[],active_operation_id:operationID,latest_operation_id:operationID}:failed});
+ });
+ await page.route('**/v1/operations/'+operationID,route=>route.fulfill({json:{id:operationID,instance_id:id,type:'DELETE',status:'ACCEPTED',stage:'QUEUED',error:null,retry_allowed:false,updated_at:instance.updated_at}}));
+ await page.goto('/app/instances/'+id);
+ await expect(page.getByRole('button',{name:'删除实例',exact:true})).toBeEnabled();
+ await expect(page.getByRole('button',{name:'启动实例',exact:true})).toHaveCount(0);
+ await page.getByRole('button',{name:'删除实例',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'删除实例',exact:true});
+ await expect(dialog.getByRole('button',{name:'确认删除',exact:true})).toBeDisabled();
+ await dialog.getByLabel('确认实例名称').fill(instance.name);
+ await expect(dialog).toContainText('工作数据按保留策略保存');
+ await dialog.getByRole('button',{name:'确认删除',exact:true}).click();
+ await expect(dialog).not.toBeVisible();
+ await expect(page.getByRole('button',{name:'删除实例',exact:true})).toHaveCount(0);
+ await expect(page.getByRole('region',{name:'最近操作',exact:true})).toContainText('已受理');
+ expect(deleting).toBe(true);
+});

@@ -64,7 +64,9 @@ func (state Lifecycle) Plan(action Action, expectedVersion int64, facts Resource
 		next.Observed, next.Desired = "STOPPING", "STOPPED"
 		next.AccessGeneration++
 	case Delete:
-		if !running && !stopped && !reconciled {
+		// Deletion queues cleanup; it does not assume compute is already absent.
+		// The worker reconciles external resources before publishing completion.
+		if !running && !stopped && state.Observed != "ERROR" {
 			return Lifecycle{}, ErrStateConflict
 		}
 		next.Observed, next.Desired = "DELETING", "DELETED"

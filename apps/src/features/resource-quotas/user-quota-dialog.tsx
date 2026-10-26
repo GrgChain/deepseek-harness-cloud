@@ -51,7 +51,7 @@ export function UserQuotaDialog({ user, target, onClose, onSaved }: { user: Curr
             if (value < used) return Promise.reject(new Error(`不能低于当前占用 ${formatQuotaNumber(used)} ${d.unit}`));
             if (value > maximum) return Promise.reject(new Error('不能高于系统上限'));
             return Promise.resolve();
-          } }]}><InputNumber min={0} step={d.step} style={{ width: '100%' }} /></Form.Item>
+          } }]}><InputNumber aria-label={`${d.label}上限（${d.unit}）`} min={0} step={d.step} style={{ width: '100%' }} /></Form.Item>
         </section>;
       })}</div>}
     </Form>

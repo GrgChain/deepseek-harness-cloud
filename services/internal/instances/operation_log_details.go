@@ -15,6 +15,8 @@ func operationLogResourceType(action string) string {
 		return "session"
 	case strings.HasPrefix(action, "USER_") || strings.HasPrefix(action, "IDENTITY_"):
 		return "user"
+	case strings.HasPrefix(action, "SKILL_"):
+		return "skill"
 	case strings.HasPrefix(action, "ROLE_"):
 		return "role"
 	case strings.HasPrefix(action, "PERSONAL_PROVIDER_ACCOUNT_"):

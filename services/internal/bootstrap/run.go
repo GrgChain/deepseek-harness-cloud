@@ -17,6 +17,8 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/access"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/admission"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/config"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/connectors"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/contextservice"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/httpserver"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
@@ -24,6 +26,7 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/ratelimit"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/security"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/settings"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/worker"
 	"github.com/redis/go-redis/v9"
@@ -158,6 +161,9 @@ func Run(role string) error {
 				commandGate = creationGate
 			}
 			handler.WithBusiness(httpserver.BusinessMux{
+				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL), limiter.Allow),
+				Context:       contextservice.NewHandler(contextservice.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONTEXT_ENDPOINTS_FILE")), limiter.Allow),
+				Skills:        skills.NewHandler(skills.NewService(pool, cipher, o.Environment, maintenance == "true"), limiter.Allow),
 				Management:    identity.NewManagementHandler(identity.NewManagementService(pool, cursor, o.Issuer, localAccounts, cipher, o.Environment)),
 				Configuration: settings.NewHandler(configurationService, limiter.Ready, limiter.Allow),
 				Resources:     instances.NewQueryHandler(instances.NewQueryService(pool, cursor)),
