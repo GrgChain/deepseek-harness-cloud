@@ -26,6 +26,21 @@ func (p *Accounts) Ensure(ctx context.Context, id, email, name, password string)
 	if !uuidPattern.MatchString(id) || validateUserProfile(name, email) != nil || validateLocalPassword(password) != nil {
 		return errLocalProvider
 	}
+	// A completed provisioning replay must not re-enter the pending-only lock or
+	// reset a password. Match the original account, organization and login email.
+	var complete bool
+	if err := p.pool.QueryRow(ctx, `SELECT EXISTS(
+ SELECT 1 FROM identity_accounts a JOIN identity_provisioning_operations op
+ ON op.org_id=a.org_id AND op.user_id=a.user_id JOIN users u ON u.id=a.user_id
+ WHERE a.id=$1 AND a.org_id=$2 AND lower(a.login_email)=lower($3)
+ AND op.provider_account_id=$1::text AND lower(op.login_email)=lower($3)
+ AND op.status='SUCCEEDED' AND u.identity_source='local'
+ AND u.identity_subject=$1::text AND u.status IN ('ACTIVE','DISABLED'))`, id, p.organization, email).Scan(&complete); err != nil {
+		return errors.Join(errLocalProvider, err)
+	}
+	if complete {
+		return nil
+	}
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
 	if err != nil {
 		return errLocalProvider

@@ -32,7 +32,7 @@ func TestUserQuotasDefaultIsolationUsageVersionsAndAtomicAudit(t *testing.T) {
 	}
 	must(`INSERT INTO quota_policies(org_id) VALUES($1)`, f.org)
 	v, err := f.service.GetUserQuota(f.ctx, admin, member.UserID)
-	if err != nil || v.Configured || v.Version != 0 || v.Limits != (userquota.Limits{Instances: 2, CPU: 10000, Memory: 20 << 30, Storage: 100 << 30}) {
+	if err != nil || v.Configured || v.Version != 0 || v.Limits != (userquota.Limits{Instances: 2, CPU: 40000, Memory: 80 << 30, Storage: 200 << 30}) {
 		t.Fatalf("default inheritance: %+v %v", v, err)
 	}
 	// An override can raise the uniform instance default while staying inside
@@ -56,7 +56,7 @@ func TestUserQuotasDefaultIsolationUsageVersionsAndAtomicAudit(t *testing.T) {
 		t.Fatal("missing cap treated as zero", err)
 	}
 	over := limits
-	over.Instances = 11
+	over.Instances = 21
 	if _, err = f.service.SaveUserQuota(f.ctx, admin, member.UserID, quotaInput(t, 0, over), "over"); problemCode(err) != "IDENTITY_INVALID" {
 		t.Fatal("user exceeds shared cap", err)
 	}

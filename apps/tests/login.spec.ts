@@ -4,11 +4,91 @@ import { readFileSync } from 'node:fs';
 test.describe('real local OIDC',()=>{
   test.skip(process.env.HC_REAL_IDENTITY!=='true','requires embedded platform OIDC, private test credentials and API');
 
+  test('expired callback returns to a fresh login form and permits signing in', async ({page}) => {
+    await page.goto('/auth/callback?state='+ 's'.repeat(43)+'&code='+ 'c'.repeat(43));
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    await expect(page).toHaveURL(/\/oidc\/authorize\?/);
+    expect((await page.request.get('/v1/me')).status()).toBe(401);
+    await page.getByLabel('邮箱',{exact:true}).fill('member@harness.local');
+    await page.getByLabel('密码',{exact:true}).fill(readFileSync('../.local/auth/member-password','utf8').trim());
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page).toHaveURL(/\/app\/instances$/);
+    expect((await page.request.get('/v1/me')).status()).toBe(200);
+    await page.goto('/login');
+    await page.getByRole('button',{name:'退出登录',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+  });
+
+  test('stale login pages restart on refresh and submission without resubmitting credentials', async ({page,context}) => {
+    await page.goto('/auth/login?return_to=%2Fapp%2Fskills');
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    const oldURL=page.url();
+    await context.clearCookies({name:'__Host-hc_oidc'});
+    await page.reload();
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    expect(page.url()).not.toBe(oldURL);
+    const refreshedURL=page.url();
+    await context.clearCookies({name:'__Host-hc_oidc'});
+    await page.getByLabel('邮箱',{exact:true}).fill('member@harness.local');
+    await page.getByLabel('密码',{exact:true}).fill(readFileSync('../.local/auth/member-password','utf8').trim());
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    await expect(page).toHaveURL(/\/oidc\/authorize\?/);
+    expect(page.url()).not.toBe(refreshedURL);
+    await expect(page.getByLabel('密码',{exact:true})).toHaveValue('');
+    expect((await page.request.get('/v1/me')).status()).toBe(401);
+    await page.getByLabel('邮箱',{exact:true}).fill('member@harness.local');
+    await page.getByLabel('密码',{exact:true}).fill(readFileSync('../.local/auth/member-password','utf8').trim());
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page).toHaveURL(/\/app\/instances$/);
+    await page.goto('/login');
+    await page.getByRole('button',{name:'退出登录',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+  });
+
+  test('login form supports visibility, pending feedback and returning to the original page', async ({page}, info) => {
+    const errors: string[] = [];
+    page.on('pageerror', error => errors.push(error.message));
+    await page.goto('/app/skills');
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    await expect(page.getByRole('navigation')).toHaveCount(0);
+    expect(await page.title()).toBe('登录 · DSH Cloud');
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+    await page.screenshot({path:info.outputPath('login.png'),fullPage:true,animations:'disabled'});
+    await page.getByLabel('邮箱',{exact:true}).fill('member@harness.local');
+    const password=page.getByLabel('密码',{exact:true});
+    await password.fill('synthetic-wrong-password');
+    await page.getByRole('button',{name:'显示密码',exact:true}).click();
+    await expect(password).toHaveAttribute('type','text');
+    await page.getByRole('button',{name:'隐藏密码',exact:true}).click();
+    await expect(password).toHaveAttribute('type','password');
+    // Keep the document visible to inspect feedback before native navigation.
+    await page.evaluate(()=>document.querySelector('form')!.addEventListener('submit',event=>event.preventDefault(),{once:true}));
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page.getByRole('button',{name:'正在登录',exact:true})).toBeDisabled();
+    await expect(page.getByRole('status').filter({hasText:'正在验证账户'})).toBeVisible();
+    await page.reload();
+    await page.getByLabel('邮箱',{exact:true}).fill('member@harness.local');
+    await password.fill('synthetic-wrong-password');
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page.getByRole('alert')).toContainText('请检查后重试');
+    await expect(page.getByLabel('邮箱',{exact:true})).toHaveValue('member@harness.local');
+    await expect(password).toHaveValue('');
+    await expect(password).toBeFocused();
+    await page.screenshot({path:info.outputPath('login-error.png'),fullPage:true,animations:'disabled'});
+    await password.fill(readFileSync('../.local/auth/member-password','utf8').trim());
+    await page.getByRole('button',{name:'登录',exact:true}).click();
+    await expect(page).toHaveURL(/\/app\/skills$/);
+    await expect(page.getByRole('heading',{name:'技能包',exact:true,level:1})).toBeVisible();
+    await page.goto('/login');
+    await page.getByRole('button',{name:'退出登录',exact:true}).click();
+    await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   for(const role of ['admin','member'] as const){
     test(`${role} can log in, restore session and log out`,async({page,context},testInfo)=>{
       await page.goto('/login');
-      const login=page.getByRole('button',{name:'登录账户',exact:true});
-      await expect(login).toBeEnabled();await login.click();
       await expect(page.getByRole('heading',{name:'登录账户'})).toBeVisible();
       await page.locator('input[name=login]').fill(`${role}@harness.local`);
       await page.locator('input[name=password]').fill(readFileSync(`../.local/auth/${role}-password`,'utf8').trim());
@@ -45,15 +125,15 @@ test.describe('real local OIDC',()=>{
       const operationLogs=await page.request.get('/v1/audit-events?limit=20');expect(operationLogs.status()).toBe(200);expect(Array.isArray((await operationLogs.json()).items)).toBe(true);
       if(role==='member'){
         await page.goto('/app/settings');
-        await expect(page.getByRole('heading',{name:'默认运行配置',exact:true})).toBeVisible();
-        await expect(page.getByRole('button',{name:/^(修改配置|初始化配置)$/})).toHaveCount(0);
+        await expect(page.getByRole('heading',{name:'默认用户资源配置',exact:true})).toBeVisible();
+        await expect(page.getByRole('button',{name:/^(修改默认用户资源配置|初始化默认用户资源配置)$/})).toHaveCount(0);
         await expect(page.getByRole('link',{name:'用户管理',exact:true})).toHaveCount(0);
       }
       const denied=await page.request.post('/auth/logout',{headers:{Origin:'https://sibling.example','X-CSRF-Token':user.csrf_token}});expect(denied.status()).toBe(403);
       await page.goto('/login');await expect(page.getByText('账户已登录',{exact:true})).toBeVisible();
       await page.screenshot({path:testInfo.outputPath(`${role}-signed-in.png`),fullPage:true});
       await page.getByRole('button',{name:'退出登录',exact:true}).click();
-      await expect(page.getByRole('button',{name:'登录账户',exact:true})).toBeEnabled();
+      await expect(page.getByRole('heading',{name:'登录账户',exact:true})).toBeVisible();
       expect((await page.request.get('/v1/me')).status()).toBe(401);
       expect((await context.cookies()).some(c=>c.name==='__Host-hc_session')).toBe(false);
     });
@@ -63,6 +143,9 @@ test.describe('real local OIDC',()=>{
     await page.goto('/auth/login');
     await page.locator('input[name=login]').fill('admin@harness.local');await page.locator('input[name=password]').fill('intentionally-wrong');
     await page.getByRole('button',{name:'登录',exact:true}).click();await expect(page).toHaveURL(/\/oidc\//);
+    await expect(page.getByRole('alert')).toContainText('请检查后重试');
+    await expect(page.locator('input[name=login]')).toHaveValue('admin@harness.local');
+    await expect(page.locator('input[name=password]')).toHaveValue('');
     expect((await page.request.get('/v1/me')).status()).toBe(401);
     await page.goto('/auth/login');
     await page.locator('input[name=login]').fill('unmapped@harness.local');await page.locator('input[name=password]').fill(readFileSync('../.local/auth/unmapped-password','utf8').trim());

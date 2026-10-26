@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Button, Input, Modal, Space, Drawer, Form, Select } from 'antd';
 import { Plus } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { hasPermission, type CurrentUser } from '../../api/identity';
 import type { Instance, Operation } from '../../api/resources';
 import { CommandsClient, type Acceptance, type CommandAction } from '../../api/commands';
@@ -12,7 +12,7 @@ import { SettingsClient } from '../../api/settings';
 import { ProviderAccountsClient } from '../../api/provider-accounts';
 import {ProviderLabel} from '../../shared/components/provider-logo';
 import { ResourceRemaining } from './create-resource-quota';
-import { expireSession } from '../../shared/hooks/use-expired-session';
+import { expireSession, loginPath } from '../../shared/hooks/use-expired-session';
 
 const commands = new CommandsClient();
 const settings = new SettingsClient();
@@ -26,10 +26,10 @@ export function RetryOperationButton({user,instance,operation}:{user:CurrentUser
  return <Space direction="vertical" style={{marginBottom:16}}><Button loading={retry.isPending} onClick={()=>retry.mutate()}>{unresolved?'确认上次重试结果':'重试失败操作'}</Button>{retry.isError && <Alert type="error" showIcon message={retry.error.message}/>}</Space>;
 }
 function useCommandResult(user:CurrentUser) {
- const cache=useQueryClient();const navigate=useNavigate();
+ const cache=useQueryClient();const navigate=useNavigate();const {pathname}=useLocation();
  return {
   onSuccess:(result:Acceptance)=>{void cache.invalidateQueries({queryKey:['resources',user.id]});void cache.invalidateQueries({queryKey:['settings',user.id]});navigate('/app/instances/'+result.instance_id);},
-  onError:(error:Error)=>{if(error instanceof APIError && error.status===401){expireSession(cache);navigate('/login');}},
+  onError:(error:Error)=>{if(error instanceof APIError && error.status===401){expireSession(cache);navigate(loginPath(pathname),{replace:true});}},
  };
 }
 function pending(user:CurrentUser,action:CommandAction,id='') {try{return commands.hasPending(user,action,id);}catch{return false;}}
@@ -79,7 +79,7 @@ export function CreateInstanceButton({user,label,variant='primary'}:{user:Curren
  const show=()=>{if(!unresolved){setWorkspaceName('');setSelectedSpecID(undefined);setSelectedProvider('');create.reset();}setOpen(true);};
  return <div className="create-command">
   <Button type={variant} icon={variant==='primary'?<Plus size={17} aria-hidden="true"/>:undefined} disabled={!canOpen||create.isPending} onClick={show}>{label??(unresolved?'查看待确认创建':'创建工作空间')}</Button>
-  <Drawer className="create-instance-editor" title="创建工作空间" width={640} open={open} onClose={close} closable={!create.isPending} maskClosable={!create.isPending} keyboard={!create.isPending} destroyOnHidden footer={<div className="create-instance-footer"><Button aria-label="取消" disabled={create.isPending} onClick={close}>取消</Button><Button type="primary" htmlType="submit" form={formID} disabled={!canSubmit} loading={create.isPending}>{unresolved?'确认创建结果':'创建并运行'}</Button></div>}>
+  <Drawer className="create-instance-editor" title="创建工作空间" width={640} open={open} onClose={close} closable={!create.isPending} maskClosable={!create.isPending} keyboard={!create.isPending} destroyOnHidden footer={<div className="create-instance-footer"><Button aria-label="取消" disabled={create.isPending} onClick={close}>取消</Button><Button aria-label={unresolved?'确认创建结果':'创建并运行'} type="primary" htmlType="submit" form={formID} disabled={!canSubmit} loading={create.isPending}>{unresolved?'确认创建结果':'创建并运行'}</Button></div>}>
    <Form id={formID} layout="vertical" disabled={create.isPending} onFinish={()=>{if(canSubmit&&!create.isPending)create.mutate();}}>
     {unresolved?<Alert type="info" showIcon message="上次创建结果待确认" description="将使用上次提交的名称、资源和提供商确认结果。"/>:<>
      <Form.Item label="工作空间名称" htmlFor="create-workspace-name" validateStatus={nameValid?undefined:'error'} help={nameValid?undefined:'使用 1–32 个字符，支持中文、字母、数字、下划线和短横线'}><Input id="create-workspace-name" aria-label="工作空间名称" placeholder="例如：研发工作空间，留空自动生成" maxLength={64} value={workspaceName} onChange={event=>{setWorkspaceName(event.target.value);create.reset();}}/></Form.Item>

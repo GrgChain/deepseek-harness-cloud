@@ -21,7 +21,7 @@ func (s *ManagementService) position(p Principal, resource string, in Management
 	if in.Limit < 1 || in.Limit > 100 || !utf8.ValidString(in.Query) || utf8.RuneCountInString(in.Query) > 100 || strings.ContainsFunc(in.Query, unicode.IsControl) || (in.RoleID != "" && !uuidPattern.MatchString(in.RoleID)) {
 		return scope, pagination.Position{}, managementInvalid("查询参数不合法")
 	}
-	if resource == "roles" && (in.Status != "" || in.RoleID != "") {
+	if (resource == "roles" || resource == "user-role-options") && (in.Status != "" || in.RoleID != "") {
 		return scope, pagination.Position{}, managementInvalid("角色查询不接受用户筛选")
 	}
 	if in.Status != "" && in.Status != "PENDING_IDENTITY" && in.Status != "ACTIVE" && in.Status != "DISABLED" && in.Status != "ARCHIVED" {
@@ -121,6 +121,48 @@ func (s *ManagementService) ListUsers(ctx context.Context, p Principal, in Manag
 		page.NextCursor, err = s.next(scope, pagination.Position{Timestamp: last.CreatedAt, ID: last.ID})
 	}
 	return page, err
+}
+
+func (s *ManagementService) ListUserRoleOptions(ctx context.Context, p Principal, in ManagementListInput) (ManagementPage[RoleOption], error) {
+	page := ManagementPage[RoleOption]{Items: []RoleOption{}}
+	scope, pos, err := s.position(p, "user-role-options", in)
+	if err != nil {
+		return page, err
+	}
+	tx, err := s.begin(ctx, p, "users:read")
+	if err != nil {
+		return page, err
+	}
+	defer tx.Rollback(context.Background())
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM roles WHERE org_id=$1 AND ($2='' OR position(lower($2) in lower(name||' '||code))>0)`, p.OrganizationID, in.Query).Scan(&page.Total); err != nil {
+		return page, err
+	}
+	offset, _ := pagination.Offset(in.Page, in.Limit, in.Cursor)
+	rows, err := tx.Query(ctx, `SELECT id::text,code,name,created_at FROM roles
+ WHERE org_id=$1 AND ($2='' OR position(lower($2) in lower(name||' '||code))>0)
+ AND ($3::timestamptz IS NULL OR (created_at,id)<($3,$4::uuid)) ORDER BY created_at DESC,id DESC LIMIT $5 OFFSET $6`, p.OrganizationID, in.Query, nullableTime(pos.Timestamp), nullableString(pos.ID), in.Limit+1, offset)
+	if err != nil {
+		return page, err
+	}
+	defer rows.Close()
+	var last pagination.Position
+	for rows.Next() {
+		var option RoleOption
+		var created time.Time
+		if err = rows.Scan(&option.ID, &option.Code, &option.Name, &created); err != nil {
+			return page, err
+		}
+		if len(page.Items) == in.Limit {
+			page.NextCursor, err = s.next(scope, last)
+			break
+		}
+		page.Items = append(page.Items, option)
+		last = pagination.Position{Timestamp: created, ID: option.ID}
+	}
+	if err != nil {
+		return page, err
+	}
+	return page, rows.Err()
 }
 func nullableTime(t time.Time) any {
 	if t.IsZero() {

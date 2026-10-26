@@ -44,6 +44,11 @@ GRANT SELECT ON approved_templates,approved_specs,quota_policies,instances,opera
 GRANT SELECT ON storage_assets,instance_health,audit_events TO hc_api;
 GRANT SELECT,INSERT ON storage_release_requests TO hc_api;
 GRANT SELECT,INSERT,DELETE ON storage_browse_requests TO hc_api;
+GRANT SELECT,INSERT,UPDATE,DELETE ON personal_skills,skill_import_previews,skill_replacements TO hc_api;
+GRANT SELECT,INSERT,UPDATE,DELETE ON context_connections,context_bindings,context_previews TO hc_api;
+GRANT SELECT,INSERT,UPDATE,DELETE ON context_operations TO hc_api;
+GRANT SELECT,INSERT,UPDATE ON mcp_connectors,mcp_calls TO hc_api;
+GRANT SELECT,INSERT,DELETE ON mcp_oauth_transactions TO hc_api;
 GRANT UPDATE(status,maintenance_intent) ON storage_assets TO hc_api;
 GRANT SELECT(id,org_id,owner_id,instance_id,asset_id,capacity_bytes,template_version,image_digest,status,created_at,completed_at,verified_at,expires_at,backup_sha256,set_id) ON storage_backups TO hc_api;
 GRANT SELECT,INSERT,DELETE ON idempotency_records TO hc_api;

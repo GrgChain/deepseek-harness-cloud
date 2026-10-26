@@ -8,7 +8,7 @@
 
 只有HTTPS Portal和实例域名向可信试点网络开放443；PG/Redis/DSH内网端口禁止外部与成员容器访问。不提供 Coder Agent/App/端口共享/SSH 入口，其他旁路必须封闭；模板不发布coder_app。Gateway路由可信Worker登记，公网入口严格Host白名单。
 
-控制面预留至少4vCPU/8GiB；默认系统额度为20个实例、40vCPU/80GiB、200GiB持久存储。宿主机按实际同时运行的实例配置容量；数据可用量至少覆盖承诺存储+20%余量，另有控制面/镜像/日志容量。主机不足允许收紧组织限额，不能超卖内存/存储或默默改变实例冻结规格。
+控制面预留至少4vCPU/8GiB；默认系统额度为20个实例、40vCPU/80GiB、200GiB持久存储。宿主机按实际同时运行的实例配置容量；创建预检按所选CPU/内存判断，不以旧的2CPU/4GiB构建并发单位阻断1CPU/2GiB规格。数据可用量至少覆盖承诺存储+20%余量，另有控制面/镜像/日志容量。主机不足允许收紧组织限额，不能超卖内存/存储或默默改变实例冻结规格。
 
 
 
@@ -45,6 +45,11 @@
 | HC_MAINTENANCE | false | 按接口第9节限制新命令；查询/退出/撤销/停止/删除继续 |
 
 Worker JSON 使用 `schema_version=1`，字段为 `workspace_engine`、`workspace_organization_id`、`control_user_id`、`environment`、`data_key_file`、`data_key_id`、`model_allowlist_file`、`host`。`host` 使用 `RuntimeRoot`、`AssetRoot`、`RuntimeImage`、`StorageImage`、`NetworkImage`、`Domain`、`StorageBudget`、`PublicPort`及可选`PreviousRuntimeImages`（最多4个不同的旧镜像digest，不能含当前镜像/标签）；根目录必须当前用户所有且 0700，镜像必须为本机固定 sha256 ID。启动核验内嵌工作空间服务身份、Terraform二进制摘要/版本、固定Provider及三个当前镜像和明确保留的旧镜像，readyz同样核验；已接受任务和Worker就绪不依赖Redis。额外必填 `terraform`，包含绝对路径 `binary`、`root`、`cli_config` 和 `binary_sha256`；使用 `make workspace-init` 生成受控本机配置。`make worker-init` 从已导入本地模板及既有私有文件生成配置，不批准模板、不调整配额、不覆盖既有文件。PublicPort 未设置/0 为 HTTPS 默认 443，本地同站入口使用 42013；原生 Host、Origin、Cookie authority 与 public_url 都包含一致的非默认端口。
+
+个人 Skill 库由 Portal 与平台 API 提供，执行迁移 46 并更新 API 角色对 `personal_skills`、`skill_import_previews`、`skill_replacements` 的权限。技能内容使用平台数据密钥加密；DB 备份及恢复须保留对应 keyring。链接导入需要 API 主机能够访问公开 HTTPS 文件来源，下载器自行校验 DNS/IP 与重定向，不使用代理；无需新增 Worker 配置、DSH 插件、镜像或容器挂载。更新平台服务时保持数据库迁移版本一致。
+
+公开技能搜索包含 skills.sh、ClawHub、SkillHub 和 SkillsMP。SkillHub 与 SkillsMP 默认可使用匿名额度；需要密钥时，将 API 进程环境变量 `HC_TENCENT_SKILLHUB_API_KEY_FILE`、`HC_SKILLSMP_API_KEY_FILE` 分别指向模式为 0600 或 0400 的密钥文件。密钥仅由服务端读取，SkillHub 密钥只发送给 `api.skillhub.cn`，SkillsMP 密钥只发送给 `skillsmp.com`，下载跳转不携带市场密钥。SkillsMP 匿名查询存在每日及每分钟限额；前端缓存同一关键词 60 秒且失败不自动重试。网络策略须允许 `api.skillhub.cn`、腾讯 COS 技能包存储及 `skillsmp.com`；来源流量继续复用公开 IP 校验和显式配置的 Skill 来源代理。
+
 
 常驻 Worker 同时运行任务执行、四维健康检查、安全扫描和自动模型探测，退出时统一取消并等待有界调用结束。扫描每10秒处理最多10个未停止实例，保留稳定分页游标，单项失败下轮循环重试。运行健康结果均使用数据库探测开始时间，过期读为UNKNOWN；路由关闭后健康刷新不能重新开放。原生Cookie的服务端续期只更新加密会话且绑定原运行代次。自动模型调度每30秒串行检查最多10个到期版本，处理同步完成的个人模型当前未校验版本，以及已完成校验且仍有引用的配置；持久attempted_at限制自动间隔4分钟，手动校验也更新该时间。模型允许列表以model_allowlist_file引用私有文件，缺失/非法拒绝启动；既有Worker配置须补入该绝对路径。模型探测可能产生费用，个人模型新增和轮换密钥后即使尚无引用也会进行首检，完成后的未引用版本不持续探测。
 
@@ -493,3 +498,28 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 实例入口对 `POST /api/officeToPdf/render` 使用独立的 90 秒请求时限，覆盖首次引擎及字体加载和转换。其他浏览器请求仍为 15 秒响应头时限，原生健康探测仍为 2 秒；Office 请求继续使用相同的身份、Host、Origin 和请求体限制。发布字体镜像时需同步更新 Gateway，避免首次预览被入口提前中断。
 
 历史首次进入认证间歇失败与新建性能不能仅凭本次插件/设置验收判定已全部解决，验证边界以测试文档为准。
+
+
+## 外接记忆与知识库
+
+本机外接服务使用独立Compose项目 `hc-context`，部署步骤见[外部服务说明](../deploy/context/README.md)。API通过 `HC_CONTEXT_ENDPOINTS_FILE` 加载0600私有批准策略；`make run-auth` 会识别本机策略文件。所有数据使用独立卷，未修改任何既有DSH容器或数据。OpenViking/Graphiti测试复用用户批准的平台模型配置，单独私有保存；生产须使用专用最小权限服务账号与备份策略。
+
+
+### 技能包来源出口
+
+来源下载默认直连，忽略环境中的HTTP代理。主机直连公网不稳定时，运维可用0600私有JSON文件配置明确的本机CONNECT代理，设置 `HC_SKILL_SOURCE_PROXY_FILE` 指向该文件；`make run-auth` 自动识别 `.local/skill-source-proxy.json`。
+
+```json
+{"url":"http://127.0.0.1:20172"}
+```
+
+仅接受带端口的HTTP回环IP，不接受代理域名、远端代理、凭据或附加路径。下载器仍自行解析并验证来源的全部DNS答案，代理只收到固定公网IP的443端口；目标TLS证书按原始来源域名验证，逐跳重定向、12秒总时限和4MiB上限不变。浏览器不能设置代理或任意内网目标。本机测试代理须保持运行；移除此配置即可恢复直连。
+
+
+## 工作台连接器（MCP）
+
+API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，5种OAuth服务仍有默认固定地址，用户也可填写个人公网HTTPS；其他目录服务须绑定兼容服务或从自定义入口添加。私网/HTTP例外只对精确批准URL生效。
+
+执行迁移49～51及API角色授权，再更新平台API原生进程；不修改DSH。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[实网报告](connectors-oauth-availability-2026-10-26.md)。
+
+固定服务、OAuth、独立Docker合成服务、故障排查与复验命令统一见[部署与复验](../deploy/connectors/README.md)。首次启动API沿用既有限流器120秒安全恢复窗口，恢复后再执行真实登录；不要通过重启DSH处理。功能及待交付边界见[实施说明](connectors-implementation.md)。

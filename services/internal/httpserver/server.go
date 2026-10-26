@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -74,6 +75,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if s.identity != nil {
 			p, err := s.identity.Authenticate(r)
 			if err != nil {
+				if r.Method == "GET" && r.URL.Path == "/v1/connectors/oauth/callback" && strings.Contains(r.Header.Get("Accept"), "text/html") && errors.Is(err, identity.ErrUnauthenticated) {
+					http.Redirect(w, r, "/app/connectors?connector_oauth=failed", http.StatusSeeOther)
+					return
+				}
 				identity.WriteError(w, r, err)
 				return
 			}
@@ -85,6 +90,18 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if s.business != nil {
 				budget := 9 * time.Second
+				if strings.HasPrefix(r.URL.Path, "/v1/skills") || strings.HasPrefix(r.URL.Path, "/v1/context/") {
+					budget = 20 * time.Second
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+				}
+				if r.Method == http.MethodPost && (r.URL.Path == "/v1/skills:source" || strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, ":check-update")) {
+					budget = 125 * time.Second
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+				}
+				if strings.HasPrefix(r.URL.Path, "/v1/connectors") {
+					budget = 125 * time.Second
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+				}
 				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && (strings.HasSuffix(r.URL.Path, "/files") || strings.HasSuffix(r.URL.Path, "/file")) {
 					budget = 65 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))

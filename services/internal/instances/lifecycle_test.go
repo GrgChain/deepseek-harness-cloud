@@ -39,7 +39,7 @@ func TestLifecycleProtectsOriginalAssetAndRevokesAccess(t *testing.T) {
 
 func TestLifecycleErrorRecoveryUsesReconciledResourceFacts(t *testing.T) {
 	broken := Lifecycle{Observed: "ERROR", Desired: "RUNNING", Version: 1, AccessGeneration: 1}
-	for _, action := range []Action{Start, Stop, Delete, Configure} {
+	for _, action := range []Action{Start, Stop, Configure} {
 		if _, err := broken.Plan(action, 1, ResourceFacts{OriginalAssetReady: true, ModelUsable: true}); !errors.Is(err, ErrStateConflict) {
 			t.Fatalf("unknown resources accepted %s: %v", action, err)
 		}
@@ -86,6 +86,20 @@ func TestLifecycleNeverDuplicatesActiveOrCompletedCommands(t *testing.T) {
 			if _, err := state.Plan(action, 1, facts); !errors.Is(err, ErrStateConflict) {
 				t.Fatalf("accepted active %s: %v", action, err)
 			}
+		}
+	}
+}
+
+func TestLifecycleDeletesErrorWithoutAssumingComputeIsAbsent(t *testing.T) {
+	for _, facts := range []ResourceFacts{{}, {Reconciled: true}, {Reconciled: true, ComputePresent: true}} {
+		broken := Lifecycle{Observed: "ERROR", Desired: "RUNNING", Version: 2, AccessGeneration: 3}
+		next, err := broken.Plan(Delete, 0, facts)
+		if err != nil || next.Observed != "DELETING" || next.Desired != "DELETED" || next.Version != 3 || next.AccessGeneration != 4 || !next.ActiveOperation {
+			t.Fatalf("error cleanup: %+v %v", next, err)
+		}
+		broken.ActiveOperation = true
+		if _, err = broken.Plan(Delete, 0, facts); !errors.Is(err, ErrStateConflict) {
+			t.Fatalf("accepted conflicting cleanup: %v", err)
 		}
 	}
 }

@@ -252,6 +252,8 @@ func scanInstance(row pgx.Row, now time.Time) (InstanceView, error) {
 	view.AllowedActions = []string{}
 	if view.ActiveOperationID == nil {
 		switch view.Observed {
+		case "ERROR":
+			view.AllowedActions = append(view.AllowedActions, "delete")
 		case "RUNNING":
 			view.AllowedActions = append(view.AllowedActions, "stop", "delete", "configure")
 		case "STOPPED":

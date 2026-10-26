@@ -92,6 +92,9 @@ h3 { font-size: 15px; font-weight: 600; }
 .workspace-record-meta { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 8px; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .workspace-model { min-width: 0; }
 .workspace-details.ant-btn { min-width: 44px; min-height: 44px; gap: 6px; }
+.workbench-record-description { margin: 6px 0 0; color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.workbench-record-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; justify-content: flex-end; flex-shrink: 0; }
+.workbench-record-actions .ant-btn { min-width: 44px; min-height: 44px; }
 .workspace-list-empty { display: flex; flex-direction: column; align-items: center; padding: 56px 12px; color: var(--muted); }
 .workspace-list-empty > .ant-empty { margin: 8px 0 0; }
 .workspace-list-empty .create-command { margin-top: 20px; }
@@ -158,6 +161,7 @@ h3 { font-size: 15px; font-weight: 600; }
  .workspace-record-heading .ant-btn-link { min-height: 44px; }
  .workspace-record-meta { flex-direction: column; gap: 6px; }
  .workspace-toolbar .ant-segmented-item-label { min-width: 56px; }
+ .workbench-record-actions { width: 100%; }
 }
 .settings-section > p { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
 .settings-section > h2, .settings-section > h3 { margin-bottom: 16px; }
@@ -267,6 +271,8 @@ h3 { font-size: 15px; font-weight: 600; }
 .role-editor-permission-group { min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 6px; }
 .role-editor-permission-heading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
 .role-editor-permission-heading > strong { font-size: 13px; font-weight: 600; }
+.role-editor-permission-heading > .ant-btn { margin-left: auto; flex-shrink: 0; }
+.role-permission-help { margin: 8px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .role-editor-permission-options { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; }
 .role-editor-permission-options .ant-checkbox-wrapper { min-width: 0; align-items: flex-start; margin: 0; line-height: 1.6; }
 .role-editor-permission-options .ant-checkbox { margin-top: 3px; }
@@ -277,6 +283,8 @@ h3 { font-size: 15px; font-weight: 600; }
   .role-basic-fields, .role-editor-permission-groups { grid-template-columns: minmax(0, 1fr); }
   .role-description-field { grid-column: auto; }
   .role-editor-dialog .ant-modal-footer .ant-btn { min-height: 44px; }
+  .role-editor-permission-heading > .ant-btn { min-width: 44px; min-height: 44px; }
+  .role-editor-permission-options .ant-checkbox-wrapper { min-height: 44px; }
   .role-permission-group ul { grid-template-columns: minmax(0, 1fr); }
   .role-permissions-dialog .ant-modal-footer .ant-btn { min-height: 44px; }
 }
@@ -285,6 +293,10 @@ h3 { font-size: 15px; font-weight: 600; }
 .model-help p { color: var(--muted); font-size: 13px; line-height: 1.8; }
 .model-help .ant-btn { margin-top: 12px; }
 .welcome-card { text-align: center; padding: 56px 24px; }
+.auth-transition { min-height: 100dvh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 32px; gap: 18px; }
+.auth-transition .brand-mark { width: 48px; height: 48px; border-radius: 13px; }
+.auth-transition h1 { font-size: 22px; font-weight: 650; }
+.auth-transition [role=status] { display: flex; align-items: center; gap: 12px; color: var(--muted); }
 .login-section.ant-card { max-width: 440px; margin: 64px auto; text-align: center; border-color: var(--line); }
 .login-section .ant-card-body { padding: 40px 32px; }
 .login-icon { display: inline-grid; place-items: center; width: 60px; height: 60px; border-radius: 16px; background: var(--color-selected); color: var(--color-primary); margin-bottom: 24px; }
@@ -563,3 +575,61 @@ h3 { font-size: 15px; font-weight: 600; }
 @keyframes workspace-entry-turn { to { transform:rotate(360deg); } }
 @media (prefers-reduced-motion:reduce) { .workspace-entry-indicator::after { animation:none; } }
 @media (max-width:420px) { .workspace-entry-content { padding:24px 4px; } .workspace-entry-content h1 { font-size:20px; } }
+
+/* Personal Skill library */
+.skills-panel { min-width: 0; }
+.skills-panel > .ant-alert { margin: 12px 0; }
+.skill-selection { min-height: 44px; }
+.skill-row > .ant-checkbox-wrapper { flex-shrink: 0; }
+.skill-identity p { margin: 6px 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 13px; color: var(--muted); }
+.skill-note, .skill-editor-summary > .ant-space { font-size: 12px; color: var(--muted); }
+.skill-row-actions { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.skill-row-actions .ant-btn { width: 44px; height: 44px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+.skill-editor-summary { margin-bottom: 24px; }
+.skill-editor-summary p { margin-top: 0; overflow-wrap: anywhere; }
+.skill-file-picker { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; margin-bottom: 16px; }
+.skill-file-picker > label { font-weight: 600; }
+.skill-file-picker .ant-select { min-width: 0; }
+.skill-file-picker .ant-select-selector { min-height: 44px; align-items: center; }
+.skill-content-label { display: block; font-weight: 600; margin: 16px 0 8px; overflow-wrap: anywhere; }
+.skill-markdown { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 13px; line-height: 1.7; tab-size: 2; }
+.skill-note { line-height: 1.7; margin: 10px 0; }
+.skill-file-list { list-style: none; padding: 0; margin: 0; max-height: 320px; overflow: auto; }
+.skill-file-list li { display: flex; justify-content: space-between; gap: 16px; padding: 6px 0; font-size: 12px; }
+.skill-file-list code { overflow-wrap: anywhere; min-width: 0; }
+.skill-file-list li > span { color: var(--muted); white-space: nowrap; }
+.skill-source-detail { display: grid; gap: 10px; overflow-wrap: anywhere; font-size: 13px; }
+.skill-import-form { padding-top: 12px; }
+.skill-import-form > label { display: block; margin-bottom: 8px; }
+.skill-hub-search-form { display: grid; grid-template-columns: 150px minmax(0,1fr) auto; align-items: end; gap: 12px; }
+.skill-hub-search-form label { display: block; margin-bottom: 8px; }
+.skill-hub-search-form .ant-select { width: 100%; }
+.skill-hub-results { max-height: 400px; overflow-y: auto; }
+.skill-hub-status { padding: 36px 16px; text-align: center; color: var(--muted); }
+.skill-hub-result { padding: 16px 0; border-bottom: 1px solid var(--line); }
+.skill-hub-result-heading, .skill-hub-result-meta, .skill-hub-result-actions { display: flex; align-items: center; gap: 12px; }
+.skill-hub-result-heading strong, .skill-hub-result-meta span { min-width: 0; overflow-wrap: anywhere; }
+.skill-hub-result-heading .ant-tag { flex-shrink: 0; }
+.skill-hub-result > p { font-size: 13px; margin: 8px 0; overflow-wrap: anywhere; }
+.skill-hub-result-meta { margin-top: 8px; color: var(--muted); font-size: 12px; flex-wrap: wrap; }
+.skill-hub-result-actions { justify-content: space-between; margin-top: 12px; }
+.skill-hub-result-actions > a { display: inline-flex; align-items: center; gap: 6px; }
+.skill-upload-target { display: flex; flex-direction: column; align-items: center; gap: 12px; border: 1px dashed var(--line); border-radius: 8px; padding: 32px 16px; }
+.skill-upload-target > p { margin: 0; font-weight: 500; }
+.skill-upload-target > span { font-size: 12px; color: var(--muted); }
+.skill-source-url { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.skill-source-url svg { flex-shrink: 0; }
+.skill-preview-item { border-bottom: 1px solid var(--line); padding: 18px 0 8px; }
+.skill-preview-item > div:first-child { display: flex; gap: 12px; align-items: center; }
+.skill-preview-item strong { overflow-wrap: anywhere; }
+.skill-preview-item > p { font-size: 13px; overflow-wrap: anywhere; }
+.skill-conflict-options { border: 0; padding: 16px 0 8px; margin: 0; }
+.skill-conflict-options legend { padding-bottom: 8px; font-size: 13px; font-weight: 600; }
+@media (max-width: 767px) {
+ .skill-hub-search-form { grid-template-columns: minmax(0,1fr) auto; }
+ .skill-hub-search-form > div:first-child { grid-column: 1 / -1; }
+ .skill-row { display: grid; grid-template-columns: 24px minmax(0,1fr); gap: 12px; }
+ .skill-row > .ant-checkbox-wrapper { align-self: start; padding-top: 14px; }
+ .skill-row-actions { grid-column: 2; justify-content: flex-start; }
+ .skill-editor .ant-drawer-body { padding: 20px 16px; }
+}

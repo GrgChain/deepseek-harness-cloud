@@ -12,10 +12,12 @@ test('user table keeps actions accessible and role assignment keeps its version 
   const roles = [{ id: 'member-role', name: '成员', code: 'MEMBER' }, { id: 'reviewer-role', name: '审核员', code: 'reviewer' }];
   const target = { id: 'layout-user', display_name: '产品研发团队的工作空间管理员与模型接入负责人', email: 'workspace-administrator-and-model-provider-owner@example.com', role_id: 'member-role', role_name: '成员', status: 'ACTIVE', identity_source: 'local', version: 7, last_login_at: null, password_reset: null };
   let roleID = target.role_id;
+  const fullRoleRequests: string[] = [];
+  await page.route('**/v1/roles?*', r => { fullRoleRequests.push(r.request().url()); return r.fulfill({ status: 403, json: { code: 'FORBIDDEN' } }); });
   await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
   await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
-  await page.route('**/v1/me', r => r.fulfill({ json: admin }));
-  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: roles, next_cursor: null } }));
+  await page.route('**/v1/me', r => r.fulfill({ json: { ...admin, memberships: [{ ...admin.memberships[0], role: 'user_manager' }], permissions: ['users:read', 'users:manage'] } }));
+  await page.route('**/v1/users/role-options?*', r => r.fulfill({ json: { items: roles, next_cursor: null } }));
   await page.route('**/v1/users?*', r => r.fulfill({ json: { items: [{ ...target, role_id: roleID, role_name: roles.find(role => role.id === roleID)!.name }], total: 1, next_cursor: null } }));
   await page.route('**/v1/users/layout-user:role', async r => {
     expect(r.request().postDataJSON()).toEqual({ role_id: 'reviewer-role', expected_version: 7 });
@@ -39,6 +41,7 @@ test('user table keeps actions accessible and role assignment keeps its version 
   await dialog.getByRole('button', { name: /^保\s*存$/ }).click();
   await expect(dialog).toHaveCount(0);
   await expect(record.getByText('审核员', { exact: true })).toBeVisible();
+  expect(fullRoleRequests).toEqual([]);
 });
 
 for (const readOnly of [false, true]) {
@@ -156,7 +159,7 @@ test('pending password reset resumes its original operation without another pass
   await page.route('**/readyz',r=>r.fulfill({json:{status:'ready',process:'api'}}));
   await page.route('**/v1/me',r=>r.fulfill({json:admin}));
   await page.route('**/v1/users?*',r=>r.fulfill({json:{items:[target],next_cursor:null,local_accounts:true}}));
-  await page.route('**/v1/roles?*',r=>r.fulfill({json:{items:[],next_cursor:null}}));
+  await page.route('**/v1/users/role-options?*',r=>r.fulfill({json:{items:[],next_cursor:null}}));
   await page.route('**/v1/users/'+target.id+':retry-password-reset',async r=>{
     expect(r.request().postDataJSON()).toEqual({expected_version:3});
     expect(await r.request().headerValue('x-csrf-token')).toBe(admin.csrf_token);
@@ -184,6 +187,83 @@ async function selectPermission(page:Page,id:string){
   const checkbox=page.getByRole('checkbox',{name:new RegExp(id)});
   await expect(async()=>{await checkbox.setChecked(true);await expect(checkbox).toBeChecked();}).toPass({timeout:5000});
 }
+
+test('permission search preserves hidden selections and dependencies require explicit approval', async ({ page }, info) => {
+  const catalog = [
+    { id: 'instances:read', name: '查看本人工作空间', assignable: true, dependencies: [] },
+    { id: 'instances:start', name: '启动本人工作空间', assignable: true, dependencies: ['instances:read'] },
+    { id: 'connectors:read', name: '查看本人连接器', assignable: true, dependencies: [] },
+    { id: 'connectors:manage', name: '管理本人连接器', assignable: true, dependencies: ['connectors:read'] },
+  ];
+  await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
+  await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
+  await page.route('**/v1/me', r => r.fulfill({ json: admin }));
+  await page.route('**/v1/permissions', r => r.fulfill({ json: { items: catalog } }));
+  await page.route('**/v1/roles?*', r => r.fulfill({ json: { items: [], total: 0, next_cursor: null } }));
+  let saved = false;
+  await page.route('**/v1/roles', async r => {
+    const body = r.request().postDataJSON();
+    expect(body).toMatchObject({ code: 'operator', name: '运维角色', expected_version: 0 });
+    expect(body.permissions.sort()).toEqual(['connectors:read', 'instances:read', 'instances:start']);
+    expect(await r.request().headerValue('idempotency-key')).toBeTruthy();
+    saved = true;
+    await r.fulfill({ status: 201, json: { ...body, id: 'new-role', version: 1 } });
+  });
+  await page.goto('/app/roles');
+  await page.getByRole('button', { name: '新增角色', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '新增角色', exact: true });
+  await dialog.getByLabel('角色编码', { exact: true }).fill('operator');
+  await dialog.getByLabel('角色名称', { exact: true }).fill('运维角色');
+  const search = dialog.getByRole('searchbox', { name: '搜索功能权限', exact: true });
+  const confirm = dialog.getByRole('button', { name: /^确\s*认$/ });
+  await search.fill('instances:start');
+  await dialog.getByRole('checkbox', { name: /启动本人工作空间/ }).check();
+  await expect(dialog.getByText('请显式选择依赖权限', { exact: true })).toBeVisible();
+  await expect(confirm).toBeDisabled();
+  await search.fill('instances:read');
+  await expect(dialog.getByRole('checkbox', { name: /查看本人工作空间/ })).not.toBeChecked();
+  await dialog.getByRole('button', { name: '补选依赖权限', exact: true }).click();
+  await expect(dialog.getByRole('checkbox', { name: /查看本人工作空间/ })).toBeChecked();
+  await expect(confirm).toBeEnabled();
+  await search.fill('connectors:manage');
+  await dialog.getByRole('button', { name: '全选连接器当前显示权限', exact: true }).click();
+  await expect(confirm).toBeDisabled();
+  await dialog.getByRole('button', { name: '补选依赖权限', exact: true }).click();
+  await dialog.getByRole('button', { name: '清空连接器当前显示权限', exact: true }).click();
+  await search.fill('does not exist');
+  await expect(dialog.getByText('没有匹配的权限，已选权限保持不变', { exact: true })).toBeVisible();
+  await expect(dialog.getByText('已选 3 / 4 项', { exact: true })).toBeVisible();
+  await search.fill('');
+  await expect(dialog.getByRole('checkbox', { name: /^查看本人连接器 connectors:read/ })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: /管理本人连接器/ })).not.toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: /启动本人工作空间/ })).toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(confirm).toBeInViewport();
+  await page.screenshot({ path: info.outputPath('role-permission-editor.png'), fullPage: true, animations: 'disabled' });
+  await confirm.click();
+  await expect(dialog).toHaveCount(0);
+  expect(saved).toBe(true);
+});
+
+test('user reader can filter roles and retry failed role options without write controls', async ({ page }) => {
+  await page.route('**/livez', r => r.fulfill({ json: { status: 'alive', process: 'api', capabilities: { authentication: true } } }));
+  await page.route('**/readyz', r => r.fulfill({ json: { status: 'ready', process: 'api' } }));
+  await page.route('**/v1/me', r => r.fulfill({ json: { ...admin, permissions: ['users:read'] } }));
+  let failed = true;
+  await page.route('**/v1/users/role-options?*', r => failed ? r.fulfill({ status: 503, json: { code: 'DEPENDENCY_UNAVAILABLE' } }) : r.fulfill({ json: { items: [{ id: 'review-role', name: '审核员', code: 'reviewer' }], next_cursor: null, total: 1 } }));
+  const filters: string[] = [];
+  await page.route('**/v1/users?*', r => { filters.push(new URL(r.request().url()).searchParams.get('role_id') ?? ''); return r.fulfill({ json: { items: [], total: 0, next_cursor: null } }); });
+  await page.goto('/app/users');
+  await expect(page.getByText('角色选项加载失败', { exact: true })).toBeVisible();
+  failed = false;
+  await page.getByRole('button', { name: /^重\s*试$/ }).click();
+  await expect(page.getByText('角色选项加载失败', { exact: true })).toHaveCount(0);
+  await page.getByRole('combobox', { name: '筛选用户角色', exact: true }).press('ArrowDown');
+  await page.locator('.ant-select-item-option-content').filter({ hasText: '审核员 (reviewer)' }).click();
+  await expect.poll(() => filters.at(-1)).toBe('review-role');
+  await expect(page.getByRole('button', { name: '新增用户', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '角色与权限', exact: true })).toHaveCount(0);
+});
 
 async function login(page:Page,email:string,password:string){
   await page.goto('/auth/login');await page.locator('input[name=login]').fill(email);await page.locator('input[name=password]').fill(password);

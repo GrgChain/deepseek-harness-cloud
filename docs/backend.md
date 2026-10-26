@@ -29,7 +29,7 @@
 
 精确 Go/驱动版本锁定在 go.mod/go.sum，本地 PG/Redis 镜像 digest 在 deploy/local/compose.yaml。运行命令见 README；运行批准绑定实际模板、镜像、helper 和协议摘要。升级需运行相应契约与回归测试。
 
-OIDC验证库和oauth2库锁精确版本；Coder源码只抽取 Workspace/模板/构建与Terraform执行子集，来源和许可见 third_party/coder。Redis可重建，失效策略见[PostgreSQL与Redis分工](#71-postgresql-与-redis-分工)。
+OIDC验证库和oauth2库锁精确版本；Workspace/模板/构建与Terraform执行子集的复用边界见[ADR-01](decisions/0001-coder-integration.md)。Redis可重建，失效策略见[PostgreSQL与Redis分工](#71-postgresql-与-redis-分工)。
 
 平台物理SQL与初始迁移已在PostgreSQL 17验证空库、并发/重复应用及结构约束。DSH/Coder源码/Provider精确版本、私有凭据通道和 Worker 外部执行已通过本地真实契约；Gateway 已通过真实 Portal/DSH 浏览器交接，命令接口已接入真实运行预检；模板完整批准与首次配置/创建/进入已有真实证据；普通浏览器模型文件任务和重启文件校验也已有独立产品证据。
 
@@ -135,7 +135,7 @@ API、Worker、工作空间访问Gateway由 `bootstrap.Run` 装配；原生模�
 
 任务采用至少一次处理。Worker 有限批量领取，使用数据库行锁/条件更新及租约 token；每次阶段回写检查操作/实例版本与当前租约。SQL索引/约束见 [schema.sql](../db/schema.sql)，锁序和条件回写见 [数据设计](data-model.md)，60秒租约/15秒续租等参数见配置。
 
-ACCEPTED/RUNNING/UNCERTAIN 都占活跃操作槽。UNCERTAIN 保留未确认额度，查询外部 Workspace/Build/卷后再进入终态或继续执行。只有经对账且允许重试的 FAILED 才接受重试命令。
+ACCEPTED/RUNNING/UNCERTAIN 都占活跃操作槽。无活跃操作且无冲突存储维护的 ERROR 实例允许接受 DELETE；此转换仅排队清理，不推断计算已消失。Worker 仍需核验 Workspace/Build/宿主机资源并确认移除，才能发布 DELETED 和释放计算、实例额度；保留原卷。UNCERTAIN 保留未确认额度，查询外部 Workspace/Build/卷后再进入终态或继续执行。只有经对账且允许重试的 FAILED 才接受重试命令。
 
 数据库 fencing 只防止旧执行器回写，不能撤销已发出的外部请求。相同实例始终使用同一外部创建标识；必须验证外部唯一性、迟到成功与冲突语义。无法确认时不改名重建，不释放未确认额度。
 
@@ -355,7 +355,7 @@ ModelSync每轮先扫描最多10个失效Owner/目录连接，以SECURITY DEFINE
 
 ## 内置身份模块
 
-`internal/identity/authorization_server.go` 实现授权参数验证、密码校验、签名及授权码交换；`provider_handler.go` 提供 `/oidc/*` 协议入口和限流；`login_page.go` 用 html/template 输出安全登录表单。`accounts.go` 管理 PostgreSQL 中的密码散列，供应只插入、不覆盖初始密码；重置只执行已提交的持久意图。`account_import.go` 提供受控初始化/迁移，日常用户治理仍由 ManagementService 和 IAM 函数处理。
+`internal/identity/authorization_server.go` 实现授权参数验证、密码校验、签名及授权码交换；`provider_handler.go` 提供 `/oidc/*` 协议入口和限流；`login_page.go` 用 html/template 输出安全登录表单。`accounts.go` 管理 PostgreSQL 中的密码散列，供应只插入、不覆盖初始密码；重置只执行已提交的持久意图。`account_import.go` 提供受控初始化/迁移，日常用户治理仍由 ManagementService 和 IAM 函数处理。迁移52按当前 `users:manage` / `roles:manage` 校验对应治理写入，显式获授权的自定义角色与内置管理员复用同一事务边界；密码重置确认另复核当前管理权限和原操作租约。用户筛选及分配使用 `ListUserRoleOptions` 的精简投影，只要求 `users:read`，完整角色和权限目录仍要求 `roles:read`。
 
 bootstrap用 `NewAuthorizationServer` 装配同源内置 issuer，再调用 `Client()` 创建BFF验证器，不对自身进行启动期HTTP发现；httpserver将公开 `/oidc/` 路由交给Provider，其余业务接口保持Portal Cookie授权。API持有签名私钥和账号散列读写权限；Worker/Gateway无账号密码表权限。Go依赖不包含独立身份服务的SDK或gRPC管理客户端。
 
@@ -446,3 +446,45 @@ Worker启动就绪除原生认证、HTTP/WebSocket及Origin检查外，还通过
 Agent预设默认值通过原生settings API写入持久profile。`settings/describe`须返回可写设置及`agent-preset-registry`命名空间；`settings/update`携带`expectedRevision`，旧版本写入返回`settings/conflict`，重启保留新默认项。页面原生读取可经WebSocket完成，不要求自动发出HTTP请求。这些RPC属于实例内DSH协议，不新增平台`/v1`接口。
 
 平台启动覆盖层优先于持久profile，固定模型路由、默认模型覆盖和认证必需组件；原生ConfigEditor拒绝覆盖平台默认模型的写入并返回`settings/rejected`。非必要遥测和默认会话日志上传仍关闭。该配置优先级不构成对同进程第三方代码的隔离，插件信任边界见[安全设计](security.md#6-容器工具与数据)。当前批准版本与已有实例升级见[部署说明](deployment.md#工作空间插件与-agent-预设)。
+
+### 个人 Skill 库
+
+`skills` 模块仅供 Portal 使用，独立于 Worker 和 DSH。`personal_skills` 保存用户隔离的元数据和加密技能包，`skill_import_previews` 保存 5 分钟的加密预览，`skill_replacements` 保留明确替换前的一版包。加密 AAD 绑定环境、组织、记录 ID 和用途；日志仅保存动作与结果。
+
+| 方法与路径 | 用途 / 请求字段 |
+| --- | --- |
+| `GET /v1/skills?q=&page=1&limit=10` | 本人分页列表，不返回正文 |
+| `POST /v1/skills` | 创建：`name`、`description` |
+| `GET /v1/skills/{id}` | 本人正文和资源清单 |
+| `PUT /v1/skills/{id}` | 保存：`content`、`expected_version` |
+| `DELETE /v1/skills/{id}` | 删除：`confirmed_name`、`expected_version` |
+| `GET /v1/skills/{id}:file?path=` | 已有文件文本/二进制状态与整包版本（API-112） |
+| `PUT /v1/skills/{id}:file` | 单文件保存：`path`、`content`、`expected_version`（API-113） |
+| `POST /v1/skills/{id}:file` | 新建文本或脚本文件：`path`、`content`、`expected_version`（API-114） |
+| `POST /v1/skills/{id}:policy` | 保留的元数据兼容接口，Portal 不提供此设置 |
+| `POST /v1/skills:preview` | 本地包预览：`filename`、`content_base64` |
+| `POST /v1/skills:source` | 获取链接并预览：`url` |
+| `POST /v1/skills/{id}:check-update` | 来源更新预览：`expected_version` |
+| `POST /v1/skills:apply` | 确认应用：`token`、`mode`（`skip` / `replace`） |
+| `POST /v1/skills:export` | 下载本人所选包：`ids`，最多 50 项 |
+| `POST /v1/skills/{id}:previous` | 下载替换前包：空 JSON 对象 |
+
+单文件操作只访问数据库技能包内的安全相对路径，不能访问主机目录。POST 新建 UTF-8 文本或脚本文件，支持嵌套目录；拒绝已有路径（含大小写重名）、文件/目录冲突及不安全路径，不覆盖已有内容，并执行整包版本、128 文件、12 MiB 和用户额度检查。PUT 只修改已有文件。有效 UTF-8、无 NUL 且 MIME 检测为文本才可编辑；二进制读取返回 `editable=false` 和空 `content`，写入拒绝。空字符串是合法文件内容，缺少或 null 内容拒绝。保存复用整包版本、大小、个人额度、加密与审计逻辑，其他文件及来源摘要不变；因此附属文件本地修改也会在来源更新预览中提示。
+
+读取与导出要求 `skills:read`，其余要求 `skills:manage`。写操作事务内复核会话和权限，按用户加锁，版本和预览绑定原记录 ID 防止删除重建后覆盖；HTTP 写请求复用同源/CSRF 校验和每分钟 30 次用户限流。导出响应为不缓存的附件。用户输入错误返回 `SKILL_INVALID`，重复名称 `SKILL_EXISTS`，容量上限 `SKILL_LIMIT`，过期或无权资源 `NOT_FOUND`，过期版本 `VERSION_CONFLICT`。
+
+外链下载在 API 进程执行，普通来源总时限 12 秒，GitHub 仓库及 skills.sh 归档下载总时限 120 秒；链接导入与检查更新路由时限 125 秒；仅公网 HTTPS 443，不使用环境代理。每跳验证 URL 和全部解析结果，实际连接固定到通过检查的 IP，TLS 仍验证原域名。GitHub 仓库及 `tree` 链接通过官方 `/repos/{owner}/{repo}/zipball/{ref}` API 获取归档，仓库链接省略 ref 读取默认分支；归档跳转仅允许 `api.github.com`、`codeload.github.com`。归档取消总大小上限，最多 30,000 条目，流式写入权限为 0600 的临时文件，只读取指定范围的技能子目录，成功或失败均关闭并删除临时文件；仓库托管元数据（`.gitignore`、`.gitattributes`、`.github/`）不进入技能包。提取的技能合计限 128 文件、12 MiB 解压内容、5 MiB 导入包，继续验证单文件大小、路径、重复、符号链接和 YAML；多个技能有重名或嵌套时要求指定具体目录。`tree` 的 ref 为一个 URL 路径段，分支名中的 `/` 需编码为 `%2F`。多技能来源检查更新时按原记录名称匹配，只暂存该技能；缺失或更名时保留本地记录并报错。远端包在同一导入校验后加密暂存，绝不执行包内代码或写入 DSH。
+
+
+## 外接记忆与知识库
+
+控制面由 `services/internal/contextservice` 管理，外部适配在 `deploy/context/bridge`。迁移47保存批准连接、密文凭据、实例绑定和加密操作回执；迁移48向内置管理员和成员授予本人内容权限，自定义角色保持显式授权。API-095～099覆盖Owner范围的连接、内容与核实操作；正文、原文版本和索引由独立外部服务保存。实现与验收边界见[实施记录](context-implementation.md)。
+
+
+## 工作台连接器（MCP）
+
+`services/internal/connectors` 负责个人 HTTPS 地址与平台出口例外校验、官方Go MCP SDK客户端、Owner隔离的配置与工具快照、手动调用、JSON配置迁移。迁移49新增 `mcp_connectors`、`mcp_calls` 和三项独立权限，迁移50为个人地址及目录关联增加 `endpoint_url/catalog_id`；管理员/成员默认拥有本人权限，自定义角色显式授权。凭据使用 `connector-credential` 加密上下文并纳入密钥轮换；调用意图在出站前持久提交，数据库仅保存状态、版本和请求摘要。调用前重新发现并比较完整工具定义，复核当前权限、配置、目录、启用状态和批准目标。 细节见[实施记录](connectors-implementation.md)。
+
+内置目录由 `connectors/catalog.json` 编译嵌入，版本化保存35种条目的接入元数据及厂商文档链接。`LoadPolicy` 校验可选 `catalog_id` 与目录一致；16种远程服务（其中9种OAuth）默认提供固定地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
+
+连接器迁移51增加OAuth类型和一次性加密授权事务，`oauth_http.go`负责固定服务配置、授权元数据及受限出站，`oauth.go`负责动态注册、PKCE、会话绑定、回调和令牌刷新。API契约见[API-115/116](api.md#工作台连接器req-23api-100111api-115116)，参数见[部署与复验](../deploy/connectors/README.md)，数据约束见[迁移49～51](data-model.md#工作台连接器迁移4951)。企查查五类聚合及专用远端解绑尚未实现，当前删除仅擦除本地连接凭据。

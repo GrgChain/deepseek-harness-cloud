@@ -20,7 +20,7 @@ test('live member selects approved CPU memory and sees the model provider select
    await page.locator('.ant-select-dropdown:visible').getByTitle(label,{exact:true}).click();
   }
   await expect(page.getByRole('combobox',{name:'创建时的模型提供商',exact:true})).toBeVisible();
-  await expect(page.locator('.create-storage-value')).toHaveValue('10 GiB');
+  await expect(page.getByRole('combobox',{name:'创建时的存储容量',exact:true}).locator('..').locator('..')).toContainText('10 GiB');
   const check=await page.request.get('/v1/preflight?spec_id='+selected.spec.id);expect(check.status()).toBe(200);const result=await check.json();
   expect(result.checks.find((check:{name:string})=>check.name==='spec').health.status).toBe('HEALTHY');
   expect(result.checks.find((check:{name:string})=>check.name==='quota')).toBeTruthy();
@@ -28,8 +28,9 @@ test('live member selects approved CPU memory and sees the model provider select
   await page.screenshot({path:info.outputPath('live-create-resources.png'),fullPage:true,animations:'disabled'});
   await page.getByRole('dialog',{name:'创建工作空间',exact:true}).getByRole('button',{name:'取消',exact:true}).click();
   await page.goto('/app/settings');
-  await expect(page.getByRole('heading',{name:'默认运行配置',exact:true})).toBeVisible();
-  await expect(page.getByText('10 GiB',{exact:true})).toBeVisible();
+  const runtime=page.getByRole('region',{name:'默认用户资源配置',exact:true});
+  await expect(runtime).toBeVisible();
+  await expect(runtime.getByText('10 GiB',{exact:true})).toBeVisible();
   await expect(page.getByRole('button',{name:'配置模型连接',exact:true})).toHaveCount(0);
   await expect(page.getByRole('heading',{name:/模型/})).toHaveCount(0);
   await page.screenshot({path:info.outputPath('live-platform-runtime.png'),fullPage:true,animations:'disabled'});

@@ -6,8 +6,7 @@ test('unavailable API keeps creation closed and preserves navigation', async ({ 
   await expect(page.getByText('平台尚未连接', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '创建工作空间' })).toBeDisabled();
   await page.getByRole('button', { name: '查看平台配置', exact: true }).click();
-  await page.getByRole('button', { name: '诊断信息', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '平台预检' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '平台连接状态' })).toBeVisible();
   await expect(page.getByRole('button', { name: '配置模型连接' })).toHaveCount(0);
   await expect(page.getByText('登录后查看运行配置。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '尚未登录', exact: true }).click();
@@ -19,8 +18,7 @@ test('healthy dependencies do not imply authentication or instance readiness', a
   await page.route('**/readyz', route => route.fulfill({ json: { status: 'ready', process: 'api' } }));
   await page.goto('/app/settings');
   await expect(page.getByText('身份服务尚未就绪', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '诊断信息', exact: true }).click();
-  await expect(page.getByText('已就绪', { exact: true })).toHaveCount(1);
+  await expect(page.getByRole('region', { name: '平台连接状态' }).getByText('已就绪', { exact: true })).toHaveCount(1);
   await expect(page.getByRole('button', { name: '配置模型连接' })).toHaveCount(0);
   await expect(page.getByText('登录后查看运行配置。', { exact: true })).toBeVisible();
 });
@@ -39,8 +37,7 @@ test('desktop and mobile render without overflow or runtime errors', async ({ pa
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.getByRole('button', { name: '打开导航' }).click();
   await page.getByRole('link', { name: '平台配置' }).filter({ visible: true }).click();
-  await page.getByRole('button', { name: '诊断信息', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '平台预检' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '平台连接状态' })).toBeVisible();
   await expect(page.getByRole('dialog')).not.toBeVisible();
   expect(errors).toEqual([]);
 });

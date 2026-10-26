@@ -31,12 +31,20 @@ func NewRotator(pool *pgxpool.Pool, cipher *security.SecretCipher, environment, 
 type encryptedTable struct{ table, id, org, record, key, nonce, cipher, purpose string }
 
 var encryptedTables = []encryptedTable{
+	{"mcp_oauth_transactions", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "connector-oauth"},
+	{"mcp_connectors", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "connector-credential"},
 	{"secrets", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "model-key"},
 	{"external_provider_secrets", "id", "org_id::text", "owner_id::text||'/'||connection_id::text||'/'||id::text||'/'||bound_version::text", "key_id", "nonce", "ciphertext", "provider-key"},
 	{"identity_password_resets", "id", "org_id::text", "user_id::text||'/'||id::text", "key_id", "nonce", "ciphertext", "identity-password-hash"},
 	{"portal_sessions", "id", "org_id::text", "id::text", "csrf_key_id", "csrf_nonce", "csrf_cipher", "portal-csrf"},
 	{"oidc_transactions", "id", "$3::text", "id::text", "key_id", "pkce_nonce", "pkce_cipher", "oidc-pkce"},
 	{"native_sessions", "instance_id", "(SELECT org_id::text FROM public.instances WHERE id=t.instance_id)", "instance_id::text||':'||runtime_generation::text", "key_id", "nonce", "cookie_ciphertext", "native-cookie"},
+	{"personal_skills", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "skill-bundle"},
+	{"skill_import_previews", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "skill-import"},
+	{"skill_replacements", "skill_id", "(SELECT org_id::text FROM public.personal_skills WHERE id=t.skill_id)", "skill_id::text", "key_id", "nonce", "ciphertext", "skill-bundle"},
+	{"context_connections", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "context-credential"},
+	{"context_operations", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "context-operation"},
+	{"context_previews", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "context-preview"},
 }
 
 func (r *Rotator) valid(from string) bool {

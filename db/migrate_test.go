@@ -86,6 +86,52 @@ func TestMigrationsOnIsolatedPostgres(t *testing.T) {
 			}
 		}
 	})
+	t.Run("workbench permission upgrade is idempotent and preserves custom roles", func(t *testing.T) {
+		tx, err := conn.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(context.Background())
+		var org, custom string
+		if err = tx.QueryRow(ctx, `SELECT id::text FROM organizations LIMIT 1`).Scan(&org); err == pgx.ErrNoRows {
+			err = tx.QueryRow(ctx, `INSERT INTO organizations(id,name,status) VALUES(gen_random_uuid(),'context permission migration','ACTIVE') RETURNING id::text`).Scan(&org)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var previousVersions, previousAudits int
+		if err = tx.QueryRow(ctx, `SELECT sum(version) FROM roles WHERE org_id=$1 AND builtin`, org).Scan(&previousVersions); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE org_id=$1 AND action='CONTEXT_DEFAULT_PERMISSIONS_GRANTED'`, org).Scan(&previousAudits); err != nil {
+			t.Fatal(err)
+		}
+		if err = tx.QueryRow(ctx, `INSERT INTO roles(id,org_id,code,name,builtin) VALUES(gen_random_uuid(),$1,'context_custom','Custom',false) RETURNING id::text`, org).Scan(&custom); err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, `DELETE FROM role_permissions WHERE role_id IN (SELECT id FROM roles WHERE org_id=$1) AND permission_id IN ('memory:read','memory:manage','knowledge:read','knowledge:manage')`, org); err != nil {
+			t.Fatal(err)
+		}
+		for range 2 {
+			if _, err = tx.Exec(ctx, workbenchContextPermissions); err != nil {
+				t.Fatal(err)
+			}
+		}
+		var granted, changed, audited, customCount int
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM role_permissions rp JOIN roles r ON r.id=rp.role_id WHERE r.org_id=$1 AND r.builtin AND rp.permission_id IN ('memory:read','memory:manage','knowledge:read','knowledge:manage')`, org).Scan(&granted); err != nil || granted != 8 {
+			t.Fatal("built-in grants incomplete", granted, err)
+		}
+		if err = tx.QueryRow(ctx, `SELECT sum(version) FROM roles WHERE org_id=$1 AND builtin`, org).Scan(&changed); err != nil || changed != previousVersions+2 {
+			t.Fatal("migration is not idempotent", changed, err)
+		}
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM audit_events WHERE org_id=$1 AND action='CONTEXT_DEFAULT_PERMISSIONS_GRANTED'`, org).Scan(&audited); err != nil || audited != previousAudits+2 {
+			t.Fatal("grant audit duplicated or missing", audited, err)
+		}
+		if err = tx.QueryRow(ctx, `SELECT count(*) FROM role_permissions WHERE role_id=$1`, custom).Scan(&customCount); err != nil || customCount != 0 {
+			t.Fatal("custom role changed", customCount, err)
+		}
+
+	})
 	for _, table := range []string{"model_providers", "model_catalog_entries", "user_model_connections", "user_model_connection_versions", "model_sync_operations", "model_gateway_checks", "user_model_defaults", "external_provider_secrets", "model_connection_registry"} {
 		var present bool
 		if err := conn.QueryRow(ctx, `SELECT to_regclass($1) IS NOT NULL`, "public."+table).Scan(&present); err != nil || !present {
@@ -130,8 +176,8 @@ func TestMigrationsOnIsolatedPostgres(t *testing.T) {
 	if err := conn.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 60 {
-		t.Fatalf("expected 61 public tables/views including migration ledger, got %d", count)
+	if count != 73 {
+		t.Fatalf("expected 73 public tables/views including migration ledger, got %d", count)
 	}
 	if _, err := conn.Exec(ctx, "INSERT INTO organizations(id,name,status) VALUES ('00000000-0000-4000-8000-000000000001','Test','ACTIVE') ON CONFLICT DO NOTHING"); err != nil {
 		t.Fatal(err)

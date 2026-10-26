@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Checkbox, Descriptions, Dropdown, Empty, Form, Input, Modal, Select, Space, Spin, Table, Tag, Tooltip } from 'antd';
+import { Alert, Button, Descriptions, Dropdown, Empty, Form, Input, Modal, Select, Space, Spin, Table, Tag, Tooltip } from 'antd';
 import { Check, ChevronDown, Info, Plus } from 'lucide-react';
 import { hasPermission, type CurrentUser } from '../../api/identity';
 import { ManagementClient, type ManagedRole, type ManagedUser, type UserAction } from '../../api/management';
@@ -9,20 +9,10 @@ import { DataPagination, usePagePagination } from '../../shared/components/data-
 import { useTransientNotice } from '../../shared/hooks/use-transient-notice';
 import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { ListSearch } from '../../shared/components/list-search';
+import { includeDependencies, permissionGroup, permissionGroups, RolePermissionPicker } from './role-permission-picker';
 
 const client = new ManagementClient();
 const userStatuses: Record<string, string> = { ACTIVE: '已启用', DISABLED: '已禁用', PENDING_IDENTITY: '身份待确认', ARCHIVED: '已删除' };
-const permissionGroups: { name: string; prefixes: string[]; ids?: string[] }[] = [
-  { name: '工作空间', prefixes: ['instances'] },
-  { name: '数据管理', prefixes: [], ids: ['instances:release-storage'] },
-  { name: '模型提供商', prefixes: ['personal-model', 'model', 'models'] },
-  { name: '用户管理', prefixes: ['users'] },
-  { name: '角色与权限', prefixes: ['roles'] },
-  { name: '平台配置', prefixes: ['configuration', 'defaults'] },
-  { name: '操作日志', prefixes: ['audit'] },
-  { name: '其他权限', prefixes: [] },
-];
-const permissionGroup = (id: string) => permissionGroups.find(group => group.ids?.includes(id)) ?? permissionGroups.find(group => group.prefixes.includes(id.split(':')[0])) ?? permissionGroups[permissionGroups.length - 1];
 const date = (value: string | null) => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未登录';
 const profileRules = { name: [{ required: true, whitespace: true, max: 100, message: '请输入1～100字符显示名' }], email: [{ required: true, type: 'email' as const, max: 254, message: '请输入有效邮箱' }] };
 const passwordRules = [{ required: true, message: '请输入初始密码' }, { validator: (_: unknown, value: string) => !value || new TextEncoder().encode(value).length >= 12 && new TextEncoder().encode(value).length <= 72 && !/[\x00-\x1f\x7f]/.test(value) ? Promise.resolve() : Promise.reject(new Error('密码须为12～72字节，不能包含控制字符')) }];
@@ -41,8 +31,9 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
   const [form] = Form.useForm();
   const source = Form.useWatch('identity_source', form);
   const users = useQuery({ queryKey: ['management', user.id, 'users', filter, pagination.page, pagination.pageSize], queryFn: ({ signal }) => client.users(user, { ...filter, page: pagination.page, limit: pagination.pageSize }, signal), retry: false });
-  const roles = useInfiniteQuery({ queryKey: ['management', user.id, 'role-options', roleSearch], initialPageParam: '', queryFn: ({ pageParam, signal }) => client.roles(user, { q: roleSearch, cursor: pageParam, limit: 100 }, signal), getNextPageParam: page => page.next_cursor ?? undefined, retry: false });
+  const roles = useInfiniteQuery({ queryKey: ['management', user.id, 'role-options', roleSearch], initialPageParam: '', queryFn: ({ pageParam, signal }) => client.userRoleOptions(user, { q: roleSearch, cursor: pageParam, limit: 100 }, signal), getNextPageParam: page => page.next_cursor ?? undefined, retry: false });
   const roleOptions = roles.data?.pages.flatMap(page => page.items.map(role => ({ label: `${role.name} (${role.code})`, value: role.id }))) ?? [];
+  if (dialog?.target && !roleOptions.some(option => option.value === dialog.target!.role_id)) roleOptions.unshift({ label: dialog.target.role_name, value: dialog.target.role_id });
   const refresh = () => { void cache.invalidateQueries({ queryKey: ['management', user.id] }); };
   const mutation = useMutation({ mutationFn: async () => {
     if (!dialog) throw new Error('请重新打开操作表单');
@@ -73,10 +64,10 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
   }, onSettled: () => form.resetFields(['password']) });
   useExpiredSession(users.error ?? roles.error ?? mutation.error);
   const open = (action: NonNullable<typeof dialog>['action'], target?: ManagedUser) => {
-    mutation.reset(); setNotice(null); form.resetFields(); setRequestKey(crypto.randomUUID()); setDialog({ action, target });
+    mutation.reset(); setNotice(null); form.resetFields(); setRoleSearch(''); setRequestKey(crypto.randomUUID()); setDialog({ action, target });
     form.setFieldsValue(target ? { display_name: target.display_name, email: target.email, role_id: target.role_id } : { identity_source: users.data?.local_accounts ? 'local' : 'oidc', role_id: roles.data?.pages.flatMap(page => page.items).find(role => role.code === 'MEMBER')?.id });
   };
-  const roleSelect = <Select showSearch filterOption={false} onSearch={setRoleSearch} options={roleOptions} loading={roles.isFetching} onPopupScroll={event => { const target = event.currentTarget; if (target.scrollHeight - target.scrollTop - target.clientHeight < 24 && roles.hasNextPage && !roles.isFetchingNextPage) void roles.fetchNextPage(); }} placeholder="选择角色" />;
+  const roleSelect = <Select showSearch filterOption={false} onSearch={setRoleSearch} options={roleOptions} loading={roles.isFetching} disabled={roles.isError} onPopupScroll={event => { const target = event.currentTarget; if (target.scrollHeight - target.scrollTop - target.clientHeight < 24 && roles.hasNextPage && !roles.isFetchingNextPage) void roles.fetchNextPage(); }} placeholder="选择角色" />;
   const changingPassword = dialog?.action === 'reset-password' || dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity';
   const editing = dialog?.action === 'edit' || dialog?.action === 'create' || dialog?.action === 'repair-identity';
   const title = dialog ? ({ create: '新增用户', edit: '编辑用户', view: '用户详情', role: '分配角色', disable: '禁用用户', enable: '启用用户', archive: '归档用户', delete: '删除用户', 'retry-identity': '重试并启用用户', 'repair-identity': '修复并启用用户', 'reset-password': '重置密码', 'retry-password-reset':'重试密码重置' })[dialog.action] : '';
@@ -84,10 +75,11 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
   return <section className="settings-section users-section">
     <div className="provider-page-heading workspace-actions"><h2>用户列表</h2>{canManage && <Button type="primary" icon={<Plus size={16} aria-hidden="true" />} onClick={() => open('create')}>新增用户</Button>}</div>
     <div className="workspace-toolbar users-toolbar">
-      <div className="users-filters"><Select aria-label="筛选用户状态" value={filter.status} options={[{ label: '未删除用户', value: '' }, ...Object.entries(userStatuses).map(([value, label]) => ({ value, label }))]} onChange={status => filterBy({ status })} /><Select aria-label="筛选用户角色" allowClear showSearch filterOption={false} onSearch={setRoleSearch} options={roleOptions} placeholder="全部角色" value={filter.role_id || undefined} onChange={role_id => filterBy({ role_id: role_id ?? '' })} /></div>
+      <div className="users-filters"><Select aria-label="筛选用户状态" value={filter.status} options={[{ label: '未删除用户', value: '' }, ...Object.entries(userStatuses).map(([value, label]) => ({ value, label }))]} onChange={status => filterBy({ status })} /><Select aria-label="筛选用户角色" allowClear showSearch filterOption={false} onSearch={setRoleSearch} options={roleOptions} placeholder="全部角色" value={filter.role_id || undefined} loading={roles.isFetching} onPopupScroll={event => { const target = event.currentTarget; if (target.scrollHeight - target.scrollTop - target.clientHeight < 24 && roles.hasNextPage && !roles.isFetchingNextPage) void roles.fetchNextPage(); }} onChange={role_id => filterBy({ role_id: role_id ?? '' })} /></div>
       <ListSearch label="搜索用户" placeholder="搜索显示名或邮箱" value={search} onChange={setSearch} onSubmit={() => filterBy({ q: search.trim() })} onRefresh={refresh} loading={users.isFetching} refreshLabel="刷新用户列表" />
     </div>
     {notice && <Alert showIcon closable onClose={() => setNotice(null)} type={notice.includes('未完成') || notice.includes('占用') ? 'warning' : 'success'} message={notice} style={{ marginBottom: 16 }} />}
+    {roles.error && <Alert type="error" showIcon message="角色选项加载失败" action={<Button onClick={() => void roles.refetch()}>重试</Button>} style={{ marginBottom: 16 }} />}
     {users.error && <Alert showIcon type="error" message={users.error.message} style={{ marginBottom: 16 }} />}
     <Table<ManagedUser> className="data-table users-table" size="middle" rowKey="id" tableLayout="fixed" dataSource={users.data?.items ?? []} loading={users.isPending} pagination={false} scroll={{ x: 900 }} locale={{ emptyText: users.isError ? '未能获取用户' : filter.q || filter.status || filter.role_id ? '没有符合条件的用户' : '暂无用户' }} columns={[
       { title: '用户 / 联系邮箱', key: 'user', width: 280, render: (_, target) => <div className="user-profile"><Tooltip title={target.display_name || target.id}><Button type="link" onClick={() => open('view', target)}>{target.display_name || target.id.slice(0, 8)}</Button></Tooltip>{target.email && <span title={target.email}>{target.email}</span>}</div> },
@@ -107,12 +99,13 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
       } }] : []),
     ]} />
     <DataPagination label="用户" pagination={pagination} count={users.data?.items.length ?? 0} total={users.data?.total} loading={users.isFetching} failed={users.isError} />
-    <Modal open={dialog !== null} title={title} className={dialog?.action === 'role' ? 'role-assignment-dialog' : undefined} width={dialog?.action === 'role' ? 480 : undefined} centered={dialog?.action === 'role'} confirmLoading={mutation.isPending} okText={dialog?.action === 'view' ? '关闭' : dialog?.action === 'delete' ? '确认删除' : dialog?.action === 'role' ? '保存' : dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity' ? '修复并启用' : '确认'} okButtonProps={{ danger: dialog?.action === 'delete' }} cancelText="取消" cancelButtonProps={{ disabled: mutation.isPending }} onCancel={() => { if (!mutation.isPending) { setDialog(null); form.resetFields(); mutation.reset(); } }} onOk={() => dialog?.action === 'view' ? setDialog(null) : form.submit()} destroyOnHidden>
+    <Modal open={dialog !== null} title={title} className={dialog?.action === 'role' ? 'role-assignment-dialog' : undefined} width={dialog?.action === 'role' ? 480 : undefined} centered={dialog?.action === 'role'} confirmLoading={mutation.isPending} okText={dialog?.action === 'view' ? '关闭' : dialog?.action === 'delete' ? '确认删除' : dialog?.action === 'role' ? '保存' : dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity' ? '修复并启用' : '确认'} okButtonProps={{ danger: dialog?.action === 'delete', disabled: (dialog?.action === 'create' || dialog?.action === 'role') && (roles.isPending || roles.isError) }} cancelText="取消" cancelButtonProps={{ disabled: mutation.isPending }} onCancel={() => { if (!mutation.isPending) { setDialog(null); form.resetFields(); mutation.reset(); } }} onOk={() => dialog?.action === 'view' ? setDialog(null) : form.submit()} destroyOnHidden>
       {dialog?.target && (dialog.action === 'role' ? <div className="role-assignment-user"><span>分配对象</span><strong>{dialog.target.display_name}</strong>{dialog.target.email && <span>{dialog.target.email}</span>}</div> : <p>{dialog.target.display_name} · 版本 {dialog.target.version}</p>)}
       {dialog?.action === 'view' ? <Descriptions column={1} size="small" items={Object.entries({ 用户ID: dialog.target!.id, 身份来源: dialog.target!.identity_source, 登录邮箱: dialog.target!.login_email || '由组织身份提供方维护', Issuer: dialog.target!.issuer, Subject: dialog.target!.subject, 'Workspace Owner': dialog.target!.workspace_owner_id, 创建时间: date(dialog.target!.created_at), 更新时间: date(dialog.target!.updated_at), 身份供应: dialog.target!.provisioning ? `${dialog.target!.provisioning.status} · ${dialog.target!.provisioning.reason_code || '已确认'}` : '已有组织账号' }).map(([label, children]) => ({ label, children }))} /> : <Form form={form} layout="vertical" disabled={mutation.isPending} onFinish={() => mutation.mutate()}>
         {editing && <><Form.Item label="显示名" name="display_name" rules={profileRules.name}><Input maxLength={100} /></Form.Item><Form.Item label={dialog?.action === 'repair-identity' ? '初始登录邮箱' : '联系邮箱'} name="email" rules={profileRules.email} extra={dialog?.action === 'create' && source === 'local' ? '联系邮箱作为初次登录名，账号确认前可修改；账号启用后再编辑不会改变登录名。' : dialog?.action === 'repair-identity' ? '选择一个未被其他平台账号占用的邮箱；保存后会立即用下方初始密码重试启用。' : dialog?.action === 'edit' && dialog.target?.identity_source === 'local' && dialog.target.status === 'PENDING_IDENTITY' ? '账号尚未创建成功；修改此邮箱会同步更新初始登录名。' : dialog?.action === 'edit' && dialog.target?.identity_source === 'local' ? '修改联系邮箱不会改变登录名。' : undefined}><Input maxLength={254} /></Form.Item></>}
         {dialog?.action === 'create' && <><Form.Item label="身份来源" name="identity_source" rules={[{ required: true }]}><Select options={users.data?.local_accounts ? [{ label: '平台登录账号', value: 'local' }] : [{ label: '绑定已有组织账号', value: 'oidc' }]} /></Form.Item>{source === 'oidc' && <Form.Item label="可信 OIDC Subject" name="subject" rules={[{ required: true, max: 1024 }]} extra="账号须已在当前组织身份提供方创建；邮箱不能代替不可变Subject。"><Input maxLength={1024} /></Form.Item>}{source === 'local' && <Form.Item label="初始密码" name="password" rules={passwordRules} extra="密码提交后不读回。"><Input.Password autoComplete="new-password" /></Form.Item>}</>}
         {(dialog?.action === 'create' || dialog?.action === 'role') && <Form.Item label={dialog.action === 'role' ? '用户角色' : '角色'} name="role_id" rules={[{ required: true, message: '请选择角色' }]}>{roleSelect}</Form.Item>}
+        {(dialog?.action === 'create' || dialog?.action === 'role') && roles.isError && <Alert type="error" showIcon message="角色选项加载失败，请重试后再保存" action={<Button onClick={() => void roles.refetch()}>重试</Button>} />}
         {(dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity') && <Alert type="info" showIcon message="身份账号确认成功后，用户会自动启用。" description="密码不会读回；请输入创建时的初始密码。" style={{ marginBottom: 16 }} />}
         {changingPassword && <Form.Item label={dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity' ? '初始密码' : '新密码'} name="password" rules={passwordRules} extra={dialog?.action === 'retry-identity' || dialog?.action === 'repair-identity' ? '系统会先保存登录邮箱，再立即重试身份确认。' : '供应结果未知时核对原账号，已存在账号不会被重复创建或自动改密。'}><Input.Password autoComplete="new-password" /></Form.Item>}
         {dialog?.action==='retry-password-reset'&&<p>继续原密码重置，无需重新输入密码；完成后原登录会话失效。</p>}
@@ -141,11 +134,11 @@ export function RolesPanel({ user }: { user: CurrentUser }) {
   const labels = new Map(permissions.data?.items.map(permission => [permission.id, permission.name]));
   const descriptions = new Map(permissions.data?.items.map(permission => [permission.id, permission.description]));
   const missing = permissions.data?.items.filter(permission => selected.includes(permission.id)).flatMap(permission => permission.dependencies.filter(dependency => !selected.includes(dependency)).map(dependency => `${permission.name}需要${labels.get(dependency) ?? dependency}`)) ?? [];
-  const editablePermissionGroups = permissionGroups.map(group => ({ name: group.name, items: (permissions.data?.items ?? []).filter(permission => permissionGroup(permission.id) === group) })).filter(group => group.items.length);
   const refresh = () => { void cache.invalidateQueries({ queryKey: ['management', user.id] }); };
   const mutation = useMutation({ mutationFn: async () => {
     if (!dialog) throw new Error('请重新打开角色表单');
     if (dialog.action === 'delete') return client.deleteRole(user, dialog.target!);
+    if (missing.length) throw new Error('请先选择完整的依赖权限');
     const values = form.getFieldsValue();
     return client.saveRole(user, { code: values.code, name: values.name.trim(), description: values.description ?? '', permissions: values.permissions ?? [], expected_version: dialog.target?.version ?? 0 }, dialog.target, dialog.action === 'create' ? requestKey : undefined);
   }, onSuccess: () => { setDialog(null); refresh(); } });
@@ -182,10 +175,8 @@ export function RolesPanel({ user }: { user: CurrentUser }) {
           <Form.Item className="role-description-field" label="说明" name="description" rules={[{ max: 500 }]}><Input.TextArea maxLength={500} rows={2} /></Form.Item>
         </div>
         {dialog?.target && !readOnly && <Alert type="warning" showIcon message={`当前分配 ${dialog.target.user_count} 名用户；保存会撤销这些用户的旧会话。`} description={`移除：${dialog.target.permissions.filter(id => !selected.includes(id)).map(id => labels.get(id) ?? id).join('、') || '无'}；新增：${selected.filter(id => !dialog.target!.permissions.includes(id)).map(id => labels.get(id) ?? id).join('、') || '无'}`} style={{ marginBottom: 16 }} />}
-        {permissions.isPending ? <div className="role-permissions-loading"><Spin aria-label="加载功能权限" /></div> : permissions.isError ? <Alert type="error" showIcon message="功能权限加载失败，请刷新角色列表后重试" /> : <Form.Item className="role-permission-form-item" label={<span className="role-permission-label"><strong>功能权限</strong><span>已选 {selected.length} / {permissions.data?.items.length ?? 0} 项</span></span>} name="permissions"><Checkbox.Group className="role-editor-permission-groups">
-          {editablePermissionGroups.map(group => <section className="role-editor-permission-group" key={group.name} aria-label={group.name}><div className="role-editor-permission-heading"><strong>{group.name}</strong><span>{group.items.length} 项</span></div><div className="role-editor-permission-options">{group.items.map(permission => <Checkbox key={permission.id} value={permission.id} disabled={!permission.assignable}><span className="role-permission-copy"><span>{permission.name}</span>{permission.description && <small>{permission.description}</small>}</span></Checkbox>)}</div></section>)}
-        </Checkbox.Group></Form.Item>}
-        {missing.length > 0 && <Alert type="error" showIcon message="请显式选择依赖权限" description={missing.join('；')} />}
+        {permissions.isPending ? <div className="role-permissions-loading"><Spin aria-label="加载功能权限" /></div> : permissions.isError ? <Alert type="error" showIcon message="功能权限加载失败，请刷新角色列表后重试" /> : <Form.Item className="role-permission-form-item" label={<span className="role-permission-label"><strong>功能权限</strong><span>已选 {selected.length} / {permissions.data?.items.length ?? 0} 项</span></span>} name="permissions"><RolePermissionPicker catalog={permissions.data?.items ?? []} disabled={mutation.isPending} /></Form.Item>}
+        {missing.length > 0 && <Alert type="error" showIcon message="请显式选择依赖权限" description={missing.join('；')} action={<Button disabled={mutation.isPending} onClick={() => form.setFieldValue('permissions', includeDependencies(selected, permissions.data?.items ?? []))}>补选依赖权限</Button>} />}
       </Form>}
       {mutation.error && <Alert type="error" showIcon message={mutation.error.message} action={mutation.error instanceof APIError && mutation.error.code === 'VERSION_CONFLICT' ? <Button onClick={() => { refresh(); setDialog(null); }}>重新读取</Button> : undefined} style={{ marginTop: 16 }} />}
     </Modal>

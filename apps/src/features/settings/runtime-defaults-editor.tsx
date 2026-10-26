@@ -56,10 +56,6 @@ export function RuntimeDefaultsEditor({ user, configuration, onSaved }: {
   const cpuOptions = Array.from(new Set(candidates.filter(item => !memory || item.spec.memory_bytes === memory).map(item => item.spec.cpu_millicores))).sort((a, b) => a - b).map(value => ({ value, label: `${value / 1000} 核` }));
   const memoryOptions = Array.from(new Set(candidates.filter(item => !cpu || item.spec.cpu_millicores === cpu).map(item => item.spec.memory_bytes))).sort((a, b) => a - b).map(value => ({ value, label: `${value / GiB} GiB` }));
   const storageOptions = Array.from(new Set(candidates.filter(item => item.spec.cpu_millicores === cpu && item.spec.memory_bytes === memory).map(item => item.spec.storage_bytes / GiB))).sort((a, b) => a - b).map(value => ({ value, label: `${value} GiB` }));
-  useEffect(() => {
-    if (!open || !storageOptions.length || storageOptions.some(option => option.value === storage)) return;
-    form.setFieldValue('storage', storageOptions[0].value);
-  }, [open, storage, storageOptions, form]);
   if (!canEdit) return null;
   return <>
     <Button type="primary" onClick={show}>{configuration ? '修改配置' : '初始化配置'}</Button>
@@ -68,7 +64,7 @@ export function RuntimeDefaultsEditor({ user, configuration, onSaved }: {
         <Form.Item name="template" hidden rules={[{ required: true }]}><Input /></Form.Item>
         <Form.Item name="cpu" label="CPU" rules={[{ required: true, message: '请选择 CPU' }]}><Select aria-label="默认 CPU" options={cpuOptions} /></Form.Item>
         <Form.Item name="memory" label="内存" rules={[{ required: true, message: '请选择内存' }]}><Select aria-label="默认内存" options={memoryOptions} /></Form.Item>
-        <Form.Item name="storage" label="存储" dependencies={['cpu', 'memory', 'template']} rules={[{ required: true, message: '请选择存储容量' }, { type: 'integer', min: 1, max: 100, message: '请选择 1–100 GiB 的容量' }, { validator: (_, value) => !Number.isInteger(value) || value < 1 || value > 100 || storageOptions.some(option => option.value === value) ? Promise.resolve() : Promise.reject(new Error('此组合下没有该存储规格，请重新选择')) }]}><Select aria-label="默认存储" placeholder="请选择存储容量" options={storageOptions} /></Form.Item>
+        <Form.Item name="storage" label="存储（GiB）" dependencies={['cpu', 'memory', 'template']} rules={[{ required: true, message: '请输入存储容量' }, { type: 'integer', min: 1, max: 100, message: '请输入 1–100 的整数' }, { validator: (_, value) => !Number.isInteger(value) || value < 1 || value > 100 || storageOptions.some(option => option.value === value) ? Promise.resolve() : Promise.reject(new Error('此存储容量尚未批准，请选择已批准容量')) }]}><InputNumber aria-label="默认存储" min={1} max={100} style={{ width: '100%' }} /></Form.Item>
         <Form.Item name="max_user_instances" label="每用户默认实例上限（个）" rules={[{ required: true, message: '请输入实例上限' }, { type: 'integer', min: 1, message: '请输入大于0的整数' }]}><InputNumber aria-label="每用户默认实例上限" min={1} precision={0} style={{ width: '100%' }} /></Form.Item>
         <Form.Item name="retention_days" label="数据保留期限（天）" rules={[{ required: true, message: '请输入保留期限' }, { type: 'integer', min: 1, max: 365, message: '请输入1–365的整数' }]}><InputNumber aria-label="数据保留期限" min={1} max={365} precision={0} style={{ width: '100%' }} /></Form.Item>
       </Form>}

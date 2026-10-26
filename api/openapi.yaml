@@ -9,7 +9,7 @@ info:
     native DSH sessions.
 x-design-baseline: DSHC Initial Release V0.1
 x-requirements-version: DSHC Initial Release V0.1
-x-requirements-coverage: REQ-01 through REQ-19; identity supply and complete governance acceptance remain pending; runtime
+x-requirements-coverage: REQ-01 through REQ-23; identity supply and complete governance acceptance remain pending; runtime
   compatibility requires pinned-image contract and real browser tests.
 x-contract-status: partially-implemented
 security:
@@ -21,11 +21,602 @@ tags:
 - name: Operations
 - name: Access
 - name: Storage
+- name: Skills
+- name: Context
+- name: Connectors
 - name: OperationLogs
 - name: Configuration
 - name: Preflight
 - name: IdentityManagement
 paths:
+  /v1/connectors:
+    get:
+      operationId: listOwnMCPConnectors
+      x-api-id: API-100
+      tags:
+      - Connectors
+      summary: List personal MCP connectors and approved endpoint options
+      description: Requires current connectors:read. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnectorList'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      operationId: createOwnMCPConnector
+      x-api-id: API-101
+      tags:
+      - Connectors
+      summary: Create a connector without invoking tools
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '201':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnector'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPConnectorInput'
+  /v1/connectors/{id}:
+    parameters:
+    - &mcp_path_id
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    put:
+      operationId: updateOwnMCPConnector
+      x-api-id: API-102
+      tags:
+      - Connectors
+      summary: Update or disable a connector; invalidate verification and tool grants
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnector'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPConnectorInput'
+    delete:
+      operationId: deleteOwnMCPConnector
+      x-api-id: API-103
+      tags:
+      - Connectors
+      summary: Delete credentials and grants, preserve metadata-only calls
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  deleted:
+                    type: boolean
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - expected_version
+              - confirmed_name
+              additionalProperties: false
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+                confirmed_name:
+                  type: string
+  /v1/connectors/{id}/oauth:
+    parameters:
+    - *mcp_path_id
+    post:
+      operationId: startOwnMCPConnectorOAuth
+      x-api-id: API-115
+      tags: [Connectors]
+      summary: Start owner-scoped OAuth authorization with PKCE
+      description: Requires connectors:manage, CSRF and current version. Returns the official authorization URL; never returns tokens or client secrets.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_version]
+              properties:
+                expected_version: {type: integer, minimum: 1}
+      responses:
+        '200':
+          description: Navigate the current browser to the authorization URL
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [authorization_url]
+                properties:
+                  authorization_url: {type: string, format: uri}
+        default:
+          description: Denied, unavailable, incompatible or stale configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/connectors/oauth/callback:
+    get:
+      operationId: finishOwnMCPConnectorOAuth
+      x-api-id: API-116
+      tags: [Connectors]
+      summary: Consume a single-use OAuth state and verify the connection
+      description: Bound to the initiating owner, organization, portal session, connector version and exact target. Exchanges the code with PKCE, encrypts tokens and verifies tools without enabling or invoking them. State expires after 10 minutes. Browser login expiry returns to the workbench; no tokens or provider error details appear in redirects.
+      parameters:
+      - {name: state, in: query, required: true, schema: {type: string, minLength: 43, maxLength: 43}}
+      - {name: code, in: query, schema: {type: string, maxLength: 8192}}
+      - {name: error, in: query, schema: {type: string, maxLength: 8192}}
+      - {name: error_description, in: query, schema: {type: string, maxLength: 8192}}
+      - {name: error_uri, in: query, schema: {type: string, maxLength: 8192}}
+      - {name: iss, in: query, schema: {type: string, maxLength: 8192}}
+      responses:
+        '303':
+          description: Return to /app/connectors with a non-sensitive outcome
+          headers:
+            Location: {schema: {type: string}}
+        default:
+          description: Authentication, permission or request limit failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/connectors/{id}/sync:
+    parameters:
+    - *mcp_path_id
+    post:
+      operationId: syncOwnMCPTools
+      x-api-id: API-104
+      tags:
+      - Connectors
+      summary: Validate protocol and publish a complete tool catalog
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnector'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - expected_version
+              additionalProperties: false
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+  /v1/connectors/{id}/tools:
+    parameters:
+    - *mcp_path_id
+    post:
+      operationId: selectOwnMCPTools
+      x-api-id: API-105
+      tags:
+      - Connectors
+      summary: Select tools from the current definition snapshot
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnector'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - expected_version
+              - enabled_tools
+              additionalProperties: false
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+                enabled_tools:
+                  type: array
+                  items:
+                    type: string
+                  maxItems: 1000
+  /v1/connectors/{id}/invoke:
+    parameters:
+    - *mcp_path_id
+    post:
+      operationId: invokeOwnMCPTool
+      x-api-id: API-106
+      tags:
+      - Connectors
+      summary: Confirm and invoke once; never retry on uncertain results
+      description: Requires current connectors:invoke. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPCall'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MCPInvokeInput'
+  /v1/connectors/{id}/calls:
+    parameters:
+    - *mcp_path_id
+    - name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000000
+        default: 1
+    - name: limit
+      in: query
+      schema:
+        type: integer
+        enum:
+        - 10
+        - 20
+        - 50
+        default: 10
+    get:
+      operationId: listOwnMCPCalls
+      x-api-id: API-107
+      tags:
+      - Connectors
+      summary: Page metadata-only call records
+      description: Requires current connectors:read. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - total
+                additionalProperties: false
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/MCPCall'
+                  total:
+                    type: integer
+                    minimum: 0
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/connectors/calls/{id}:
+    parameters:
+    - *mcp_path_id
+    get:
+      operationId: getOwnMCPCall
+      x-api-id: API-108
+      tags:
+      - Connectors
+      summary: Read call state without stored arguments or results
+      description: Requires current connectors:read. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPCall'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+  /v1/connectors/calls/{id}/cancel:
+    parameters:
+    - *mcp_path_id
+    post:
+      operationId: cancelOwnMCPCall
+      x-api-id: API-109
+      tags:
+      - Connectors
+      summary: Request cancellation; external effects may already have occurred
+      description: Requires current connectors:invoke. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                properties:
+                  cancel_requested:
+                    type: boolean
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+  /v1/connectors/export:
+    post:
+      operationId: exportOwnMCPConfig
+      x-api-id: API-110
+      tags:
+      - Connectors
+      summary: Export configuration without credentials or enabled grants
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConfigPackage'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: {}
+  /v1/connectors/import:
+    post:
+      operationId: importOwnMCPConfig
+      x-api-id: API-111
+      tags:
+      - Connectors
+      summary: Preview or atomically import remote configuration; ignore imported headers, reject commands
+      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      responses:
+        '200':
+          description: Authorized operation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPImportPreview'
+        default:
+          description: Denied, invalid, unavailable or conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - package
+              - confirmed
+              additionalProperties: false
+              properties:
+                package:
+                  type: object
+                  additionalProperties: true
+                  description: hc-mcp-v1 or mcpServers remote entries; never executes commands.
+                confirmed:
+                  type: boolean
+  /v1/context/{kind}:
+    parameters:
+    - $ref: '#/components/parameters/ContextKind'
+    get:
+      operationId: listOwnExternalContext
+      x-api-id: API-095
+      tags: [Context]
+      summary: List own external connections, approved endpoint labels and instance bindings
+      description: Requires current memory:read or knowledge:read. Owner and organization are server selected. URLs, MAC keys and encrypted credentials are never returned. Workbench features do not load into DSH. Integration is a reserved compatibility field.
+      responses:
+        '200':
+          description: Connections and approved endpoint labels
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextList' }
+        default: { $ref: '#/components/responses/Error' }
+    post:
+      operationId: createOwnExternalContext
+      x-api-id: API-096
+      tags: [Context]
+      summary: Create an explicitly approved external connection
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContextInput' }
+      responses:
+        '200':
+          description: Credential encrypted; connection awaits verification
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextConnection' }
+        default: { $ref: '#/components/responses/Error' }
+  /v1/context/{kind}/{id}:
+    parameters:
+    - $ref: '#/components/parameters/ContextKind'
+    - name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    put:
+      operationId: updateOwnExternalContext
+      x-api-id: API-097
+      tags: [Context]
+      summary: Update own connection with optimistic version check and reset verification
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContextInput' }
+      responses:
+        '200':
+          description: Updated connection; pending external operations prevent configuration changes
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContextConnection' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeOwnExternalContext
+      x-api-id: API-098
+      tags: [Context]
+      summary: Remove connection metadata and bindings; retain external data
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ContextInput' }
+      responses:
+        '200': { description: Removed after exact confirmed_name and expected_version checks }
+        default: { $ref: '#/components/responses/Error' }
+  /v1/context/{kind}/{id}/{action}:
+    parameters:
+    - $ref: '#/components/parameters/ContextKind'
+    - name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    - name: action
+      in: path
+      required: true
+      schema:
+        type: string
+        enum: [verify, list, search, get, export, preview, apply, delete, rebuild, binding, reconcile]
+    post:
+      operationId: operateOwnExternalContext
+      x-api-id: API-099
+      tags: [Context]
+      summary: Authorized external content operation, instance binding or original-operation reconciliation
+      description: >-
+        Every POST requires Origin, CSRF and current permissions. list/search/get/export require kind:read;
+        other actions require kind:manage and read. Binding additionally requires instances:configure and instances:read.
+        Scope defaults to personal; workspace UUID requires current ownership and instances:read.
+        Apply requires an unexpired preview, confirmed=true and idempotency_key; delete/rebuild also require record_version.
+        Unknown deletion suppresses recall until reconciliation of the original encrypted request. Unknown indexing may serve the previous usable revision marked STALE.
+        Reconcile body is an empty object. Binding body uses instance_id, enabled, expected_version, expected_binding_version.
+        Native namespaces, URLs, tenant filters and arbitrary remote operation IDs cannot be submitted.
+        External response capabilities determine supported operations and formats; no fallback backend is selected.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+              - $ref: '#/components/schemas/ContextAction'
+              - $ref: '#/components/schemas/ContextBindingInput'
+              - type: object
+                maxProperties: 0
+                additionalProperties: false
+      responses:
+        '200':
+          description: Action result; export is a downloadable hc-memory-v1 JSON package, search includes authorized source snippets and record versions
+          content:
+            application/json:
+              schema: { type: object }
+        default: { $ref: '#/components/responses/Error' }
   /v1/storage-assets/{id}:release:
     post:
       operationId: releaseOwnStorage
@@ -395,7 +986,9 @@ paths:
       - Instances
       summary: Soft-delete instance and revoke compute access
       description: Exact immutable name confirmation in X-Confirm-Instance-Name; immediate access revocation, asynchronous
-        compute cleanup, retained storage. No body or permanent deletion.
+        compute cleanup, retained storage. RUNNING, STOPPED, and ERROR instances can request deletion without an active
+        operation or conflicting storage maintenance. Model availability does not block deletion. The worker confirms
+        compute cleanup before releasing compute quotas. No body or permanent deletion.
       responses:
         '202':
           $ref: '#/components/responses/AcceptedOperation'
@@ -847,10 +1440,11 @@ paths:
       x-delivery-scope: initial-release
       responses:
         '303':
-          description: Validate one-time browser-bound state/nonce/PKCE and create Portal cookie
+          description: Validate one-time browser-bound state/nonce/PKCE and create Portal cookie. HTML navigation with
+            invalid or expired authentication restarts at /auth/login without creating a session; API failures remain JSON.
           headers:
             Location:
-              description: Allowlisted /app/ relative path
+              description: Allowlisted /app/ relative path on success, or /auth/login to restart an invalid browser login.
               schema:
                 type: string
                 format: uri-reference
@@ -988,7 +1582,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询组织用户
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply. Without a status filter, archived (deleted) users are excluded.
         Use status=ARCHIVED to query deleted identity history.
       responses:
@@ -1030,7 +1624,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 创建本地账号或绑定已有组织身份
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '201':
@@ -1058,6 +1652,34 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ManagedUserCreate'
+  /v1/users/role-options:
+    get:
+      operationId: listUserRoleOptions
+      x-api-id: API-117
+      tags:
+      - IdentityManagement
+      summary: 查询用户筛选和分配所需的精简角色选项
+      description: Requires current users:read, independently of roles:read. Returns only id, code and name for roles
+        in the current organization. Does not grant role detail, permission catalog or user mutation access.
+        Supports q and either page or cursor pagination. Cursors are bound to this resource, user, organization and query.
+      parameters:
+      - $ref: '#/components/parameters/Limit'
+      - $ref: '#/components/parameters/Page'
+      - $ref: '#/components/parameters/Cursor'
+      - in: query
+        name: q
+        schema:
+          type: string
+          maxLength: 100
+      responses:
+        '200':
+          description: Authorized role options
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserRoleOptionPage'
+        default:
+          $ref: '#/components/responses/Error'
   /v1/users/{id}:
     parameters:
     - $ref: '#/components/parameters/ResourceId'
@@ -1067,7 +1689,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询用户及身份供应结果
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1084,7 +1706,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 编辑联系资料
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1183,7 +1805,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询内置及自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1209,7 +1831,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 创建自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '201':
@@ -1239,7 +1861,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 查询角色权限与分配数
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1256,7 +1878,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 修改自定义角色与权限
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1282,7 +1904,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 删除未分配的自定义角色
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '204':
@@ -1305,7 +1927,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 读取固定权限目录及依赖
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current roles:read; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1325,7 +1947,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：role
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1354,7 +1976,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：disable
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1383,7 +2005,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：enable
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1412,7 +2034,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：archive
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -1441,7 +2063,7 @@ paths:
       tags:
       - IdentityManagement
       summary: 用户治理动作：retry-identity
-      description: Only the built-in ADMIN may govern users or roles. Current database authorization, optimistic versions,
+      description: Requires current users:manage; built-in and explicitly authorized custom roles are supported. Current database authorization, optimistic versions,
         atomic audit and immediate session revocation apply.
       responses:
         '200':
@@ -2138,6 +2760,13 @@ paths:
         parameters are rejected.
       security: []
       responses:
+        '303':
+          description: HTML navigation with an expired or unbound BFF transaction restarts at /auth/login.
+          headers:
+            Location:
+              schema:
+                type: string
+                format: uri-reference
         '200':
           description: Same-origin login form with a five-minute browser/CSRF challenge.
           content:
@@ -2245,12 +2874,13 @@ paths:
       - OIDCLoginChallenge: []
       responses:
         '303':
-          description: Redirect to the exact callback with code and original state.
+          description: Redirect to the exact callback with code and original state, or restart HTML login at /auth/login
+            when its browser challenge or BFF transaction is no longer valid. A restart never resubmits the password.
           headers:
             Location:
               schema:
                 type: string
-                format: uri
+                format: uri-reference
         '401':
           description: Uniform wrong-password/unknown/disabled-account feedback; expired or consumed challenges require a
             new login.
@@ -2621,6 +3251,877 @@ paths:
                   maxLength: 4096
                   writeOnly: true
                   format: password
+  /v1/skills:
+    get:
+      operationId: listOwnSkills
+      x-api-id: API-083
+      tags:
+      - Skills
+      summary: Search own personal Skills
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - name: q
+        in: query
+        schema:
+          type: string
+          maxLength: 200
+      - name: page
+        in: query
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 10000
+          default: 1
+      - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillList'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createOwnSkill
+      x-api-id: API-084
+      tags:
+      - Skills
+      summary: Create personal Skill
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - name
+              - description
+              properties:
+                name:
+                  type: string
+                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                  maxLength: 64
+                description:
+                  type: string
+                  minLength: 1
+                  maxLength: 2000
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills/{id}:
+    get:
+      operationId: getOwnSkill
+      x-api-id: API-085
+      tags:
+      - Skills
+      summary: Read own Skill body and resource list
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: editOwnSkill
+      x-api-id: API-086
+      tags:
+      - Skills
+      summary: Save versioned SKILL.md
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - content
+              - expected_version
+              properties:
+                content:
+                  type: string
+                  maxLength: 1048576
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    delete:
+      operationId: deleteOwnSkill
+      x-api-id: API-087
+      tags:
+      - Skills
+      summary: Delete own Skill and its previous package
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - confirmed_name
+              - expected_version
+              properties:
+                confirmed_name:
+                  type: string
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - deleted
+                properties:
+                  deleted:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills/{id}:file:
+    get:
+      operationId: readOwnSkillFile
+      x-api-id: API-112
+      tags:
+      - Skills
+      summary: Read an existing skill text file or binary editability status
+      description: Requires current skills:read and owner isolation. Path is a validated relative bundle path, never
+        a host path. Binary files return editable=false and empty content. Version is the complete skill bundle version.
+        No-store JSON; file content is never rendered or executed.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - name: path
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 512
+        description: Existing relative path, such as references/guide.md. Exactly one path parameter; no other query
+          parameters.
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillFileContent'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    put:
+      operationId: editOwnSkillFile
+      x-api-id: API-113
+      tags:
+      - Skills
+      summary: Save one existing UTF-8 text file with bundle version validation
+      description: Requires current skills:manage, exact Portal Origin and CSRF. Both old and new content must be
+        text, at most 1 MiB UTF-8 bytes; empty text is allowed. This operation cannot create files or overwrite binary
+        files. Other files and source metadata are preserved; SKILL.md keeps its name and frontmatter validation.
+        Whole-bundle size and owner quota checks apply atomically.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - path
+              - content
+              - expected_version
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                content:
+                  type: string
+                  maxLength: 1048576
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createOwnSkillFile
+      x-api-id: API-114
+      tags:
+      - Skills
+      summary: Create a versioned UTF-8 text file in a skill bundle
+      description: Requires current skills:manage, exact Portal Origin and CSRF. Creates a new safe relative path, including
+        script subdirectories; never overwrites an existing or case-insensitive duplicate path. Content is at most 1
+        MiB UTF-8 bytes and may be empty. Bundle version, 128-file and 12-MiB bundle limits, path conflicts and personal
+        quota are checked atomically. Other files and source metadata are preserved. File content is never executed.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - path
+              - content
+              - expected_version
+              properties:
+                path:
+                  type: string
+                  minLength: 1
+                  maxLength: 512
+                content:
+                  type: string
+                  maxLength: 1048576
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills/{id}:policy:
+    post:
+      operationId: setOwnSkillPolicy
+      x-api-id: API-088
+      tags:
+      - Skills
+      summary: Set exported invocation flags
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - model_invocable
+              - user_invocable
+              - expected_version
+              properties:
+                model_invocable:
+                  type: boolean
+                user_invocable:
+                  type: boolean
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Skill'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills:preview:
+    post:
+      operationId: previewSkillImport
+      x-api-id: API-089
+      tags:
+      - Skills
+      summary: Validate Markdown or ZIP into a five-minute encrypted preview
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - filename
+              - content_base64
+              properties:
+                filename:
+                  type: string
+                content_base64:
+                  type: string
+                  format: byte
+                  maxLength: 6990508
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillPreview'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills:search:
+    post:
+      operationId: searchPublicSkillHub
+      tags: [Skills]
+      summary: Search public skills on skills.sh, ClawHub, Tencent SkillHub or SkillsMP
+      description: Requires skills:manage, exact Portal Origin and CSRF. Rechecks session and current read/manage permissions before network access. Queries a fixed public registry with bounded responses, timeouts and existing public-IP protections; no skills are imported until preview and confirmation.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider, query]
+              properties:
+                provider:
+                  type: string
+                  enum: [skills.sh, clawhub, tencent, skillsmp]
+                query:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+      responses:
+        '200':
+          description: Up to 20 public search results; pass source_url when present, otherwise url, to skills:source for preview
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [provider, items]
+                properties:
+                  provider:
+                    type: string
+                    enum: [skills.sh, clawhub, tencent, skillsmp]
+                  items:
+                    type: array
+                    maxItems: 20
+                    items:
+                      type: object
+                      required: [name, description, publisher, url, downloads]
+                      properties:
+                        name: {type: string}
+                        description: {type: string}
+                        publisher: {type: string}
+                        url: {type: string, format: uri}
+                        downloads: {type: integer, format: int64, description: Popularity count; interpret with metric when present}
+                        metric: {type: string, enum: [stars], description: SkillsMP returns GitHub stars}
+                        source_url: {type: string, format: uri, description: Import source when different from the marketplace page; pass to skills:source}
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills:source:
+    post:
+      operationId: previewSkillSource
+      x-api-id: API-090
+      tags:
+      - Skills
+      summary: Preview public GitHub repository, skill directory or file, or HTTPS Markdown/ZIP
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes. GitHub repository URLs scan the default branch; tree URLs scope discovery to
+        the selected directory; blob URLs use raw files. GitHub archives are limited to 32 MiB and 30000
+        entries. Extracted skills retain the 128-file, 1-MiB-per-file, 12-MiB-expanded and 5-MiB-package limits.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - url
+              properties:
+                url:
+                  type: string
+                  format: uri
+                  maxLength: 2048
+                  description: Public GitHub repository, tree directory or blob file URL, or HTTPS .md/.zip direct URL. No credentials, query or fragment.
+                  example: https://github.com/owner/repo
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillPreview'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills/{id}:check-update:
+    post:
+      operationId: checkOwnSkillSource
+      x-api-id: API-091
+      tags:
+      - Skills
+      summary: Manually preview source changes; retain invocation flags
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - expected_version
+              properties:
+                expected_version:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SkillPreview'
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills:apply:
+    post:
+      operationId: applySkillImport
+      x-api-id: API-092
+      tags:
+      - Skills
+      summary: Apply confirmed preview atomically; retain previous package on replacement
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - token
+              - mode
+              properties:
+                token:
+                  type: string
+                  format: uuid
+                mode:
+                  type: string
+                  enum:
+                  - skip
+                  - replace
+      responses:
+        '200':
+          description: Success
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - applied
+                - skipped
+                properties:
+                  applied:
+                    type: array
+                    items:
+                      type: string
+                  skipped:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills:export:
+    post:
+      operationId: exportOwnSkills
+      x-api-id: API-093
+      tags:
+      - Skills
+      summary: Download selected own Skill packages
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - ids
+              properties:
+                ids:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  uniqueItems: true
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '200':
+          description: Success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
+  /v1/skills/{id}:previous:
+    post:
+      operationId: downloadOwnSkillPrevious
+      x-api-id: API-094
+      tags:
+      - Skills
+      summary: Download package retained before latest replacement
+      description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
+        rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
+        DSH container changes.
+      parameters:
+      - $ref: '#/components/parameters/ResourceId'
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: []
+              properties: {}
+      responses:
+        '200':
+          description: Success
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+          headers:
+            Content-Disposition:
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                enum:
+                - no-store
+        '401':
+          $ref: '#/components/responses/Error'
+        '403':
+          $ref: '#/components/responses/Error'
+        '404':
+          $ref: '#/components/responses/Error'
+        '409':
+          $ref: '#/components/responses/Error'
+        '413':
+          $ref: '#/components/responses/Error'
+        '422':
+          $ref: '#/components/responses/Error'
+        '429':
+          $ref: '#/components/responses/Error'
+        '503':
+          $ref: '#/components/responses/Error'
 components:
   securitySchemes:
     OIDCClientBasic:
@@ -2647,6 +4148,11 @@ components:
       name: __Host-hc_challenge
       description: Host-only browser challenge secret, paired with challenge_id and a single-use handoff ticket.
   parameters:
+    ContextKind:
+      name: kind
+      in: path
+      required: true
+      schema: { type: string, enum: [memory, knowledge] }
     ResourceId:
       name: id
       in: path
@@ -2742,6 +4248,503 @@ components:
             format: int64
             minimum: 0
   schemas:
+    MCPTool:
+      type: object
+      required:
+      - name
+      - description
+      - input_schema
+      - definition
+      - hash
+      - enabled
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          maxLength: 256
+        description:
+          type: string
+        input_schema:
+          type: object
+          additionalProperties: true
+        definition:
+          type: object
+          additionalProperties: true
+        hash:
+          type: string
+        enabled:
+          type: boolean
+        change:
+          type: string
+          enum:
+          - added
+          - changed
+    MCPConnector:
+      type: object
+      required:
+      - id
+      - name
+      - description
+      - endpoint_id
+      - url
+      - protocol_version
+      - auth_type
+      - version
+      - catalog_version
+      - enabled
+      - status
+      - server_info
+      - tools
+      - verified_at
+      - updated_at
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 1000
+        endpoint_id:
+          type: string
+          description: Legacy platform endpoint ID, or personal for an owner supplied URL.
+        url:
+          type: string
+          maxLength: 1000
+          description: Configured MCP URL; empty when a legacy platform endpoint has been removed.
+        catalog_id:
+          type: string
+          maxLength: 64
+        protocol_version:
+          type: string
+          enum:
+          - '2026-07-28'
+          - '2025-11-25'
+        auth_type:
+          type: string
+          enum:
+          - none
+          - bearer
+          - oauth2
+        version:
+          type: integer
+          minimum: 1
+        catalog_version:
+          type: integer
+          minimum: 0
+        enabled:
+          type: boolean
+        status:
+          type: string
+          enum:
+          - UNVERIFIED
+          - READY
+          - FAILED
+          - AUTH_REQUIRED
+        server_info:
+          type: object
+          additionalProperties: true
+        tools:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPTool'
+          maxItems: 1000
+        verified_at:
+          type: string
+          format: date-time
+          nullable: true
+        updated_at:
+          type: string
+          format: date-time
+    MCPConnectorInput:
+      type: object
+      required:
+      - name
+      - protocol_version
+      - auth_type
+      - enabled
+      additionalProperties: false
+      oneOf:
+      - required: [url]
+        not:
+          required: [endpoint_id]
+      - required: [endpoint_id]
+        not:
+          required: [url]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 1000
+        endpoint_id:
+          type: string
+          description: Legacy platform endpoint ID. Mutually exclusive with url.
+        url:
+          type: string
+          format: uri
+          minLength: 1
+          maxLength: 1000
+          description: Owner supplied HTTPS MCP URL without embedded credentials, query or fragment. Private or HTTP targets require an exact platform exception.
+        catalog_id:
+          type: string
+          maxLength: 64
+          description: Optional built-in preset ID; does not grant network access.
+        protocol_version:
+          type: string
+          enum:
+          - '2026-07-28'
+          - '2025-11-25'
+        auth_type:
+          type: string
+          enum:
+          - none
+          - bearer
+          - oauth2
+        credential:
+          type: string
+          maxLength: 4096
+          writeOnly: true
+          description: Required for bearer authentication. Exact official defaults use their native token header or query encoding; Lexiang uses a JSON string containing token and company_from, encrypted together. Personal gateways use standard Bearer. OAuth credentials are obtained by the authorization flow; leave this field empty.
+        enabled:
+          type: boolean
+        expected_version:
+          type: integer
+          minimum: 0
+    MCPCall:
+      type: object
+      required:
+      - id
+      - connector_id
+      - connector_version
+      - catalog_version
+      - tool
+      - status
+      - reason
+      - created_at
+      - completed_at
+      additionalProperties: false
+      properties:
+        id:
+          type: string
+          format: uuid
+        connector_id:
+          type: string
+          format: uuid
+        connector_version:
+          type: integer
+          minimum: 1
+        catalog_version:
+          type: integer
+          minimum: 0
+        tool:
+          type: string
+        status:
+          type: string
+          enum:
+          - RUNNING
+          - SUCCEEDED
+          - TOOL_ERROR
+          - REJECTED
+          - UNKNOWN
+        reason:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+        replayed:
+          type: boolean
+        result:
+          type: object
+          additionalProperties: true
+          description: Ephemeral MCP result returned only to the authorized original caller; not persisted or replayed.
+    MCPInvokeInput:
+      type: object
+      required:
+      - expected_version
+      - catalog_version
+      - tool
+      - arguments
+      - idempotency_key
+      - confirmed
+      additionalProperties: false
+      properties:
+        expected_version:
+          type: integer
+          minimum: 1
+        catalog_version:
+          type: integer
+          minimum: 0
+        tool:
+          type: string
+          maxLength: 256
+        arguments:
+          type: object
+          additionalProperties: true
+        idempotency_key:
+          type: string
+          format: uuid
+        confirmed:
+          type: boolean
+          enum:
+          - true
+        risk_confirmed:
+          type: boolean
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          maximum: 120
+          default: 60
+    MCPConfig:
+      type: object
+      required:
+      - name
+      - url
+      - protocol_version
+      - auth_type
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        url:
+          type: string
+          format: uri
+          maxLength: 1000
+        catalog_id:
+          type: string
+          maxLength: 64
+        protocol_version:
+          type: string
+          enum:
+          - '2026-07-28'
+          - '2025-11-25'
+        auth_type:
+          type: string
+          enum:
+          - none
+          - bearer
+          - oauth2
+    MCPConfigPackage:
+      type: object
+      required:
+      - format
+      - connections
+      additionalProperties: false
+      properties:
+        format:
+          type: string
+          enum:
+          - hc-mcp-v1
+        connections:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPConfig'
+          maxItems: 50
+    MCPImportPreview:
+      type: object
+      required:
+      - items
+      - warnings
+      - imported
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              url:
+                type: string
+              protocol_version:
+                type: string
+              auth_type:
+                type: string
+              endpoint_id:
+                type: string
+              catalog_id:
+                type: string
+              conflict:
+                type: boolean
+          maxItems: 50
+        warnings:
+          type: array
+          items:
+            type: string
+          maxItems: 200
+        imported:
+          type: integer
+          minimum: 0
+    MCPConnectorList:
+      type: object
+      required:
+      - items
+      - endpoints
+      - catalog
+      additionalProperties: false
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MCPConnector'
+          maxItems: 50
+        endpoints:
+          type: array
+          items:
+            type: object
+            required:
+            - id
+            - name
+            - url
+            - allow_private
+            - allow_http
+            additionalProperties: false
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              url:
+                type: string
+              catalog_id:
+                type: string
+                description: Optional built-in connector ID; binds an explicitly approved compatible MCP service. Never grants network approval.
+                pattern: '^[a-z0-9][a-z0-9_-]{0,63}$'
+              allow_private:
+                type: boolean
+              allow_http:
+                type: boolean
+          maxItems: 100
+        catalog:
+          $ref: '#/components/schemas/MCPConnectorCatalog'
+    MCPConnectorCatalog:
+      type: object
+      additionalProperties: false
+      required: [version, source_url, entries]
+      properties:
+        version: { type: integer, enum: [1] }
+        source_url: { type: string, format: uri }
+        entries:
+          type: array
+          maxItems: 29
+          items:
+            $ref: '#/components/schemas/MCPConnectorPreset'
+    MCPConnectorPreset:
+      type: object
+      additionalProperties: false
+      required: [id, name, description, category, mode, auth_kind, doc_url, guide_url, setup_hint, requirements, color]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        category: { type: string, enum: [office, knowledge, productivity, media, travel, professional, self_hosted] }
+        mode: { type: string, enum: [remote, gateway, internal, stdio], description: Upstream integration mode; not an assertion that this platform runs the adapter. }
+        auth_kind: { type: string, enum: [personal_token, api_key, oauth2, imap_app_password, custom_fields] }
+        doc_url: { type: string, format: uri }
+        guide_url: { type: string, format: uri }
+        default_url: { type: string, format: uri, description: Official MCP endpoint when a shared remote service exists; deployment-specific services omit it. }
+        setup_hint: { type: string }
+        requirements:
+          type: array
+          items: { type: string }
+        color: { type: string, pattern: '^#[0-9a-fA-F]{6}$' }
+    ContextConnection:
+      type: object
+      required: [id, kind, backend, endpoint_id, name, version, enabled, status, capabilities, integration]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [memory, knowledge] }
+        backend: { type: string, enum: [openviking, mem0, graphiti, milvus, weaviate, qdrant] }
+        endpoint_id: { type: string }
+        name: { type: string }
+        version: { type: integer, format: int64 }
+        enabled: { type: boolean }
+        status: { type: string, enum: [UNVERIFIED, READY, FAILED] }
+        capabilities: { type: object }
+        verified_at: { type: string, format: date-time, nullable: true }
+        updated_at: { type: string, format: date-time }
+        integration: { type: string, enum: [NOT_CONNECTED], deprecated: true, description: Reserved compatibility field; workbench operations do not depend on DSH integration. }
+    ContextList:
+      type: object
+      required: [items, endpoints, bindings, integration]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ContextConnection' }
+        endpoints:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              name: { type: string }
+              backend: { type: string }
+              data_use: { type: string }
+        bindings:
+          type: array
+          items:
+            type: object
+            properties:
+              instance_id: { type: string, format: uuid }
+              connection_id: { type: string, format: uuid }
+              version: { type: integer, format: int64 }
+              enabled: { type: boolean }
+              integration: { type: string }
+        integration: { type: string, enum: [NOT_CONNECTED], deprecated: true, description: Reserved compatibility field; workbench operations do not depend on DSH integration. }
+    ContextInput:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 100 }
+        endpoint_id: { type: string, maxLength: 64 }
+        credential: { type: string, maxLength: 4096, writeOnly: true }
+        enabled: { type: boolean }
+        expected_version: { type: integer, format: int64 }
+        confirmed_name: { type: string }
+    ContextBindingInput:
+      type: object
+      additionalProperties: false
+      required: [instance_id, enabled, expected_version, expected_binding_version]
+      properties:
+        instance_id: { type: string, format: uuid }
+        enabled: { type: boolean }
+        expected_version: { type: integer, format: int64 }
+        expected_binding_version: { type: integer, format: int64, minimum: 0 }
+    ContextAction:
+      type: object
+      additionalProperties: false
+      required: [expected_version]
+      properties:
+        expected_version: { type: integer, format: int64 }
+        idempotency_key: { type: string, maxLength: 64, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
+        scope: { type: string, description: personal or workspace UUID scope, default: personal }
+        query: { type: string, maxLength: 4000 }
+        limit: { type: integer, minimum: 1, maximum: 20, default: 5 }
+        record_id: { type: string, maxLength: 128 }
+        record_version: { type: integer, format: int64 }
+        content: { type: string, maxLength: 262144 }
+        title: { type: string, maxLength: 200 }
+        type: { type: string, maxLength: 100 }
+        source: { type: string, maxLength: 1000 }
+        token: { type: string, maxLength: 128 }
+        mode: { type: string, enum: [skip, replace] }
+        package: { type: object, description: hc-memory-v1 entries and SHA-256 digest }
+        confirmed: { type: boolean }
+        accept_loss: { type: boolean }
     StorageAsset:
       type: object
       additionalProperties: false
@@ -3644,7 +5647,7 @@ components:
         permissions:
           type: array
           uniqueItems: true
-          maxItems: 25
+          maxItems: 34
           items:
             type: string
             enum:
@@ -3657,6 +5660,15 @@ components:
             - instances:start
             - instances:stop
             - instances:release-storage
+            - skills:read
+            - skills:manage
+            - memory:read
+            - memory:manage
+            - knowledge:read
+            - knowledge:manage
+            - connectors:read
+            - connectors:manage
+            - connectors:invoke
             - instances:delete
             - instances:configure
             - instances:access
@@ -3931,6 +5943,10 @@ components:
           - UNAUTHENTICATED
           - FORBIDDEN
           - CSRF_INVALID
+          - SKILL_INVALID
+          - SKILL_EXISTS
+          - SKILL_LIMIT
+          - METHOD_NOT_ALLOWED
           - NOT_FOUND
           - DEFAULTS_NOT_CONFIGURED
           - STATE_CONFLICT
@@ -4648,7 +6664,7 @@ components:
         permissions:
           type: array
           uniqueItems: true
-          maxItems: 25
+          maxItems: 34
           items:
             type: string
             enum:
@@ -4661,6 +6677,15 @@ components:
             - instances:start
             - instances:stop
             - instances:release-storage
+            - skills:read
+            - skills:manage
+            - memory:read
+            - memory:manage
+            - knowledge:read
+            - knowledge:manage
+            - connectors:read
+            - connectors:manage
+            - connectors:invoke
             - instances:delete
             - instances:configure
             - instances:access
@@ -4709,7 +6734,7 @@ components:
         permissions:
           type: array
           uniqueItems: true
-          maxItems: 25
+          maxItems: 34
           items:
             type: string
             enum:
@@ -4722,6 +6747,15 @@ components:
             - instances:start
             - instances:stop
             - instances:release-storage
+            - skills:read
+            - skills:manage
+            - memory:read
+            - memory:manage
+            - knowledge:read
+            - knowledge:manage
+            - connectors:read
+            - connectors:manage
+            - connectors:invoke
             - instances:delete
             - instances:configure
             - instances:access
@@ -5077,6 +7111,15 @@ components:
           - instances:start
           - instances:stop
           - instances:release-storage
+          - skills:read
+          - skills:manage
+          - memory:read
+          - memory:manage
+          - knowledge:read
+          - knowledge:manage
+          - connectors:read
+          - connectors:manage
+          - connectors:invoke
           - instances:delete
           - instances:configure
           - instances:access
@@ -5105,7 +7148,7 @@ components:
         dependencies:
           type: array
           uniqueItems: true
-          maxItems: 25
+          maxItems: 34
           items:
             type: string
             enum:
@@ -5118,6 +7161,15 @@ components:
             - instances:start
             - instances:stop
             - instances:release-storage
+            - skills:read
+            - skills:manage
+            - memory:read
+            - memory:manage
+            - knowledge:read
+            - knowledge:manage
+            - connectors:read
+            - connectors:manage
+            - connectors:invoke
             - instances:delete
             - instances:configure
             - instances:access
@@ -5134,6 +7186,38 @@ components:
             - personal-model:validate
             - personal-model:revoke
             - models:catalog:manage
+    UserRoleOption:
+      type: object
+      additionalProperties: false
+      required: [id, code, name]
+      properties:
+        id:
+          type: string
+          format: uuid
+        code:
+          type: string
+        name:
+          type: string
+    UserRoleOptionPage:
+      type: object
+      additionalProperties: false
+      required: [items, total, next_cursor, local_accounts]
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/UserRoleOption'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        next_cursor:
+          type: string
+          nullable: true
+        local_accounts:
+          type: boolean
+          description: Unused for role options; always false.
     ManagedRolePage:
       type: object
       additionalProperties: false
@@ -5922,6 +8006,169 @@ components:
           maxItems: 20
           items:
             $ref: '#/components/schemas/ProviderAccountModel'
+    SkillFileContent:
+      type: object
+      additionalProperties: false
+      required:
+      - path
+      - content
+      - version
+      - editable
+      properties:
+        path:
+          type: string
+          maxLength: 512
+        content:
+          type: string
+          maxLength: 1048576
+          description: UTF-8 text, or an empty string for binary files.
+        version:
+          type: integer
+          minimum: 1
+        editable:
+          type: boolean
+          description: True only for valid UTF-8 text with no NUL bytes and a text MIME signature.
+    SkillFile:
+      type: object
+      additionalProperties: false
+      required:
+      - name
+      - size_bytes
+      properties:
+        name:
+          type: string
+        size_bytes:
+          type: integer
+          minimum: 0
+    Skill:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - description
+      - model_invocable
+      - user_invocable
+      - version
+      - file_count
+      - size_bytes
+      - source_url
+      - synced_at
+      - created_at
+      - updated_at
+      - has_previous
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          maxLength: 64
+        description:
+          type: string
+          maxLength: 2000
+        model_invocable:
+          type: boolean
+        user_invocable:
+          type: boolean
+        version:
+          type: integer
+          minimum: 1
+        file_count:
+          type: integer
+          minimum: 1
+          maximum: 128
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 12582912
+        source_url:
+          type: string
+        synced_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        has_previous:
+          type: boolean
+        content:
+          type: string
+        files:
+          type: array
+          items:
+            $ref: '#/components/schemas/SkillFile'
+    SkillList:
+      type: object
+      additionalProperties: false
+      required:
+      - items
+      - total
+      - page
+      - limit
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Skill'
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+    SkillPreview:
+      type: object
+      additionalProperties: false
+      required:
+      - token
+      - source_url
+      - unchanged
+      - items
+      properties:
+        token:
+          type: string
+        source_url:
+          type: string
+        unchanged:
+          type: boolean
+        items:
+          type: array
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - name
+            - description
+            - files
+            - conflict
+            - local_changed
+            - changed_files
+            properties:
+              name:
+                type: string
+              description:
+                type: string
+              files:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SkillFile'
+              conflict:
+                type: boolean
+              local_changed:
+                type: boolean
+              changed_files:
+                type: array
+                items:
+                  type: string
 x-delivery-scope: single-organization-docker-initial-release
 x-runtime-verification:
 - 'D0: pin upstream/Coder-source/provider/image and validate native credential adapter'

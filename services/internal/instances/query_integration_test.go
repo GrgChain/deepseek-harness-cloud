@@ -669,6 +669,40 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 	if err != nil || deleted.State != "DELETING" {
 		t.Fatalf("maintenance blocked safe delete: %+v %v", deleted, err)
 	}
+
+	t.Run("error instance exposes and accepts deletion without a valid model", func(t *testing.T) {
+		errorOwner := principal("MEMBER")
+		broken := create(errorOwner)
+		must(`UPDATE instances SET observed_state='ERROR',desired_state='RUNNING' WHERE id=$1`, broken)
+		must(`UPDATE secrets SET revoked_at=clock_timestamp() WHERE id=(SELECT credential_ref FROM model_configurations WHERE id=$1 AND version=1)`, model)
+		defer must(`UPDATE secrets SET revoked_at=NULL WHERE id=(SELECT credential_ref FROM model_configurations WHERE id=$1 AND version=1)`, model)
+		view, err := service.Get(ctx, errorOwner, broken)
+		if err != nil || strings.Join(view.AllowedActions, ",") != "delete" || view.CanEnter {
+			t.Fatalf("error instance cannot delete: %+v %v", view.AllowedActions, err)
+		}
+		if _, err = commands.Command(ctx, admin, broken, Delete, webapi.ID(), CommandInput{ConfirmedName: &view.Name}, "error-foreign"); queryCode(err) != "NOT_FOUND" {
+			t.Fatal("foreign error deletion", err)
+		}
+		wrong := "wrong-name"
+		if _, err = commands.Command(ctx, errorOwner, broken, Delete, webapi.ID(), CommandInput{ConfirmedName: &wrong}, "error-wrong"); queryCode(err) != "INVALID_SPEC" {
+			t.Fatal("error deletion accepted wrong name", err)
+		}
+		key := webapi.ID()
+		accepted, err := NewCommandService(appDB, nil, true).Command(ctx, errorOwner, broken, Delete, key, CommandInput{ConfirmedName: &view.Name}, "error-delete")
+		if err != nil || accepted.State != "DELETING" {
+			t.Fatalf("error deletion: %+v %v", accepted, err)
+		}
+		if replay, err := commands.Command(ctx, errorOwner, broken, Delete, key, CommandInput{ConfirmedName: &view.Name}, "error-replay"); err != nil || replay != accepted {
+			t.Fatal("error delete replay", err)
+		}
+		if _, err = commands.Command(ctx, errorOwner, broken, Delete, webapi.ID(), CommandInput{ConfirmedName: &view.Name}, "error-duplicate"); queryCode(err) != "STATE_CONFLICT" {
+			t.Fatal("duplicate error cleanup", err)
+		}
+		after, err := service.Get(ctx, errorOwner, broken)
+		if err != nil || len(after.AllowedActions) != 0 || after.ActiveOperationID == nil || after.Observed != "DELETING" || after.DeletedAt != nil {
+			t.Fatal("queued cleanup claimed completion", err)
+		}
+	})
 	var assetStatus string
 	if err := database.QueryRow(ctx, `SELECT status FROM storage_assets WHERE id=$1`, asset).Scan(&assetStatus); err != nil || assetStatus != "READY" {
 		t.Fatal("acceptance reclaimed original storage")

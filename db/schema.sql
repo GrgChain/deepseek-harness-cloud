@@ -1864,3 +1864,247 @@ CREATE TABLE storage_browse_requests (
 CREATE INDEX storage_browse_queue ON storage_browse_requests(created_at,id) WHERE status='QUEUED';
 CREATE INDEX storage_browse_expiry ON storage_browse_requests(expires_at);
 CREATE UNIQUE INDEX storage_browse_one_active ON storage_browse_requests(asset_id) WHERE status IN ('QUEUED','RUNNING');
+
+INSERT INTO permissions(id,assignable,dependencies) VALUES
+ ('skills:read',true,'{}'),('skills:manage',true,'{skills:read}');
+INSERT INTO role_permissions(role_id,permission_id)
+ SELECT r.id,p.id FROM roles r CROSS JOIN permissions p WHERE r.builtin AND p.id IN ('skills:read','skills:manage');
+
+CREATE TABLE personal_skills (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL REFERENCES organizations(id),
+ owner_id uuid NOT NULL REFERENCES users(id),
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 64),
+ description text NOT NULL CHECK(length(description) BETWEEN 1 AND 2000),
+ model_invocable boolean NOT NULL,
+ user_invocable boolean NOT NULL,
+ version bigint NOT NULL DEFAULT 1 CHECK(version>0),
+ file_count integer NOT NULL CHECK(file_count BETWEEN 1 AND 128),
+ size_bytes integer NOT NULL CHECK(size_bytes BETWEEN 1 AND 12582912),
+ key_id text NOT NULL, nonce bytea NOT NULL, ciphertext bytea NOT NULL,
+ source_url text NOT NULL DEFAULT '',
+ source_digest text NOT NULL DEFAULT '',
+ synced_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ UNIQUE(org_id,owner_id,name)
+);
+CREATE INDEX personal_skills_owner ON personal_skills(org_id,owner_id,updated_at DESC,id);
+
+-- Import previews are encrypted, short-lived and scoped to the requesting owner.
+CREATE TABLE skill_import_previews (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL REFERENCES organizations(id),
+ owner_id uuid NOT NULL REFERENCES users(id),
+ key_id text NOT NULL, nonce bytea NOT NULL, ciphertext bytea NOT NULL,
+ expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '5 minutes'
+);
+CREATE INDEX skill_import_expiry ON skill_import_previews(expires_at);
+
+-- Keep the previous package when an import or sync explicitly replaces a Skill.
+CREATE TABLE skill_replacements (
+ skill_id uuid PRIMARY KEY REFERENCES personal_skills(id) ON DELETE CASCADE,
+ key_id text NOT NULL, nonce bytea NOT NULL, ciphertext bytea NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp()
+);
+
+-- Fresh organizations receive the same personal-library permissions.
+CREATE OR REPLACE FUNCTION public.hc_seed_roles() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE admin_id uuid:=gen_random_uuid(); member_id uuid:=gen_random_uuid();
+BEGIN
+ INSERT INTO public.roles(id,org_id,code,name,builtin) VALUES
+ (admin_id,NEW.id,'ADMIN','管理员',true),(member_id,NEW.id,'MEMBER','成员',true);
+ INSERT INTO public.role_permissions SELECT admin_id,id FROM public.permissions;
+ INSERT INTO public.role_permissions SELECT member_id,id FROM public.permissions
+ WHERE id LIKE 'instances:%' OR id LIKE 'personal-model:%' OR id LIKE 'skills:%' OR id IN ('configuration:read','audit:read');
+ RETURN NEW;
+END;
+$$;
+
+-- Context content remains in independently deployed memory / knowledge services.
+-- Connections and grants are platform metadata, not vector or graph storage.
+INSERT INTO permissions(id,assignable,dependencies) VALUES
+ ('memory:read',true,'{}'),('memory:manage',true,'{memory:read}'),
+ ('knowledge:read',true,'{}'),('knowledge:manage',true,'{knowledge:read}');
+
+-- Deliberately do not grant new capabilities to existing roles. Administrators
+-- explicitly assign them through the existing, audited role workflow.
+
+CREATE TABLE context_connections (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL REFERENCES organizations(id),
+ owner_id uuid NOT NULL REFERENCES users(id),
+ kind text NOT NULL CHECK(kind IN ('memory','knowledge')),
+ backend text NOT NULL CHECK(backend IN ('openviking','mem0','graphiti','milvus','weaviate','qdrant')),
+ endpoint_id text NOT NULL CHECK(length(endpoint_id) BETWEEN 1 AND 64),
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 100),
+ version bigint NOT NULL DEFAULT 1 CHECK(version>0),
+ enabled boolean NOT NULL DEFAULT true,
+ status text NOT NULL DEFAULT 'UNVERIFIED' CHECK(status IN ('UNVERIFIED','READY','FAILED')),
+ capabilities jsonb NOT NULL DEFAULT '{}'::jsonb CHECK(jsonb_typeof(capabilities)='object'),
+ key_id text NOT NULL, nonce bytea NOT NULL CHECK(octet_length(nonce)=12), ciphertext bytea NOT NULL,
+ verified_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ UNIQUE(org_id,owner_id,id),
+ UNIQUE(org_id,owner_id,kind,name),
+ CHECK((kind='memory' AND backend IN ('openviking','mem0','graphiti')) OR (kind='knowledge' AND backend IN ('milvus','weaviate','qdrant')))
+);
+CREATE INDEX context_connections_owner ON context_connections(org_id,owner_id,kind,updated_at DESC,id);
+
+CREATE TABLE context_bindings (
+ org_id uuid NOT NULL,
+ owner_id uuid NOT NULL,
+ instance_id uuid NOT NULL,
+ connection_id uuid NOT NULL,
+ version bigint NOT NULL DEFAULT 1 CHECK(version>0),
+ enabled boolean NOT NULL DEFAULT true,
+ scopes jsonb NOT NULL DEFAULT '[]'::jsonb CHECK(jsonb_typeof(scopes)='array'),
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ PRIMARY KEY(instance_id,connection_id),
+ FOREIGN KEY(org_id,owner_id,connection_id) REFERENCES context_connections(org_id,owner_id,id) ON DELETE CASCADE,
+ FOREIGN KEY(org_id,owner_id,instance_id) REFERENCES instances(org_id,owner_id,id)
+);
+
+-- A durable operation intent precedes remote writes. UNKNOWN is reconciled with
+-- the original key; callers must never infer rollback from a network timeout.
+CREATE TABLE context_operations (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL,
+ owner_id uuid NOT NULL,
+ connection_id uuid NOT NULL,
+ connection_version bigint NOT NULL CHECK(connection_version>0),
+ action text NOT NULL CHECK(length(action) BETWEEN 1 AND 64),
+ idempotency_sha256 bytea NOT NULL CHECK(octet_length(idempotency_sha256)=32),
+ request_sha256 bytea NOT NULL CHECK(octet_length(request_sha256)=32),
+ status text NOT NULL CHECK(status IN ('PENDING','SUCCEEDED','FAILED','UNKNOWN')),
+ key_id text NOT NULL, nonce bytea NOT NULL CHECK(octet_length(nonce)=12), ciphertext bytea NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ UNIQUE(connection_id,idempotency_sha256),
+ FOREIGN KEY(org_id,owner_id,connection_id) REFERENCES context_connections(org_id,owner_id,id)
+);
+
+CREATE TABLE context_previews (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL,
+ owner_id uuid NOT NULL,
+ connection_id uuid NOT NULL,
+ connection_version bigint NOT NULL CHECK(connection_version>0),
+ purpose text NOT NULL CHECK(purpose IN ('memory-write','memory-import','memory-migration','document-import')),
+ key_id text NOT NULL, nonce bytea NOT NULL CHECK(octet_length(nonce)=12), ciphertext bytea NOT NULL,
+ expires_at timestamptz NOT NULL DEFAULT clock_timestamp()+interval '5 minutes',
+ consumed_at timestamptz,
+ FOREIGN KEY(org_id,owner_id,connection_id) REFERENCES context_connections(org_id,owner_id,id) ON DELETE CASCADE
+);
+CREATE INDEX context_preview_expiry ON context_previews(expires_at);
+
+-- Personal memory and knowledge management are workbench features. Built-in
+-- administrators and members receive only these owner-scoped capabilities;
+-- custom roles keep their explicitly assigned permissions.
+WITH granted AS (
+ INSERT INTO role_permissions(role_id,permission_id)
+ SELECT r.id,p.id FROM roles r CROSS JOIN permissions p
+ WHERE r.builtin AND r.code IN ('ADMIN','MEMBER')
+ AND p.id IN ('memory:read','memory:manage','knowledge:read','knowledge:manage')
+ ON CONFLICT DO NOTHING RETURNING role_id
+), changed AS (
+ UPDATE roles r SET version=version+1,updated_at=clock_timestamp()
+ WHERE EXISTS(SELECT 1 FROM granted g WHERE g.role_id=r.id)
+ RETURNING r.id,r.org_id
+)
+INSERT INTO audit_events(id,org_id,resource_id,action,outcome,trace_id,details)
+ SELECT gen_random_uuid(),org_id,id,'CONTEXT_DEFAULT_PERMISSIONS_GRANTED','SUCCEEDED',
+ gen_random_uuid()::text,jsonb_build_object('migration',48) FROM changed;
+
+CREATE OR REPLACE FUNCTION public.hc_seed_roles() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE admin_id uuid:=gen_random_uuid(); member_id uuid:=gen_random_uuid();
+BEGIN
+ INSERT INTO public.roles(id,org_id,code,name,builtin) VALUES
+ (admin_id,NEW.id,'ADMIN','管理员',true),(member_id,NEW.id,'MEMBER','成员',true);
+ INSERT INTO public.role_permissions SELECT admin_id,id FROM public.permissions;
+ INSERT INTO public.role_permissions SELECT member_id,id FROM public.permissions
+ WHERE id LIKE 'instances:%' OR id LIKE 'personal-model:%' OR id LIKE 'skills:%'
+ OR id LIKE 'memory:%' OR id LIKE 'knowledge:%'
+ OR id IN ('configuration:read','audit:read');
+ RETURN NEW;
+END;
+$$;
+
+INSERT INTO permissions(id,assignable,dependencies) VALUES
+ ('connectors:read',true,'{}'),
+ ('connectors:manage',true,'{connectors:read}'),
+ ('connectors:invoke',true,'{connectors:read}');
+WITH granted AS (
+ INSERT INTO role_permissions(role_id,permission_id)
+ SELECT r.id,p.id FROM roles r CROSS JOIN permissions p
+ WHERE r.builtin AND r.code IN ('ADMIN','MEMBER') AND p.id LIKE 'connectors:%'
+ ON CONFLICT DO NOTHING RETURNING role_id
+), changed AS (
+ UPDATE roles r SET version=version+1,updated_at=clock_timestamp()
+ WHERE EXISTS(SELECT 1 FROM granted g WHERE g.role_id=r.id) RETURNING r.id,r.org_id
+)
+INSERT INTO audit_events(id,org_id,resource_id,action,outcome,trace_id,details)
+ SELECT gen_random_uuid(),org_id,id,'CONNECTOR_DEFAULT_PERMISSIONS_GRANTED','SUCCEEDED',gen_random_uuid()::text,jsonb_build_object('migration',49) FROM changed;
+
+CREATE OR REPLACE FUNCTION public.hc_seed_roles() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE admin_id uuid:=gen_random_uuid(); member_id uuid:=gen_random_uuid();
+BEGIN
+ INSERT INTO public.roles(id,org_id,code,name,builtin) VALUES
+ (admin_id,NEW.id,'ADMIN','管理员',true),(member_id,NEW.id,'MEMBER','成员',true);
+ INSERT INTO public.role_permissions SELECT admin_id,id FROM public.permissions;
+ INSERT INTO public.role_permissions SELECT member_id,id FROM public.permissions
+ WHERE id LIKE 'instances:%' OR id LIKE 'personal-model:%' OR id LIKE 'skills:%'
+ OR id LIKE 'memory:%' OR id LIKE 'knowledge:%' OR id LIKE 'connectors:%'
+ OR id IN ('configuration:read','audit:read');
+ RETURN NEW;
+END;
+$$;
+
+CREATE TABLE mcp_connectors (
+ id uuid PRIMARY KEY, org_id uuid NOT NULL REFERENCES organizations(id), owner_id uuid NOT NULL REFERENCES users(id),
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 100),
+ description text NOT NULL DEFAULT '' CHECK(length(description)<=1000),
+ endpoint_id text NOT NULL, protocol_version text NOT NULL CHECK(protocol_version IN ('2026-07-28','2025-11-25')),
+ auth_type text NOT NULL CHECK(auth_type IN ('none','bearer')),
+ version bigint NOT NULL DEFAULT 1 CHECK(version>0), catalog_version bigint NOT NULL DEFAULT 0,
+ enabled boolean NOT NULL DEFAULT true, status text NOT NULL DEFAULT 'UNVERIFIED' CHECK(status IN ('UNVERIFIED','READY','FAILED','AUTH_REQUIRED')),
+ server_info jsonb NOT NULL DEFAULT '{}', tools jsonb NOT NULL DEFAULT '[]',
+ key_id text NOT NULL, nonce bytea NOT NULL CHECK(octet_length(nonce)=12), ciphertext bytea NOT NULL,
+ verified_at timestamptz, deleted_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ UNIQUE(org_id,owner_id,id)
+);
+CREATE UNIQUE INDEX mcp_connector_name ON mcp_connectors(org_id,owner_id,name) WHERE deleted_at IS NULL;
+CREATE INDEX mcp_connector_owner ON mcp_connectors(org_id,owner_id,updated_at DESC,id) WHERE deleted_at IS NULL;
+CREATE TABLE mcp_calls (
+ id uuid PRIMARY KEY, org_id uuid NOT NULL, owner_id uuid NOT NULL, connector_id uuid NOT NULL,
+ connector_version bigint NOT NULL, catalog_version bigint NOT NULL, tool_name text NOT NULL,
+ request_sha256 text NOT NULL, idempotency_key text NOT NULL,
+ status text NOT NULL CHECK(status IN ('RUNNING','SUCCEEDED','TOOL_ERROR','REJECTED','UNKNOWN')),
+ reason text NOT NULL DEFAULT '', timeout_seconds integer NOT NULL CHECK(timeout_seconds BETWEEN 1 AND 120),
+ cancel_requested boolean NOT NULL DEFAULT false,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(), completed_at timestamptz,
+ UNIQUE(org_id,owner_id,idempotency_key),
+ FOREIGN KEY(org_id,owner_id,connector_id) REFERENCES mcp_connectors(org_id,owner_id,id)
+);
+CREATE INDEX mcp_calls_owner ON mcp_calls(org_id,owner_id,created_at DESC,id);
+
+ALTER TABLE mcp_connectors
+ ADD COLUMN endpoint_url text NOT NULL DEFAULT '' CHECK(octet_length(endpoint_url)<=1000),
+ ADD COLUMN catalog_id text NOT NULL DEFAULT '' CHECK(length(catalog_id)<=64);
+
+ALTER TABLE mcp_connectors DROP CONSTRAINT mcp_connectors_auth_type_check;
+ALTER TABLE mcp_connectors ADD CONSTRAINT mcp_connectors_auth_type_check CHECK(auth_type IN ('none','bearer','oauth2'));
+CREATE TABLE mcp_oauth_transactions (
+ id uuid PRIMARY KEY, org_id uuid NOT NULL, owner_id uuid NOT NULL, connector_id uuid NOT NULL,
+ session_id uuid NOT NULL REFERENCES portal_sessions(id), connector_version bigint NOT NULL,
+ state_sha256 text NOT NULL UNIQUE, expires_at timestamptz NOT NULL,
+ key_id text NOT NULL, nonce bytea NOT NULL CHECK(octet_length(nonce)=12), ciphertext bytea NOT NULL,
+ FOREIGN KEY(org_id,owner_id,connector_id) REFERENCES mcp_connectors(org_id,owner_id,id)
+);
+CREATE INDEX mcp_oauth_expiry ON mcp_oauth_transactions(expires_at);

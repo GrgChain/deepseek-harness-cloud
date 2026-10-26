@@ -10,7 +10,10 @@
 
 - **工作空间**：选择 CPU、内存、存储和模型提供商，支持创建、进入、启停及删除。
 - **模型管理**：管理个人提供商账号、密钥、允许使用的模型及默认模型，通过 Go 模型网关接入官方或兼容服务。
-- **数据管理**：保留工作目录与 DSH 数据，浏览 `/data/workspace` 和 `/data/dsh`，支持文件预览、Office / PDF 预览及下载；已删除工作空间的数据可单独永久释放。
+- **工作数据**：保留工作目录与 DSH 数据，浏览 `/data/workspace` 和 `/data/dsh`，支持文件预览、Office / PDF 预览及下载；已删除工作空间的数据可单独永久释放。
+- **技能包**：工作台个人技能库，支持编辑、Markdown / ZIP 导入导出和公开链接同步。
+- **记忆与知识库**：在工作台维护、迁移和检索个人内容，外接 OpenViking / Mem0 / Graphiti 与 Milvus / Weaviate / Qdrant。[独立服务部署](deploy/context/README.md)。
+- **连接器**：管理个人MCP连接、OAuth授权、工具选择及手动调用；企查查完整聚合与真实厂商验收进度见[实施说明](docs/connectors-implementation.md)。
 - **原生扩展**：启停内置插件、安装第三方 DSH 组合包、保存 Agent 预设。
 - **平台管理**：内置登录与账号管理、角色权限、实例 / CPU / 内存 / 存储四类额度及操作日志。
 
@@ -94,7 +97,9 @@ docs/             需求、架构、部署与验收文档
 | 接口与数据 | [接口说明](docs/api.md) · [OpenAPI](api/openapi.yaml) · [数据设计](docs/data-model.md) |
 | 部署与安全 | [部署运维](docs/deployment.md) · [安全设计](docs/security.md) |
 | 验证与决策 | [测试验收](docs/testing.md) · [架构决策](docs/decisions/README.md) |
+| 记忆与知识库 | [实施记录](docs/context-implementation.md) · [独立服务部署](deploy/context/README.md) |
+| 连接器与OAuth | [实施说明](docs/connectors-implementation.md) · [部署与复验](deploy/connectors/README.md) · [实网检查](docs/connectors-oauth-availability-2026-10-26.md) |
 
 ## 许可证
 
-原有代码许可见 [LICENSE](LICENSE)。含 Coder 衍生代码的组合程序适用 **AGPL-3.0-only**，范围与来源见 [COPYING](COPYING) 和[第三方说明](third_party/coder/README.md)。发布网络服务时应提供对应源码及构建安装材料。
+原有代码许可见 [LICENSE](LICENSE)。含 Coder 衍生代码的组合程序适用 **AGPL-3.0-only**，复用范围与许可边界见 [ADR-01](docs/decisions/0001-coder-integration.md)。发布网络服务时应提供对应源码及构建安装材料。

@@ -10,6 +10,37 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 )
 
+func retryReason(err error) string {
+	switch {
+	case errors.Is(err, ErrLostLease):
+		return "LEASE_LOST"
+	case errors.Is(err, ErrExecutionRevoked):
+		return "EXECUTION_REVOKED"
+	case errors.Is(err, ErrSuperseded):
+		return "INTENT_SUPERSEDED"
+	case errors.Is(err, ErrInvalidEvidence):
+		return "INVALID_EVIDENCE"
+	case errors.Is(err, ErrHostIdentity):
+		return "HOST_IDENTITY_INVALID"
+	case errors.Is(err, ErrHostCapacity):
+		return "HOST_CAPACITY_UNAVAILABLE"
+	case errors.Is(err, ErrStorageUnavailable):
+		return "STORAGE_UNAVAILABLE"
+	case errors.Is(err, ErrHostUnavailable):
+		return "HOST_UNAVAILABLE"
+	case errors.Is(err, ErrExternalPending):
+		return "EXTERNAL_OPERATION_PENDING"
+	case errors.Is(err, ErrBuildRejected):
+		return "BUILD_REJECTED"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "DEPENDENCY_TIMEOUT"
+	case errors.Is(err, context.Canceled):
+		return "CANCELED"
+	default:
+		return "DEPENDENCY_OR_DATABASE_ERROR"
+	}
+}
+
 type WorkQueue interface {
 	Claim(context.Context, string, int, bool) ([]Lease, error)
 	Renew(context.Context, Lease) error
@@ -44,6 +75,7 @@ func (r *Runner) execute(ctx context.Context, lease Lease) {
 		select {
 		case err := <-result:
 			if err != nil && !lost && runCtx.Err() == nil && !errors.Is(err, ErrLostLease) {
+				slog.Warn("Worker operation deferred after reconciliation", "operation_id", lease.ID, "instance_id", lease.InstanceID, "reason_code", retryReason(err))
 				retry, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				_ = r.queue.Defer(retry, lease, true)
 				cancel()

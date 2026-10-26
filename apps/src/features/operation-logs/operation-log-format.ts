@@ -3,6 +3,9 @@ import type { OperationLog } from '../../api/resources';
 export const operationLogActions: Record<string, string> = {
  LOGIN: '用户登录', LOGOUT: '用户退出', USER_CREATE: '创建用户', USER_UPDATE: '修改用户', USER_ROLE: '调整用户角色', USER_DISABLE: '停用用户', USER_ENABLE: '启用用户', USER_ARCHIVE: '删除用户', USER_QUOTA_UPDATE: '调整资源配额', USER_IDENTITY_CONFIRM: '确认用户身份',
  USER_PASSWORD_RESET: '重置密码', USER_PASSWORD_RESET_REQUESTED: '申请重置密码', USER_PASSWORD_RESET_RETRIED: '重试密码重置', USER_PASSWORD_RESET_UNCERTAIN: '密码重置待确认',
+ SKILL_CREATE: '创建 Skill', SKILL_UPDATE: '修改 Skill', SKILL_DELETE: '删除 Skill', SKILL_IMPORT: '导入或同步 Skill',
+ CONNECTOR_DEFAULT_PERMISSIONS_GRANTED:'启用连接器权限',CONNECTOR_SAVED:'保存连接器',CONNECTOR_DELETED:'删除连接器',CONNECTOR_IMPORTED:'导入连接器',CONNECTOR_SYNCED:'同步连接器工具',CONNECTOR_TOOLS_SELECTED:'更新工具授权',CONNECTOR_CALL_STARTED:'发起工具调用',CONNECTOR_CALL_FINISHED:'工具调用结束',CONNECTOR_CALL_CANCEL_REQUESTED:'申请取消工具调用',
+ CONTEXT_DEFAULT_PERMISSIONS_GRANTED: '启用记忆与知识库权限', CONTEXT_CONNECTION_SAVE: '保存外接连接', CONTEXT_CONNECTION_DELETE: '移除外接连接', CONTEXT_BINDING_SAVE: '关联工作空间', CONTEXT_VERIFY: '验证外接连接', CONTEXT_APPLY: '保存外部内容', CONTEXT_DELETE: '删除外部内容', CONTEXT_REBUILD: '重建外部索引',
  ROLE_CREATE: '创建角色', ROLE_UPDATE: '修改角色权限', ROLE_DELETE: '删除角色',
  INSTANCE_CREATE: '创建工作空间', INSTANCE_START: '启动工作空间', INSTANCE_STOP: '停止工作空间', INSTANCE_DELETE: '删除工作空间', INSTANCE_CONFIGURE: '更新工作空间模型', INSTANCE_ACCESS: '进入工作空间', INSTANCE_ACCESS_TICKET: '授权进入工作空间', OPERATION_RETRY: '重试工作空间操作',
  PERSONAL_PROVIDER_ACCOUNT_CREATED: '添加模型提供商账号', PERSONAL_PROVIDER_ACCOUNT_UPDATED: '修改模型提供商账号', PERSONAL_PROVIDER_ACCOUNT_DELETE_REQUESTED: '删除模型提供商账号',
@@ -11,7 +14,7 @@ export const operationLogActions: Record<string, string> = {
  BACKUP_CREATE: '创建备份', BACKUP_SET_CREATE: '创建完整备份', STORAGE_BACKUP: '备份存储', STORAGE_RESTORE: '恢复存储', STORAGE_RECLAIM: '回收存储', RUNTIME_APPROVE: '批准运行模板', RUNTIME_UPGRADE: '升级运行模板', RUNTIME_ROLLBACK: '切换运行模板', IDENTITY_APPLY: '更新身份映射', IDENTITY_IMPORT: '导入用户', WORKSPACE_NAMES_MIGRATE: '更新工作空间名称', RESOURCES_INITIALIZE: '初始化资源配置',
 };
 export const operationLogOutcomes: Record<string, { label: string; color: string }> = { ACCEPTED: { label: '已受理', color: 'blue' }, SUCCEEDED: { label: '成功', color: 'green' }, FAILED: { label: '失败', color: 'red' }, DENIED: { label: '已拒绝', color: 'orange' } };
-export const operationLogResourceTypes: Record<string, string> = { user: '用户', role: '角色', instance: '工作空间', provider_account: '模型提供商账号', model: '模型', session: '登录会话', storage: '存储资产', backup: '备份', runtime: '运行模板', resource: '资源' };
+export const operationLogResourceTypes: Record<string, string> = { skill: 'Skill', user: '用户', role: '角色', instance: '工作空间', provider_account: '模型提供商账号', model: '模型', session: '登录会话', storage: '存储资产', backup: '备份', runtime: '运行模板', resource: '资源' };
 export const quotaFields = [
  { key: 'max_instances', label: '实例数量', scale: 1, unit: '个' }, { key: 'cpu_millicores', label: 'CPU', scale: 1000, unit: 'vCPU' }, { key: 'memory_bytes', label: '内存', scale: 2 ** 30, unit: 'GiB' }, { key: 'storage_bytes', label: '持久存储', scale: 2 ** 30, unit: 'GiB' },
 ];

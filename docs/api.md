@@ -58,6 +58,7 @@
 | API-040 | `GET /v1/roles/{id}` | 查询角色权限与分配数 |
 | API-041 | `PUT /v1/roles/{id}` | 修改自定义角色与权限 |
 | API-042 | `DELETE /v1/roles/{id}` | 删除未分配的自定义角色 |
+| API-117 | `GET /v1/users/role-options` | 以users:read读取本组织精简角色选项，支持搜索与分页 |
 | API-043 | `GET /v1/permissions` | 读取固定权限目录、中文名称、用途说明、可分配性及依赖 |
 | API-044 | `GET /v1/model-directory` | 读取已保存配置版本的批准目录 |
 | API-045 | `POST /v1/model-directory:refresh` | 刷新已保存配置版本的批准目录 |
@@ -89,6 +90,8 @@
 | API-071 | `PUT /v1/users/{id}:quota` | 按预期版本分配完整四项资源额度 |
 
 ## 3 请求、分页与并发
+
+登录恢复：浏览器HTML导航访问`/auth/callback`时，失效或无效的授权303返回固定`/auth/login`重新登录，不显示整页认证JSON；JSON客户端继续收到401。`/oidc/authorize`和密码提交也检查BFF事务及浏览器绑定，旧表单失效后重新建立登录，不自动重交密码。仅匹配当前浏览器的旧事务可保留白名单内的`return_to`。
 
 实例、用户、角色与审计列表支持 `page`（从1开始）和 `limit`（默认20、最大100），返回按当前筛选与实际权限统计的 `total`，可用 `ceil(total/limit)` 计算总页数并直接查询尾页；空列表界面显示第1/1页。按页查询使用稳定时间/ID排序，数据变化后总数会更新，不是冻结快照。保留有签名游标兼容原客户端，不透明next_cursor为空表示结束；page与cursor不能同时传入，非法页码返回422。游标绑定当前组织、过滤、排序和访问权限上下文，不能伪造跨用户翻页。查询过滤和排序取OpenAPI枚举；不返回其他Owner的记录。未知/重复JSON字段与不合法ID、状态、版本、邮箱、提供商、模型或URL由服务端拒绝。
 
@@ -135,7 +138,7 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 | API-066 | POST /oidc/token | client_secret_basic及urlencoded授权码/PKCE；200 Access/ID Token，invalid_client=401，invalid_grant/unsupported_grant_type=400 |
 | API-067 | GET /oidc/userinfo | Authorization: Bearer随机Access Token；200按scope返回sub/name/email/email_verified=false；失效/撤销/资格变更401 |
 
-这些是OIDC协议入口，错误形状为 `{error: "协议错误码"}`，与业务 `{code,message,request_id}` 区分。只支持固定平台客户端和固定回调；无动态注册、刷新令牌、密码grant、隐式流或外部身份联邦。`/oidc/login.css`只提供登录页本地样式。协议完整参数与响应见[OpenAPI](../api/openapi.yaml)，期限/散列/密钥规则见[安全设计](security.md#内置-oidc-provider)。
+这些是OIDC协议入口，错误形状为 `{error: "协议错误码"}`，与业务 `{code,message,request_id}` 区分。只支持固定平台客户端和固定回调；无动态注册、刷新令牌、密码grant、隐式流或外部身份联邦。`/oidc/login.css`和`/oidc/login.js`分别提供登录页本地样式与表单交互；不引用第三方资源。密码登录401返回HTML错误表单，保留邮箱但不回显密码。协议完整参数与响应见[OpenAPI](../api/openapi.yaml)，期限/散列/密钥规则见[安全设计](security.md#内置-oidc-provider)。
 
 平台用户创建 `identity_source=local`，必须提交初始密码、不得指定subject；subject与Workspace Owner由服务器生成，已有主体不会按邮箱自动合并。历史受控映射数据的oidc来源只保留为数据识别，不作为内置账号创建入口。账号导入属于受控CLI，无公共HTTP导入接口。
 
@@ -212,7 +215,7 @@ POST /v1/instances已有可选name字段，Portal创建抽屉现提交用户填�
 
 模型字段可省略：新建运行默认值不需要组织模型，返回 model_configuration_id=""、model_configuration_version=0。兼容调用若显式提交组织模型，须同时提供合法 ID/版本并通过现有组织归属、凭据及能力校验；省略不清除已有模型绑定。平台页面不发送这两个字段，创建时独立验证所选本人模型提供商账号。
 
-API-043当前返回25项权限，新增能力沿用既有授权：数据资产、文件浏览/预览/下载使用instances:read，手动释放使用instances:release-storage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。
+API-043 返回当前34项有效权限目录（包含技能包、连接器、记忆及知识库权限），新增能力沿用既有授权：数据资产、文件浏览/预览/下载使用instances:read，手动释放使用instances:release-storage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。API-117仅返回角色的id/code/name，需users:read；不返回权限集合、说明、版本或用户数。完整角色、权限目录读取仍需roles:read，用户写入与角色分配仍需users:manage；搜索及page/cursor规则与列表一致。
 
 ## 存储资产查询（REQ-19）
 
@@ -231,3 +234,41 @@ API-077的`status=PROCESSING`合并筛选PREPARING、RESTORING、RECLAIM_PENDING
 API-080 `POST /v1/storage-assets/{id}:release` 要求当前 `instances:release-storage`、Owner、Origin与CSRF，提交 `{confirmed_name,confirmed_asset_id}`。精确确认后返回202 `{request_id,asset_id,status}`；每资产请求唯一，重复调用核对原申请。仅限已删除的本人保留数据，可主动提前结束保留期；法律保留、未完成备份/生命周期任务、绑定或账本不明仍409，错误确认422，跨Owner404。GET资产状态确认回收进度；202不释放配额。后台核实物理结果与末尾审计一起提交后才完成。
 
 API-081接收`root=workspace|dsh`、可选相对`path`和目录分页`after`，只返回名称、类型、字节数和更新时间。API-082接收同一根目录与相对文件路径，以及`mode=PREVIEW|DOWNLOAD`；预览仅返回UTF-8纯文本，下载以附件返回。两者仅在工作空间停止或软删除、本人权限有效且没有冲突维护任务时执行；Worker在持有实例锁后只读挂载数据盘。拒绝绝对路径、`..`、符号链接及非普通文件。文件读取不递归扫描、不写入、不由API直接挂载主机路径；一次性密钥保护暂存正文，数据库不保存明文，且内容不进入审计或长期缓存。
+
+## 个人 Skill 库（REQ-20）
+
+API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/保存/删除、调用元数据兼容接口、文件预览、公开链接获取、检查来源更新、确认应用、所选技能导出与上一版下载。另有 API-112～114（`GET/PUT/POST /v1/skills/{id}:file`）用于读取、编辑与新建文本文件；GET 须提供唯一 `path` 查询参数，PUT 提交 `path`、`content`、`expected_version`，保存使用整包版本；POST 使用相同请求字段新建脚本或其他文本文件，拒绝重名及路径冲突。二进制内容不作为文本返回或接受覆盖，其他文件不变。完整请求字段见 [OpenAPI](../api/openapi.yaml) 和[后端说明](backend.md#个人-skill-库)。
+
+`skills:read` 允许查看和导出本人技能，`skills:manage` 允许维护、导入与手动同步，并依赖读取权限；内置角色默认具有两项。来源支持公开 HTTPS Markdown/ZIP 直链及 GitHub 仓库、`tree` 技能目录、`blob` 文件链接；仓库读取默认分支，目录限制扫描范围。拒绝查询参数、凭据、私网和保留地址。GitHub 归档取消总大小上限，流式写入私有临时文件并在处理结束后删除，最多 30,000 条目，选中技能沿用 128 文件、单文件 1 MiB、解压 12 MiB、导入包 5 MiB 限额；多技能来源的更新只暂存当前技能。先预览再应用，预览有效 5 分钟且绑定用户、原记录 ID 和版本。同名默认跳过；明确替换时保留上一版，同步更新保留调用设置；无自动更新或向 DSH 容器写入。
+
+请求 JSON 不超过 7 MiB；上传包不超过 5 MiB、单文件 1 MiB、归档文件数 128、解压总量 12 MiB。写操作每用户每分钟 30 次，超限返回 429。`SKILL_INVALID` 返回 422，`SKILL_EXISTS` / `SKILL_LIMIT` / `VERSION_CONFLICT` 返回 409，过期预览及他人技能返回 404。源获取失败保留当前包；导出返回 `no-store` 附件。
+
+
+## 外接记忆与知识库（API-095～099）
+
+`/v1/context/{memory|knowledge}`提供本人连接列表/创建，`/{id}`更新/移除；`/{id}/{action}`提供验证、list/search/get/export、预览/保存、内容删除/重建、绑定和核实。POST即使只读仍校验Origin及CSRF。`apply/delete/rebuild`使用请求内幂等键；绑定同时检查连接与绑定版本；`reconcile`只接受空对象，重放服务器加密保存的原始操作。移除连接保留外部数据，永久内容删除独立确认。公开字段以[OpenAPI](../api/openapi.yaml)为准，支持程度见[实施记录](context-implementation.md)。
+
+
+## 工作台连接器（REQ-23，API-100～111、API-115/116）
+
+| 方法与路径 | 权限及用途 |
+| --- | --- |
+| `GET /v1/connectors` | `connectors:read`；本人连接、工具快照、批准服务及29种内置连接器目录 |
+| `POST /v1/connectors`、`PUT /v1/connectors/{id}` | `connectors:manage`；创建及版本化保存；凭据只写 |
+| `DELETE /v1/connectors/{id}` | 管理权限；`expected_version`、`confirmed_name`确认删除 |
+| `POST /v1/connectors/{id}/sync` | 管理权限；`expected_version`验证并完整同步目录 |
+| `POST /v1/connectors/{id}/tools` | 管理权限；`expected_version`、`enabled_tools`选择工具 |
+| `POST /v1/connectors/{id}/invoke` | `connectors:invoke`；手动确认后调用 |
+| `GET /v1/connectors/{id}/calls`、`GET /v1/connectors/calls/{id}` | 读取权限；分页或按ID读取脱敏状态 |
+| `POST /v1/connectors/calls/{id}/cancel` | 调用权限；尽力取消，不能证明外部操作撤销 |
+| `POST /v1/connectors/export`、`POST /v1/connectors/import` | 管理权限；无秘密JSON配置迁移，导入先预览再确认 |
+| `POST /v1/connectors/{id}/oauth`（API-115） | 管理权限、CSRF及`expected_version`；返回`authorization_url`供当前浏览器跳转，不返回Token或客户端密钥 |
+| `GET /v1/connectors/oauth/callback`（API-116） | 当前组织、Owner及登录会话；单次消费state并交换授权码，保存密文后验证工具；303返回工作台 |
+
+所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[实施记录](connectors-implementation.md)。
+
+`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为10种官方远程服务提供预填地址，其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。推荐服务可预填地址，允许用户修改；旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存不发起外部请求。
+
+`auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
+
+回调处理后返回 `/app/connectors`，查询参数`connector_oauth`为`ready`、`verify_failed`、`cancelled`或`failed`之一，页面展示后清除该参数。返回URL不含授权码、Token或厂商错误正文；登录失效时返回工作台登录流程。授权成功只同步工具，不自动启用或调用。厂商账号完整验收与企查查专用聚合/解绑是独立待完成项，当前没有对应聚合或远端撤销API契约。

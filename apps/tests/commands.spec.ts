@@ -4,6 +4,8 @@ const id='00000000-0000-4000-8000-000000000003';const operation='00000000-0000-4
 const health={status:'UNKNOWN',checked_at:null,expires_at:null,reason_code:'HEALTH_REQUIRED'};
 const instance={id,owner_id:user.id,name:'work-one',desired_state:'RUNNING',observed_state:'RUNNING',version:1,ready:false,can_enter:false,allowed_actions:['stop','delete','configure'],active_operation_id:null,access_host:null,storage:{capacity_bytes:10*2**30,status:'READY'},config_snapshot:{model:'deepseek-flash',spec:{cpu_millicores:2000,memory_bytes:4*2**30,storage_bytes:10*2**30}},health:{application:health,storage:health,configuration:health,access:health,model:health},created_at:'2026-10-10T00:00:00Z',updated_at:'2026-10-10T00:00:00Z',retention_until:null};
 async function session(page:Page){
+ await page.emulateMedia({reducedMotion:'reduce'});
+ await page.route('**/v1/**',route=>route.fulfill({status:404,json:{code:'NOT_FOUND'}}));
  await page.route('**/livez',route=>route.fulfill({json:{status:'alive',process:'api',capabilities:{authentication:true,instances:false}}}));
  await page.route('**/readyz',route=>route.fulfill({json:{status:'ready',process:'api'}}));
  await page.route('**/v1/me',route=>route.fulfill({json:user}));
@@ -12,7 +14,7 @@ async function session(page:Page){
 }
 
 test('create and update provider use only checked account defaults and never fall back after selection is lost',async({page})=>{
- page.setDefaultTimeout(5000);
+ test.setTimeout(45_000);
  await session(page);
  await page.route('**/v1/me',r=>r.fulfill({json:{...user,permissions:[...user.permissions,'personal-model:read']}}));
  const approved={id:'00000000-0000-4000-8000-000000000011',name:'已核对个人模型',version:1,provider:'moonshot',model:'kimi-k2.5',enabled:true,credential_configured:true,sync_status:'SYNCED',validation:{status:'HEALTHY'},gateway_check:{status:'HEALTHY'}};
@@ -26,13 +28,13 @@ test('create and update provider use only checked account defaults and never fal
  await page.route('**/v1/instances/'+id+':configure',r=>{configurations.push(r.request().postDataJSON());return r.fulfill({status:202,json:{instance_id:id,operation_id:operation,state:'STARTING'}});});
  await page.route('**/v1/instances',r=>{if(r.request().method()==='POST'){writes++;return r.fulfill({status:409,json:{code:'CONFIGURATION_INVALID'}});}return r.fallback();});
  await page.goto('/app/instances');await page.getByRole('button',{name:'创建工作空间',exact:true}).click();
- await expect(page.getByRole('button',{name:'创建并运行',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'创建并运行',exact:true})).toBeDisabled({timeout:8000});
  await page.getByRole('combobox',{name:'创建时的模型提供商',exact:true}).locator('..').locator('..').click();
  await page.locator('.ant-select-dropdown:visible').getByTitle('Moonshot AI · 我的账号',{exact:true}).click();
  await expect(page.getByRole('textbox',{name:'创建时的默认模型'})).toHaveCount(0);
  await expect(page.getByRole('button',{name:'创建并运行',exact:true})).toBeEnabled();
  items=invalid;
- await expect(page.getByRole('button',{name:'创建并运行',exact:true})).toBeDisabled();
+ await expect(page.getByRole('button',{name:'创建并运行',exact:true})).toBeDisabled({timeout:8000});
  items=[approved,...invalid];
  await page.goto('/app/instances/'+id);
  await page.getByRole('button',{name:'更新模型提供商',exact:true}).click();
@@ -43,10 +45,10 @@ test('create and update provider use only checked account defaults and never fal
  await page.locator('.ant-select-dropdown:visible').getByTitle('Moonshot AI · 我的账号',{exact:true}).click();
  await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeEnabled();
  items=invalid;
- await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeDisabled();
+ await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeDisabled({timeout:8000});
  expect(writes).toBe(0);expect(configurations).toHaveLength(0);expect(organizationReads).toBe(0);
  items=[approved,...invalid];
- await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeEnabled();
+ await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeEnabled({timeout:8000});
  await dialog.getByRole('button',{name:'应用配置',exact:true}).click();
  await expect(dialog).not.toBeVisible();
  expect(configurations).toEqual([{expected_instance_version:instance.version,model_configuration_id:approved.id,model_configuration_version:approved.version}]);

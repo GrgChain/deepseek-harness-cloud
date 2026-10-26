@@ -33,7 +33,7 @@ test('live administrator reads quota editor and member cannot read administrator
     const dialog = page.getByRole('dialog', { name: '资源配额', exact: true });
     await expect(dialog.getByLabel('同时运行数量上限（个）', { exact: true })).toHaveCount(0);
     await expect(dialog.getByRole('spinbutton')).toHaveCount(4);
-    await expect(dialog.getByLabel('CPU上限（vCPU）', { exact: true })).toHaveValue(String(quota.limits.cpu_millicores / 1000) + '.00');
+    await expect(dialog.getByLabel('CPU上限（vCPU）', { exact: true })).toHaveAttribute('aria-valuenow',String(quota.limits.cpu_millicores / 1000));
     await expect(dialog.getByRole('button', { name: '保存配额', exact: true })).toBeVisible();
     await expect(dialog).not.toHaveClass(/ant-zoom/);
     await page.screenshot({ path: info.outputPath('live-user-quota.png'), fullPage: false, animations: 'disabled' });
