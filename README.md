@@ -173,6 +173,6 @@ docs/             需求、架构、部署与验收文档
 
 ## 许可证
 
-原有代码采用 [MIT License](LICENSE)。含 Coder 衍生代码的组合程序适用 **AGPL-3.0-only**，复用范围与许可边界见 [ADR-01](docs/decisions/0001-coder-integration.md)。发布网络服务时应提供对应源码及构建安装材料。
+原有代码采用 [MIT License](LICENSE)。
 
-本项目基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建工作空间体验，工作空间编排复用了 [Coder](https://github.com/coder/coder) 的部分代码，来源与修改范围见上述架构决策。
+本项目基于 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 构建工作空间体验。
