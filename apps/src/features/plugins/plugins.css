@@ -1,0 +1,53 @@
+.plugins-panel .provider-page-heading { align-items: flex-start; }
+.plugins-panel .provider-page-heading p { margin: 10px 0 0; color: var(--muted); font-size: 14px; }
+.plugin-detail-links a { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; }
+.plugin-catalog-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px; margin: 28px 0 24px; }
+.plugin-catalog-toolbar > .ant-input-affix-wrapper { flex: 1; min-width: 220px; max-width: 440px; }
+.plugin-catalog-filters { display: flex; gap: 16px; }
+.plugin-catalog-filters label { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 13px; }
+.plugin-catalog-filters .ant-select { width: 140px; }
+.plugin-catalog-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 20px; }
+.plugin-catalog-item { display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--line); border-radius: 12px; background: var(--color-surface); padding: 22px; }
+.plugin-card-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.plugin-card-heading .ant-tag { margin: 0; }
+.plugin-card-symbol { display: grid; place-items: center; width: 46px; height: 46px; border-radius: 12px; background: var(--color-selected); color: var(--color-primary); flex-shrink: 0; }
+.plugin-catalog-item h3 { margin: 18px 0 8px; font-size: 16px; }
+.plugin-catalog-item h3 button { padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: 600; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.plugin-catalog-item h3 button:hover { color: var(--color-primary); }
+.plugin-card-description { margin: 0 0 18px; min-height: 44px; color: var(--muted); font-size: 13px; line-height: 1.75; }
+.plugin-card-metadata { display: flex; flex-wrap: wrap; gap: 6px 12px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; margin-top: auto; }
+.plugin-card-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+.plugin-card-footer > span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.plugin-card-footer .ant-btn { flex-shrink: 0; }
+.plugin-detail-drawer .ant-drawer-content-wrapper { max-width: 100vw; }
+.plugin-detail-heading { display: flex; align-items: center; gap: 14px; }
+.plugin-detail-heading h2 { margin: 0 0 8px; font-size: 22px; overflow-wrap: anywhere; }
+.plugin-detail-category { color: var(--muted); font-size: 13px; }
+.plugin-detail-description { color: var(--muted); line-height: 1.8; margin: 24px 0; }
+.plugin-detail-drawer .ant-descriptions-item-content { overflow-wrap: anywhere; }
+.plugin-detail-links { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 10px 0 24px; }
+.plugin-install-guide { padding-top: 24px; border-top: 1px solid var(--line); margin-bottom: 24px; }
+.plugin-install-guide h3 { margin: 0 0 16px; font-size: 16px; }
+.plugin-install-guide p, .plugin-install-guide li { color: var(--muted); font-size: 13px; line-height: 1.8; }
+.plugin-install-guide ol { padding-left: 20px; margin: 0 0 20px; }
+.plugin-install-guide li + li { margin-top: 8px; }
+.plugin-install-spec { display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: var(--color-background); border: 1px solid var(--line); border-radius: 8px; }
+.plugin-install-spec code { flex: 1; min-width: 0; overflow-wrap: anywhere; user-select: all; font-size: 12px; line-height: 1.8; }
+.plugin-install-spec .ant-btn { flex-shrink: 0; }
+.plugin-copy-status { display: block; min-height: 24px; font-size: 13px; color: var(--color-primary); margin-top: 8px; }
+.plugin-install-note { margin-bottom: 0; }
+@media (max-width: 1100px) { .plugin-catalog-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 767px) {
+ .plugin-catalog-toolbar { margin-top: 20px; }
+ .plugin-catalog-toolbar > .ant-input-affix-wrapper { flex-basis: 100%; max-width: none; min-width: 0; min-height: 44px; }
+ .plugin-catalog-filters { width: 100%; gap: 12px; }
+ .plugin-catalog-filters label { flex: 1; min-width: 0; flex-direction: column; align-items: stretch; gap: 6px; }
+ .plugin-catalog-filters .ant-select { width: 100%; height: 44px; }
+ .plugin-catalog-grid { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+ .plugin-catalog-item { padding: 20px; }
+ .plugin-catalog-item h3 button, .plugin-card-footer .ant-btn { min-height: 44px; }
+ .plugin-catalog-item h3 { margin-top: 10px; }
+ .plugin-detail-drawer .ant-drawer-body { padding: 24px 16px; }
+ .plugin-install-spec { flex-direction: column; }
+ .plugin-install-spec .ant-btn { min-height: 44px; }
+}

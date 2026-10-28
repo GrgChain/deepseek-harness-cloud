@@ -17,7 +17,7 @@ func (c Context) aad() ([]byte, error) {
 		return nil, errors.New("credential context is incomplete")
 	}
 	switch c.Purpose {
-	case "model-key", "provider-key", "portal-csrf", "oidc-pkce", "native-cookie", "identity-password-hash", "skill-bundle", "skill-import", "context-credential", "context-operation", "context-preview", "connector-credential", "connector-oauth":
+	case "model-key", "provider-key", "portal-csrf", "oidc-pkce", "native-cookie", "identity-password-hash", "skill-bundle", "skill-import", "workspace-skills", "context-credential", "context-operation", "context-preview", "connector-credential", "connector-oauth":
 	default:
 		return nil, errors.New("credential purpose is invalid")
 	}

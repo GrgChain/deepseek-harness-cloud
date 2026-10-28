@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -25,7 +24,7 @@ var managedModelsRead string
 //go:embed managed-models-view.js
 var managedModelsView string
 
-func adaptManagedModels(body []byte, portal, instance string) ([]byte, bool) {
+func adaptManagedModels(body []byte, _, _ string) ([]byte, bool) {
 	start := bytes.Index(body, []byte(modelsModuleStart))
 	if start < 0 || len(body)-start < managedModelsSize {
 		return body, false
@@ -40,16 +39,14 @@ func adaptManagedModels(body []byte, portal, instance string) ([]byte, bool) {
 	if bytes.Count(module, []byte(readAnchor)) != 1 || bytes.Count(module, []byte(viewAnchor)) != 1 {
 		return body, false
 	}
-	modelsURL, _ := json.Marshal(portal + "/app/models")
-	instanceURL, _ := json.Marshal(portal + "/app/instances/" + instance)
-	view := strings.NewReplacer("HC_MODELS_URL", string(modelsURL), "HC_INSTANCE_URL", string(instanceURL)).Replace(managedModelsView)
 	patched := bytes.Replace(module, []byte(readAnchor), []byte(managedModelsRead+readAnchor), 1)
 	// Share the selector's bounded, generation-aware catalog recovery. Superseding
 	// a read or disposing the page must also release its pending retry timer.
 	methodAnchor := []byte("\t\t\tasync read(generation) {")
 	loadAnchor := []byte("const generation = ++this.generation;")
 	constructorAnchor := []byte("this.describeFace = describeFace;")
-	for _, anchor := range [][]byte{methodAnchor, loadAnchor, constructorAnchor} {
+	stateAnchor := []byte("const [dismissedSetup, setDismissedSetup] = (0, react.useState)(() => /* @__PURE__ */ new Set());")
+	for _, anchor := range [][]byte{methodAnchor, loadAnchor, constructorAnchor, stateAnchor} {
 		if bytes.Count(module, anchor) != 1 {
 			return body, false
 		}
@@ -57,7 +54,8 @@ func adaptManagedModels(body []byte, portal, instance string) ([]byte, bool) {
 	patched = bytes.Replace(patched, methodAnchor, append([]byte(managedModelCatalogRead+"\n"), methodAnchor...), 1)
 	patched = bytes.Replace(patched, loadAnchor, []byte("clearTimeout(this.retryTimer); this.retryResolve?.(); this.retryTimer = this.retryResolve = undefined;\n"+string(loadAnchor)), 1)
 	patched = bytes.Replace(patched, constructorAnchor, []byte(string(constructorAnchor)+"\nctx.on(\"dispose\", () => { this.generation++; clearTimeout(this.retryTimer); this.retryResolve?.(); this.retryTimer = this.retryResolve = undefined; for (const pending of this.pendingLoads) pending.resolve(); this.pendingLoads.clear(); });"), 1)
-	patched = bytes.Replace(patched, []byte(viewAnchor), []byte(view+viewAnchor), 1)
+	patched = bytes.Replace(patched, stateAnchor, []byte(string(stateAnchor)+"\nconst [managedModelQuery, setManagedModelQuery] = (0, react.useState)(\"\");"), 1)
+	patched = bytes.Replace(patched, []byte(viewAnchor), []byte(managedModelsView+viewAnchor), 1)
 	result := make([]byte, 0, len(body)+len(patched)-len(module))
 	result = append(result, body[:start]...)
 	result = append(result, patched...)

@@ -132,7 +132,7 @@ func fetchSourceWithTransport(ctx context.Context, raw string, transport *http.T
 		}
 		return content, u.String(), nil
 	}
-	return downloadSource(ctx, client, u, MaxUpload, sourceURL)
+	return downloadSource(ctx, client, u, 0, sourceURL)
 }
 
 func downloadSource(ctx context.Context, client *http.Client, u *url.URL, limit int, validate func(string) (*url.URL, error)) ([]byte, string, error) {

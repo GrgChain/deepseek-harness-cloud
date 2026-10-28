@@ -252,7 +252,7 @@ func fetchHubSource(ctx context.Context, client *http.Client, u *url.URL) ([]byt
 	if u.Host == "skillhub.cn" || u.Host == "api.skillhub.cn" {
 		endpoint, _ := url.Parse("https://api.skillhub.cn/api/v1/download")
 		endpoint.RawQuery = url.Values{"slug": {parts[1]}}.Encode()
-		data, _, err := downloadHub(ctx, client, endpoint, MaxUpload, tencentDownloadURL)
+		data, _, err := downloadHub(ctx, client, endpoint, 0, tencentDownloadURL)
 		if err != nil {
 			return nil, "", invalid("SkillHub 技能下载失败，请稍后重试或查看来源")
 		}
@@ -268,7 +268,7 @@ func fetchHubSource(ctx context.Context, client *http.Client, u *url.URL) ([]byt
 	}
 	endpoint, _ := url.Parse("https://clawhub.ai/api/v1/download")
 	endpoint.RawQuery = url.Values{"slug": {parts[2]}, "ownerHandle": {parts[0]}}.Encode()
-	data, _, err := downloadSource(ctx, client, endpoint, MaxUpload, hubAPIURL)
+	data, _, err := downloadSource(ctx, client, endpoint, 0, hubAPIURL)
 	if err != nil {
 		return nil, "", invalid("该 ClawHub 技能暂不可下载，请查看来源或稍后重试")
 	}

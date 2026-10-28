@@ -112,6 +112,7 @@ export async function enterWorkspace(user: CurrentUser, instance: Instance) {
   if (!cancelled) {
    const description=popup.document.getElementById('entry-description');
    if(description)description.textContent='连接已就绪，正在打开工作空间。';
+   try { popup.sessionStorage.setItem(resumeKey, JSON.stringify({user:user.id,instance:instance.id,origin:window.location.origin,expires:Date.now()+120_000})); } catch { /* The details page remains available for manual retry. */ }
    submitHandoff(popup, handoff);
   }
  } catch (error) {

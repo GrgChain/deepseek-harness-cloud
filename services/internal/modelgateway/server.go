@@ -165,13 +165,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		defer clearRequestReasoning(&request)
 	}
-	var allowed bool
-	err = s.pool.QueryRow(ctx, `UPDATE model_gateway_keys SET window_started=CASE WHEN window_started<=clock_timestamp()-interval '1 minute' THEN clock_timestamp() ELSE window_started END,requests=CASE WHEN window_started<=clock_timestamp()-interval '1 minute' THEN 1 ELSE requests+1 END WHERE key_hash=$1 AND revoked_at IS NULL AND (window_started<=clock_timestamp()-interval '1 minute' OR requests<60) RETURNING true`, digest[:]).Scan(&allowed)
-	if err != nil || !allowed {
-		w.Header().Set("Retry-After", "60")
-		writeError(w, 429, "RATE_LIMITED")
-		return
-	}
 	tracked := &streamWriter{ResponseWriter: w}
 	forwardErr := forward(ctx, tracked, s.client, route, request, providerAccountKey)
 	if forwardErr == nil && request.responseState != nil {
@@ -406,7 +399,7 @@ func (s *Server) createKey(ctx context.Context, w http.ResponseWriter, r *http.R
 		Invite bool     `json:"send_invite_email"`
 		RPM    int      `json:"rpm_limit"`
 	}
-	if decode(w, r, &v) != nil || len(v.Key) < 32 || len(v.Key) > 4096 || len(v.Models) != 1 || len(v.Routes) != 2 || v.Routes[0] != "/v1/messages" || v.Routes[1] != "/v1/models" || v.Invite || v.Type != "default" || v.RPM != 60 {
+	if decode(w, r, &v) != nil || len(v.Key) < 32 || len(v.Key) > 4096 || len(v.Models) != 1 || len(v.Routes) != 2 || v.Routes[0] != "/v1/messages" || v.Routes[1] != "/v1/models" || v.Invite || v.Type != "default" || (v.RPM != 0 && v.RPM != 60) {
 		writeError(w, 400, "INVALID_KEY_SCOPE")
 		return
 	}

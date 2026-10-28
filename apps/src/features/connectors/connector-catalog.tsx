@@ -1,15 +1,13 @@
 import {useState} from 'react';
 import {Collapse,Drawer,Empty,Input,Button} from 'antd';
-import {ArrowRight,BookOpen,BriefcaseBusiness,Compass,Code2,ExternalLink,FileText,Headphones,Mail,MapPin,Music2,Newspaper,NotebookPen,Plug,Plus,Scale,Search,Server,Video} from 'lucide-react';
+import {ArrowRight,ExternalLink,Plus,Search} from 'lucide-react';
 import type {ConnectorCatalog,ConnectorPreset,MCPEndpoint} from '../../api/connectors';
+import {ConnectorIcon} from './connector-logo';
 
 const categories=[['office','办公协作'],['knowledge','知识与笔记'],['productivity','效率工具'],['development','开发工具'],['media','资讯娱乐'],['travel','出行旅行'],['professional','专业服务'],['self_hosted','自托管']];
-const categoryIcons={office:BriefcaseBusiness,knowledge:BookOpen,productivity:Plug,development:Code2,media:Newspaper,travel:Compass,professional:Scale,self_hosted:Server};
-const serviceIcons={'tencent-docs':FileText,'tencent-meeting':Video,'qq-mail':Mail,'agently-cli':Mail,'qq-music':Music2,'wechat-reading':Headphones,'baidu-map':MapPin,'didi':MapPin,'youdao-note':NotebookPen,'obsidian-cli':NotebookPen};
 export function categoryName(id:string){return categories.find(([key])=>key===id)?.[1]??id;}
 export function PresetIcon({preset}:{preset:ConnectorPreset}){
- const Icon=serviceIcons[preset.id as keyof typeof serviceIcons]??categoryIcons[preset.category as keyof typeof categoryIcons]??Plug;
- return <span className="connector-preset-icon" style={{color:preset.color,backgroundColor:preset.color+'14'}} aria-hidden="true"><Icon size={20}/></span>;
+ return <ConnectorIcon catalogID={preset.id} color={preset.color}/>;
 }
 
 export function ConnectorCatalogPicker({catalog,endpoints,onSelect,onClose}:{catalog:ConnectorCatalog;endpoints:MCPEndpoint[];onSelect:(preset:ConnectorPreset|null)=>void;onClose:()=>void}){

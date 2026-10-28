@@ -69,7 +69,7 @@ function ImportDialog({user,initial,preview:initialPreview,onClose,onApplied}:{u
   {!preview?<><Tabs activeKey={method} onChange={key=>{setMethod(key as 'search'|'file'|'source');setError('');}} items={[
    {key:'search',label:'搜索技能',disabled:busy,children:<SkillHubSearch user={user} busy={busy} onPreview={source=>{setUrl(source);void inspect(undefined,source);}}/>},
    {key:'source',label:'链接导入',disabled:busy,children:<div className="skill-import-form"><label htmlFor="skill-source-url">公开链接</label><Input id="skill-source-url" placeholder="https://github.com/owner/repo" value={url} disabled={busy} onChange={e=>setUrl(e.target.value)} onPressEnter={()=>{if(url.trim()&&!busy)void inspect();}}/><p className="skill-note">支持 GitHub 仓库、技能目录和文件链接，也支持 Markdown、ZIP 直链。先预览，再导入。</p></div>},
-   {key:'file',label:'文件导入',disabled:busy,children:<div className="skill-import-form"><div className="skill-upload-target"><FileArchive size={34} aria-hidden="true"/><p>Markdown 文件或 ZIP 技能包</p><Button icon={<Upload size={16} aria-hidden="true"/>} loading={busy} onClick={()=>fileInput.current?.click()}>选择文件</Button><span>上传不超过 5 MiB · 保留包内资源目录</span></div></div>},
+   {key:'file',label:'文件导入',disabled:busy,children:<div className="skill-import-form"><div className="skill-upload-target"><FileArchive size={34} aria-hidden="true"/><p>Markdown 文件或 ZIP 技能包</p><Button icon={<Upload size={16} aria-hidden="true"/>} loading={busy} onClick={()=>fileInput.current?.click()}>选择文件</Button><span>保留包内资源目录</span></div></div>},
   ]}/>
    <input ref={fileInput} type="file" accept=".md,.zip" hidden disabled={busy} aria-label="选择 Skill 文件" onChange={event=>{const file=event.target.files?.[0];if(file)void inspect(file);event.target.value='';}}/>
   </>:<div className="skill-import-preview">

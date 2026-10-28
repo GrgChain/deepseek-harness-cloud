@@ -28,7 +28,11 @@ func decode(w http.ResponseWriter, r *http.Request, target any) error {
 	if err != nil || media != "application/json" {
 		return invalid("请求须使用 JSON 对象")
 	}
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 7<<20))
+	var body io.Reader = http.MaxBytesReader(w, r.Body, 7<<20)
+	if r.URL.Path == "/v1/skills:preview" {
+		body = r.Body
+	}
+	raw, err := io.ReadAll(body)
 	if err != nil {
 		return webapi.Fail(413, "PAYLOAD_TOO_LARGE", "上传请求不能超过 7 MiB")
 	}

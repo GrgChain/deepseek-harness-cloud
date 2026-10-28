@@ -42,7 +42,7 @@ Portal Cookie 为 `__Host-hc_session`，无 Domain。Portal 与实例必须是�
 访问模块为 Go 最小 Gateway，固定实例子域，原生 DSH Cookie 在服务端加密保存，浏览器只持 Gateway 会话。全部路径、状态和 payload 已在 OpenAPI 定义；真实上游交换见 [运行适配](backend.md#123-原生认证与访问路径)。
 
 1. Owner 从实例详情取得固定 access_host。前端向该 Host 的 `GET /__dsh/challenge` 发起 credentials=include 的 fetch，Origin 必须等于 Portal。Gateway 生成 challenge_id 与随机秘密，写 PostgreSQL，并设置仅该 Host 的挑战 Cookie，响应 challenge_id/expires_at。CORS 仅允许精确 Portal Origin、GET、credentials，Vary: Origin。
-2. 前端用 Portal 会话、CSRF 向 `POST /v1/instances/{id}:access` 提交 challenge_id。API 实时检查 Owner、身份映射/Workspace Owner、实例状态、五维中必要健康、路由与限流；模型失败可诊断进入。绑定挑战、主体/Portal session、Host、auth_generation、access_generation，签发一次性随机票据。
+2. 前端用 Portal 会话、CSRF 向 `POST /v1/instances/{id}:access` 提交 challenge_id。API 实时检查 Owner、身份映射/Workspace Owner、实例状态、五维中必要健康与路由；模型失败可诊断进入。绑定挑战、主体/Portal session、Host、auth_generation、access_generation，签发一次性随机票据。
 3. 响应 200 `{handoff_url,ticket,challenge_id,expires_at}`，handoff_url 只能是该实例 `https://<access_host>/__dsh/handoff`。响应禁止缓存/上报。前端立即以新窗口 HTML form POST 隐藏字段 ticket/challenge_id；票据不在 URL、存储或页面可见正文。弹窗被拦截时显示明确打开命令，复用挑战流程重新签发，禁止把票据改放链接。
 4. Gateway 要求 Portal Origin、form 类型、≤8KiB、挑战 Cookie摘要匹配；网络调用在事务外完成；随后按[统一锁序](data-model.md#3-创建和幂等事务)锁授权主体、配置、实例、挑战和票据并重新检查 Portal会话、当前角色/Owner、代次、实例/路由/健康和过期，原子消费两者，生成 Gateway会话。重复/过期拒绝 403，无副作用。
 5. Gateway 在事务外验证 Worker 为当前运行代次建立并加密保存的原生会话。成功设置 `__Host-hc_access`，清挑战 Cookie，303 到实例根 `/`；原生失败返回 502/503 并撤销本次 Gateway 会话，已消费票据不能复用。
@@ -114,7 +114,7 @@ Portal空闲期限在每个已授权Portal请求以及DSH实际HTTP/WS业务消�
 
 `identity_authorizations` 保存浏览器/CSRF摘要、固定客户端/回调和协议上下文，5分钟有效、最多10次密码失败。`__Host-hc_identity` 是随机256-bit、Secure/HttpOnly/SameSite=Lax、Path=/、无Domain Cookie，成功登录清除。密码 POST 必须同源 Origin 与表单 CSRF；页面不嵌入 state、nonce、PKCE 或密码，不包含第三方资源；登录HTML的CSP仅允许同源样式与脚本，禁止内联脚本、跨源表单、frame 和 base URI；协议JSON响应继续禁止脚本。交互脚本不存储凭据或调用额外接口，仍由原生表单同源提交；密码失败只回显转义后的邮箱。登录HTML使用Referrer-Policy=strict-origin以保留Chrome表单的同源Origin，仅发送origin、不发送授权查询；其余协议响应no-referrer。未知邮箱和错误密码使用一致反馈，未知账号仍执行 cost=12 的散列比较；导入的旧散列cost可为10～14，不承诺跨所有迁移账号的完全恒时。
 
-Redis 对每分钟来源授权请求90次、密码请求120次、Token请求120次及每账号密码请求15次分别计数，只使用连接来源、不信任任意 Forwarded 头。共享代理来源会共享来源额度；故障或冷启动保护期间认证暂不可用，不能绕过限流。请求正文上限4096字节；认证查询、密码、Cookie、授权码和Token不得写普通访问日志。
+认证入口不设置请求频率限制或冷启动保护窗口；每次请求仍核对账号、授权事务、浏览器绑定和当前授权。请求正文上限4096字节；认证查询、密码、Cookie、授权码和Token不得写普通访问日志。
 
 授权码随机256-bit，仅存 SHA-256 摘要，60秒有效；绑定客户端、精确回调、nonce、PKCE challenge、账号凭据版本与权限代次。密码验证后重新锁定当前账号/组织/成员资格，事务内消费挑战并签发授权码。Token端点仅接受 client_secret_basic；验证客户端后持久消费授权码，再检查 PKCE、期限、启用状态、凭据版本及授权代次。重放已用授权码会撤销其已签发 Access Token。
 
@@ -128,7 +128,7 @@ BFF在进程内调用同一 Token 签发逻辑并用 go-oidc StaticKeySet 验证
 
 协议依据：[OIDC Core](https://openid.net/specs/openid-connect-core-1_0.html)、[Discovery](https://openid.net/specs/openid-connect-discovery-1_0.html)、[PKCE](https://www.rfc-editor.org/rfc/rfc7636.html)、[OAuth安全规范](https://www.rfc-editor.org/rfc/rfc9700.html)。本实现是平台单客户端授权码配置，未取得 OpenID Provider 认证。
 
-自定义模型根是显式运维授权能力：API的模型allowlist及原生模型网关配置均须包含相同`custom_api_bases`精确根。用户输入不能扩大出站范围。HTTP仅用于固定私网/回环IP或localhost，且端口须在1024～65535范围内（包括常用8000/8080）；公网服务要求TLS验证通过。每次请求重新检查根与冻结路由，DNS解析后验证全部地址并直接拨号，禁止重定向、环境代理及上游URL覆盖。发现接口只接收只写密钥并执行Owner权限及限流，返回安全错误，不泄露上游响应、Key或凭据密文。私有目录不能通过管理员共享目录接口修改或通过其他用户的catalog_entry_id引用。
+自定义模型根是显式运维授权能力：API的模型allowlist及原生模型网关配置均须包含相同`custom_api_bases`精确根。用户输入不能扩大出站范围。HTTP仅用于固定私网/回环IP或localhost，且端口须在1024～65535范围内（包括常用8000/8080）；公网服务要求TLS验证通过。每次请求重新检查根与冻结路由，DNS解析后验证全部地址并直接拨号，禁止重定向、环境代理及上游URL覆盖。发现接口只接收只写密钥并执行Owner权限，返回安全错误，不泄露上游响应、Key或凭据密文。私有目录不能通过管理员共享目录接口修改或通过其他用户的catalog_entry_id引用。
 
 ## 模型提供商账号治理边界
 
@@ -138,7 +138,7 @@ BFF在进程内调用同一 Token 签发逻辑并用 go-oidc StaticKeySet 验证
 
 ## DSH内模型切换的授权边界
 
-账号模型范围以运行密钥的数据库锚定路由推导，拒绝客户端指定Owner或账号作为授权来源。范围扩展只限锚定账号，使用同一主机TLS/IP出口；上游提供商Key只由网关解密并短暂使用。默认单模型探测和控制管理密钥权限保持，DSH显式账号范围才支持其他模型。每次推理核对目标的当前资格与能力，不信任DSH缓存目录；停用、归档、撤销、能力/网关证据过期均拒绝目标，其他账号和用户不受影响。限流按原密钥共用，不能通过模型切换绕过。锚定凭据失效则整个账号范围不可用，须显式重新应用可用配置。
+账号模型范围以运行密钥的数据库锚定路由推导，拒绝客户端指定Owner或账号作为授权来源。范围扩展只限锚定账号，使用同一主机TLS/IP出口；上游提供商Key只由网关解密并短暂使用。默认单模型探测和控制管理密钥权限保持，DSH显式账号范围才支持其他模型。每次推理核对目标的当前资格与能力，不信任DSH缓存目录；停用、归档、撤销、能力/网关证据过期均拒绝目标，其他账号和用户不受影响。推理不设置每分钟请求限流。锚定凭据失效则整个账号范围不可用，须显式重新应用可用配置。
 
 
 ## 外接记忆与知识库

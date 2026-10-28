@@ -38,6 +38,9 @@ export function localAccess(): Plugin {
    if (portal.has(host)) return;
    if (!instance.test(host)) { socket.destroy(); return; }
    const upstream = forward(req);
+   // Upgrade can be refused while a runtime is being replaced. Install the
+   // browser socket handler before either response path can reset the TLS peer.
+   socket.on('error', () => upstream.destroy());
    upstream.on('upgrade', (response, native, buffered) => {
     let headers = `HTTP/1.1 ${response.statusCode} ${response.statusMessage}\r\n`;
     for (let i = 0; i < response.rawHeaders.length; i += 2) headers += `${response.rawHeaders[i]}: ${response.rawHeaders[i + 1]}\r\n`;

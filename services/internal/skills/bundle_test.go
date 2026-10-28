@@ -67,7 +67,6 @@ func TestRejectUnsafeImports(t *testing.T) {
 		"symlink":                  zipFiles(t, map[string][]byte{"SKILL.md": markdown("test", "body")}, fs.ModeSymlink|0600),
 		"case collision":           zipFiles(t, map[string][]byte{"SKILL.md": markdown("test", "body"), "skill.md": []byte("other")}, 0600),
 		"file directory collision": zipFiles(t, map[string][]byte{"SKILL.md": markdown("test", "body"), "Refs": []byte("file"), "refs/a.txt": []byte("child")}, 0600),
-		"zip bomb":                 zipFiles(t, map[string][]byte{"SKILL.md": markdown("test", "body"), "big.txt": bytes.Repeat([]byte("x"), MaxFile+1)}, 0600),
 		"hidden":                   zipFiles(t, map[string][]byte{"SKILL.md": markdown("test", "body"), ".env": []byte("secret")}, 0600),
 	}
 	for name, data := range cases {

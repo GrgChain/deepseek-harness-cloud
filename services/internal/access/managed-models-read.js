@@ -3,7 +3,7 @@
 if (!this.ctx.remote.$host.isLoopback) {
  let catalog;
  try { catalog = await this.readManagedCatalog(generation); }
- catch { if (generation === this.generation) this.failLoad('模型目录暂不可用，请点击刷新目录重试。'); return; }
+ catch { if (generation === this.generation) this.failLoad('模型目录暂不可用，请重新打开模型设置重试。'); return; }
  if (generation !== this.generation) return;
  if (!catalog.ok) { this.failLoad('模型目录暂不可用，请稍后重试。'); return; }
  this.store.update(state => {

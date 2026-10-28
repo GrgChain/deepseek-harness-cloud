@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -52,7 +54,23 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 	}
 	nativePool, worker := pool("model_gateway"), pool("worker")
 	master := []byte("synthetic-native-control-credential-0000000000")
-	handler, err := modelgateway.NewServer(nativePool, cipher, "test", master, false)
+	var inferenceCalls atomic.Int64
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inferenceCalls.Add(1)
+		var body struct {
+			Model string `json:"model"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil {
+			t.Error("invalid synthetic inference request")
+			w.WriteHeader(400)
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprintf(w, "data: {\"model\":%q,\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n", body.Model)
+	}))
+	defer upstream.Close()
+	customBase := upstream.URL + "/v1"
+	handler, err := modelgateway.NewServer(nativePool, cipher, "test", master, false, customBase)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,6 +82,7 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 	if err != nil {
 		t.Fatal(err)
 	}
+	policy.CustomAPIBases = []string{customBase}
 	service := NewService(api, cipher, policy, "test", false)
 	syncer := NewModelSync(NewService(worker, cipher, policy, "test", false), master)
 	syncer.client = client
@@ -133,13 +152,13 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 	// One selected provider account exposes all of its approved models, while
 	// unrelated accounts and owners remain outside the execution credential.
 	accountKey := "synthetic-native-account-provider-key"
-	selection := ModelSelection{Provider: "openai", APIBase: "https://api.openai.com/v1", Model: "fixture-fast", ContextWindow: 32768, MaxOutputTokens: 1024, ResponseModels: []string{"fixture-fast"}}
+	selection := ModelSelection{Provider: "custom-openai", APIBase: customBase, Model: "fixture-fast", ContextWindow: 32768, MaxOutputTokens: 1024, ResponseModels: []string{"fixture-fast"}}
 	pro := selection
 	pro.Model = "fixture-pro"
 	pro.ContextWindow = 128000
 	pro.MaxOutputTokens = 8192
 	pro.ResponseModels = []string{"fixture-pro"}
-	account, err := service.CreateProviderAccount(ctx, owner, ProviderAccountInput{Name: "switchable account", Provider: "openai", APIBase: selection.APIBase, APIKey: &accountKey, Models: []ModelSelection{selection, pro}}, "native-account-"+webapi.ID(), "")
+	account, err := service.CreateProviderAccount(ctx, owner, ProviderAccountInput{Name: "switchable account", Provider: "custom-openai", APIBase: selection.APIBase, APIKey: &accountKey, Models: []ModelSelection{selection, pro}}, "native-account-"+webapi.ID(), "")
 	if err != nil {
 		t.Fatal("account fixture", err)
 	}
@@ -200,8 +219,14 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 	if _, err = admin.Exec(ctx, `UPDATE model_gateway_keys SET requests=60 WHERE route_id=$1`, anchor.remote); err != nil {
 		t.Fatal(err)
 	}
-	if status, _ := request("POST", "/v1/messages?scope=provider-account", anchor.key, payload); status != 429 {
-		t.Fatal("approved alternate not authorized or shared budget bypassed", status)
+	// Old persisted counters and more than 60 requests must not restrict inference.
+	for range 61 {
+		if status, body := request("POST", "/v1/messages?scope=provider-account", anchor.key, payload); status != 200 || !bytes.Contains(body, []byte("message_stop")) {
+			t.Fatal("unrestricted account inference failed", status, string(body))
+		}
+	}
+	if inferenceCalls.Load() != 61 {
+		t.Fatal("inference was rejected or replayed", inferenceCalls.Load())
 	}
 	if status, _ := request("POST", "/v1/messages", anchor.key, payload); status != 400 {
 		t.Fatal("probe contract broadened", status)
@@ -235,9 +260,6 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 		}
 		listAccount(2)
 	}
-	if _, err = admin.Exec(ctx, `UPDATE model_gateway_keys SET requests=0 WHERE route_id=$1`, anchor.remote); err != nil {
-		t.Fatal(err)
-	}
 	// Authorization is re-read on every request, including approved-looking drift.
 	first := saved[0]
 	for _, change := range []struct {
@@ -270,13 +292,6 @@ func exerciseNativeGateway(t *testing.T, ctx context.Context, admin, api *pgxpoo
 		payload := map[string]any{"model": "another-owner-model", "stream": true, "max_tokens": 128, "messages": []any{map[string]any{"role": "user", "content": "hello"}}}
 		if status, _ := request("POST", "/v1/messages", b.key, payload); status != 400 {
 			t.Fatal("cross-route credential admitted", status)
-		}
-		if _, err = admin.Exec(ctx, `UPDATE model_gateway_keys SET requests=60 WHERE route_id=$1`, b.remote); err != nil {
-			t.Fatal(err)
-		}
-		payload["model"] = b.alias
-		if status, _ := request("POST", "/v1/messages", b.key, payload); status != 429 {
-			t.Fatal("native request limit bypassed", status)
 		}
 		if _, err = service.RevokePersonalModel(ctx, b.principal, b.id, 1, ""); err != nil {
 			t.Fatal(err)

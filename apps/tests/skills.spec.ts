@@ -35,12 +35,11 @@ test('unified import dialog switches methods and previews before confirmed repla
  await page.getByRole('radio',{name:'替换同名项，并保留上一版供下载'}).check();await page.getByRole('button',{name:/确认导入$/}).click();await expect(page.getByText('已保存 1 项',{exact:true})).toBeVisible();expect(applied).toBe(1);
  await page.getByRole('button',{name:'导入',exact:true}).click();await page.getByRole('tab',{name:'文件导入',exact:true}).click();await page.getByLabel('选择 Skill 文件').setInputFiles({name:'SKILL.md',mimeType:'text/markdown',buffer:Buffer.from(content)});await expect(page.getByRole('dialog',{name:'确认导入 Skill'})).toBeVisible();await page.getByRole('button',{name:/^取\s*消$/}).click();expect(applied).toBe(1);
 });
-test('skill upload accepts 5 MiB and rejects larger files before sending',async({page})=>{
+test('skill upload accepts files larger than the previous limit',async({page})=>{
  await setup(page);let requests=0;
- await page.route('**/v1/skills:preview',r=>{requests++;const body=r.request().postDataJSON();expect(Buffer.from(body.content_base64,'base64')).toHaveLength(5*1024*1024);return r.fulfill({json:preview});});
- await page.goto('/app/skills');await page.getByRole('button',{name:'导入',exact:true}).click();await page.getByRole('tab',{name:'文件导入',exact:true}).click();await expect(page.getByText('上传不超过 5 MiB · 保留包内资源目录',{exact:true})).toBeVisible();
- await page.getByLabel('选择 Skill 文件').setInputFiles({name:'large.zip',mimeType:'application/zip',buffer:Buffer.alloc(5*1024*1024+1)});await expect(page.getByText('请选择不超过 5 MiB 的非空 Markdown 或 ZIP 文件',{exact:true})).toBeVisible();expect(requests).toBe(0);
- await page.getByLabel('选择 Skill 文件').setInputFiles({name:'limit.zip',mimeType:'application/zip',buffer:Buffer.alloc(5*1024*1024)});await expect(page.getByRole('dialog',{name:'确认导入 Skill'})).toBeVisible();expect(requests).toBe(1);
+ await page.route('**/v1/skills:preview',r=>{requests++;const body=r.request().postDataJSON();expect(Buffer.from(body.content_base64,'base64')).toHaveLength(5*1024*1024+1);return r.fulfill({json:preview});});
+ await page.goto('/app/skills');await page.getByRole('button',{name:'导入',exact:true}).click();await page.getByRole('tab',{name:'文件导入',exact:true}).click();await expect(page.getByText('保留包内资源目录',{exact:true})).toBeVisible();
+ await page.getByLabel('选择 Skill 文件').setInputFiles({name:'large.zip',mimeType:'application/zip',buffer:Buffer.alloc(5*1024*1024+1)});await expect(page.getByRole('dialog',{name:'确认导入 Skill'})).toBeVisible();expect(requests).toBe(1);
 });
 
 test('hub search previews the selected result and supports provider errors and empty results',async({page},info)=>{

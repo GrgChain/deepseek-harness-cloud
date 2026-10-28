@@ -68,6 +68,7 @@ type CurrentUser struct {
 	ExpiresAt   time.Time    `json:"session_expires_at"`
 }
 type Principal struct {
+	WorkspaceID                             string `json:"-"`
 	SessionID, OrganizationID, UserID, Role string
 	RoleID, RoleName                        string
 	Permissions                             []string

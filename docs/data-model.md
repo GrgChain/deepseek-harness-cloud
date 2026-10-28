@@ -231,6 +231,8 @@ organization_defaults.model_config_id/model_config_version 可同时为空，配
 
 迁移 `000043_storage_management.sql` 为storage_assets添加usage_used_bytes、usage_available_bytes、usage_sampled_at、usage_attempted_at、usage_error。用量三字段须同时为空或有效非负且总量不超过capacity_bytes；真实0与未采集可区分。失败保留最后成功观察。
 
+迁移 `000057_storage_owner_removed.sql` 增加 `storage_assets.owner_removed_at`。仅本人具有 `instances:release-storage` 权限且资产状态为 `DELETED` 时可写入；用户资产列表、详情及备份列表过滤该标记。资产、实例外键和备份记录保留，首次写入与 `STORAGE_OWNER_REMOVE` 审计同事务提交，重复请求不重复审计。该标记不表示备份被删除，也不改变物理回收或存储配额。
+
 storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模板版本和镜像摘要、RUNNING/SUCCEEDED/FAILED/UNCERTAIN/PRUNE_PENDING/PRUNED状态、创建/完成/校验/有效期、备份摘要、日备份集ID及私有archive_path。SUCCEEDED强制完整成功证明；同资产仅一个RUNNING/UNCERTAIN。API仅获安全列SELECT，不能读archive_path或写备份/用量；Worker仅按职责更新用量，不能发布备份成功。历史归档不自动回填成功记录。
 
 ### 本人手动释放（schema44）
@@ -261,3 +263,13 @@ Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使�
 `000052_delegated_governance.sql` 更新既有受控函数，不修改任何角色的权限集合。`hc_iam_profile_change` 按动作检查 `users:manage` 或 `roles:manage`；`hc_iam_change` 的用户归档边界和 `hc_iam_password_reset` 的开始、重试、确认均检查当前 `users:manage`，自定义角色显式获授权后可执行对应操作。密码重置确认仍绑定已提交的操作租约，允许自重置撤销旧会话后完成确认；管理权限被撤销时保留待确认意图。
 
 组织写入串行锁、membership锁顺序、版本/幂等、审计及会话撤销保持在同一事务内；内置角色、在用角色、自改角色/自禁用及最后管理员规则仍生效。运行身份仍不能直接调用内部profile函数或任意修改角色授权表。
+
+## 创建工作空间的技能副本（schema53）
+
+迁移53增加 `workspace_skill_snapshots`，以 `instance_id` 为主键并关联实例、组织和 Owner，保存 `key_id/nonce/ciphertext` 及创建时间。内容为所选技能 ID、版本、名称和完整文件包的加密快照；AAD 绑定环境、组织、实例与 `workspace-skills` 用途，纳入受信密钥轮换。API 只读/插入，Worker 只读，个人技能库后续删除不级联删除副本；实例物理删除时级联清理。创建事务、幂等回执和技能版本检查共同保证副本冻结；运行目录以原数据盘的初始化标记和摘要控制恢复。
+
+## 创建工作空间扩展（schema54～55）
+
+`workspace_extensions`按实例唯一保存组织/Owner复合归属、接受时`auth_generation`、非秘密`configuration`、创建时间和`applied_at`；迁移55增加`applied_generation`，与当前启用access_route代次相等才表示本轮加载已确认。JSON仅含连接ID/名称/版本、MCP目录与已授权工具、服务端解析范围及白名单插件准确包版本；外部密钥仍在原连接密文字段，技能正文仍在schema53密文快照。记忆/知识库同时写既有`context_bindings`，随创建事务整体提交。
+
+API仅SELECT/INSERT快照，Worker仅SELECT及更新应用时间/代次；既有membership列读取额外开放auth_generation用于CREATE执行前复核，不授予身份写权限。`hc_extensions_lock_authority`为固定search_path的SECURITY DEFINER函数，PUBLIC无执行权；受限Worker以匹配组织、Owner、实例和授权代次校验活动身份及RUNNING意图并加锁，返回当前角色。内部WorkspacePrincipal不接受HTTP输入，不伪造Portal会话；每次受控调用仍检查当前功能权限、连接及范围，旧快照不恢复撤销授权。

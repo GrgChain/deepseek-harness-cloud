@@ -1,0 +1,193 @@
+{
+  "tencent-docs": {
+    "file": "tencent-docs.png",
+    "source": "https://docs.idqqimg.com/tim/docs/desktop/favicon.ico",
+    "site": "https://docs.qq.com/"
+  },
+  "tencent-ima": {
+    "file": "tencent-ima.svg",
+    "source": "https://fe-static.ima.myqcloud.com/ima/assets/chat/favicon.svg",
+    "site": "https://ima.qq.com/"
+  },
+  "tencent-meeting": {
+    "file": "tencent-meeting.png",
+    "source": "https://cdn.meeting.tencent.com/assets/next-website/logo128.png",
+    "site": "https://meeting.tencent.com/"
+  },
+  "tencent-news": {
+    "file": "tencent-news.png",
+    "source": "https://mat1.gtimg.com/qqcdn/xw/20211215/images/apple-touch-icon.png",
+    "site": "https://news.qq.com/mobile/"
+  },
+  "wechat-reading": {
+    "file": "wechat-reading.png",
+    "source": "https://rescdn.qqmail.com/node/wr/wrpage/style/images/independent/appleTouchIcon/apple-touch-icon-152x152.png",
+    "site": "https://weread.qq.com/"
+  },
+  "tencent-lexiang": {
+    "file": "tencent-lexiang.png",
+    "source": "https://lexiang.tencent.com/favicon.ico",
+    "site": "https://lexiangla.com/"
+  },
+  "tencent-weiyun": {
+    "file": "tencent-weiyun.png",
+    "source": "https://img.weiyun.com/vipstyle/nr/box/img/favicon.ico?max_age=31536000",
+    "site": "https://www.weiyun.com/"
+  },
+  "qq-mail": {
+    "file": "qq-mail.png",
+    "source": "https://res.wx.qq.com/t/webmail/webmail/res/images/qqmail_favicon_96h.8d124a7.png",
+    "site": "https://mail.qq.com/"
+  },
+  "fliggy": {
+    "file": "fliggy.png",
+    "source": "https://img.alicdn.com/imgextra/i1/O1CN01XslwqW1rp2BOz0lt4_!!6000000005679-73-tps-64-64.ico",
+    "site": "https://www.fliggy.com/"
+  },
+  "baidu-map": {
+    "file": "baidu-map.png",
+    "source": "https://mapopen-website-wiki.cdn.bcebos.com/statics%2Flogo%2Flbslogo_icon.ico",
+    "site": "https://lbs.baidu.com/"
+  },
+  "meituan-travel": {
+    "file": "meituan-travel.png",
+    "source": "https://s3plus.meituan.net/v1/mss_e2821d7f0cfe4ac1bf9202ecf9590e67/cdn-prod/file:1040877d/favicon-mt.ico",
+    "site": "https://www.meituan.com/"
+  },
+  "didi": {
+    "file": "didi.png",
+    "source": "https://website.didiglobal.com/DDlogo.ico",
+    "site": "https://www.didiglobal.com/"
+  },
+  "yuandian": {
+    "file": "yuandian.svg",
+    "source": "https://open.chineselaw.com/favicon.svg",
+    "site": "https://open.chineselaw.com/"
+  },
+  "qcc": {
+    "file": "qcc.png",
+    "source": "https://qcc-static.qcc.com/resources/web/omaterial/favicon.png",
+    "site": "https://www.qcc.com/"
+  },
+  "tencent-ardot": {
+    "file": "tencent-ardot.png",
+    "source": "https://ardot.tencent.com/apple-touch-icon.png",
+    "site": "https://ardot.tencent.com/"
+  },
+  "notion": {
+    "file": "notion.png",
+    "source": "https://www.notion.com/front-static/logo-ios.png",
+    "site": "https://www.notion.com/"
+  },
+  "openalex": {
+    "file": "openalex.svg",
+    "source": "https://help.openalex.org/favicon.svg",
+    "site": "https://help.openalex.org/"
+  },
+  "dida365": {
+    "file": "dida365.png",
+    "source": "https://cncdn.dida365.com/web/static/img/apple-touch-icon-180x180.png",
+    "site": "https://dida365.com/"
+  },
+  "feishu-cli": {
+    "file": "feishu-cli.svg",
+    "source": "https://lf-package-cn.feishucdn.com/obj/feishu-static/lark/open/website/favicon-logo.svg",
+    "site": "https://open.feishu.cn/"
+  },
+  "wecom-cli": {
+    "file": "wecom-cli.png",
+    "source": "https://wwcdn.weixin.qq.com/node/wwnl/wwnl/style/images/independent/favicon/favicon_48h$c976bd14.png",
+    "site": "https://work.weixin.qq.com/"
+  },
+  "dingtalk-cli": {
+    "file": "dingtalk-cli.png",
+    "source": "https://gw.alicdn.com/imgextra/i3/O1CN014ZbI6ZTEhdC0ttN2_!!6000000003783-2-tps-444-444.png",
+    "site": "https://www.dingtalk.com/"
+  },
+  "obsidian-cli": {
+    "file": "obsidian-cli.svg",
+    "source": "https://obsidian.md/favicon.svg",
+    "site": "https://obsidian.md/"
+  },
+  "yuque-mcp": {
+    "file": "yuque-mcp.svg",
+    "source": "https://mdn.alipayobjects.com/huamei_0prmtq/afts/img/A*sRUdR543RjcAAAAAAAAAAAAADvuFAQ/original",
+    "site": "https://www.yuque.com/"
+  },
+  "weknora": {
+    "file": "weknora.png",
+    "source": "https://weknora.weixin.qq.com/docs/favicon.ico",
+    "site": "https://weknora.weixin.qq.com/"
+  },
+  "dify": {
+    "file": "dify.svg",
+    "source": "https://dify.ai/favicon.svg",
+    "site": "https://dify.ai/"
+  },
+  "github": {
+    "file": "github.svg",
+    "source": "https://github.githubassets.com/favicons/favicon.svg",
+    "site": "https://github.com/"
+  },
+  "gitee": {
+    "file": "gitee.png",
+    "source": "https://gitee.com/favicon.ico",
+    "site": "https://gitee.com/"
+  },
+  "codeup": {
+    "file": "codeup.png",
+    "source": "https://gw.alicdn.com/imgextra/i3/O1CN01gEuHKQ1ZzPqLygyzf_!!6000000003265-2-tps-512-512.png",
+    "site": "https://www.aliyun.com/product/yunxiao/codeup"
+  },
+  "sentry": {
+    "file": "sentry.png",
+    "source": "https://sentry.io/favicon.ico",
+    "site": "https://sentry.io/"
+  },
+  "vercel": {
+    "file": "vercel.png",
+    "source": "https://assets.vercel.com/image/upload/q_auto/front/favicon/vercel/apple-touch-icon-256x256.png",
+    "site": "https://vercel.com/"
+  },
+  "supabase": {
+    "file": "supabase.png",
+    "source": "https://supabase.com/favicon/apple-icon-180x180.png",
+    "site": "https://supabase.com/"
+  },
+  "gitlab": {
+    "file": "gitlab.png",
+    "source": "https://about.gitlab.com/images/ico/favicon-192x192.png",
+    "site": "https://about.gitlab.com/"
+  },
+  "context7": {
+    "file": "context7.png",
+    "source": "https://context7.com/favicon.ico",
+    "site": "https://context7.com/"
+  },
+  "linear": {
+    "file": "linear.svg",
+    "source": "https://linear.app/static/favicon.svg?v=2",
+    "site": "https://linear.app/"
+  },
+  "qq-music": {
+    "file": "qq-music.png",
+    "source": "https://y.qq.com/favicon.ico",
+    "site": "https://y.qq.com/n/ryqq_v2/"
+  },
+  "ctrip-wendao": {
+    "file": "ctrip-wendao.png",
+    "source": "https://pic.c-ctrip.com/corp_niv/corp_logo/favicon.ico",
+    "site": "https://pages.ctrip.com/"
+  },
+  "youdao-note": {
+    "file": "youdao-note.png",
+    "source": "https://note.youdao.com/_nuxt/img/ynote-logo.d8ea7de.png",
+    "site": "https://note.youdao.com/",
+    "processing": "Extract the graphic mark from the official logo lockup, preserving its proportions."
+  },
+  "agently-cli": {
+    "file": "agently-cli.png",
+    "source": "https://res.wx.qq.com/t/webmail/webmail/res/images/favicon_96h.997b2e3.png",
+    "site": "https://agent.qq.com/"
+  }
+}

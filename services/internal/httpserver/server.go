@@ -110,7 +110,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					budget = 35 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
 				}
-				ctx, cancel := context.WithTimeout(r.Context(), budget)
+				var ctx context.Context
+				var cancel context.CancelFunc
+				if r.Method == http.MethodPost && (r.URL.Path == "/v1/skills:preview" || r.URL.Path == "/v1/skills:apply" || r.URL.Path == "/v1/skills:export" || strings.HasSuffix(r.URL.Path, ":previous")) {
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+					ctx, cancel = context.WithCancel(r.Context())
+				} else {
+					ctx, cancel = context.WithTimeout(r.Context(), budget)
+				}
 				defer cancel()
 				s.business.ServeAuthenticated(w, r.WithContext(ctx), p)
 				return

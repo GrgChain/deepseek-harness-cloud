@@ -4,7 +4,7 @@ import { type Health, type ResourceSpec } from './settings';
 
 export interface Instance {
  id: string; owner_id: string; name: string; observed_state: string; desired_state: string; version: number;
- config_snapshot: { spec: ResourceSpec; model: string; model_configuration_version: number; provider?: string }; health: Record<'application' | 'storage' | 'configuration' | 'access' | 'model', Health>;
+ config_snapshot: { spec: ResourceSpec; model: string; model_configuration_id?: string; model_configuration_version: number; provider?: string }; health: Record<'application' | 'storage' | 'configuration' | 'access' | 'model', Health>;
  model_display_name?: string; model_provider_name?: string;
  ready: boolean; can_enter: boolean; allowed_actions: string[]; active_operation_id: string | null; latest_operation_id?: string | null; access_host: string | null;
  created_at: string; updated_at: string; retention_until: string | null;

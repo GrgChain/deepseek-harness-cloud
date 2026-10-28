@@ -23,12 +23,12 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/pagination"
-	"github.com/jonluo94/deepseek-harness-cloud/services/internal/ratelimit"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/security"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/settings"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/worker"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -59,8 +59,8 @@ func Run(role string) error {
 	}
 	cache := redis.NewClient(options)
 	defer cache.Close()
-	limiter := ratelimit.New(options)
-	defer limiter.Close()
+	// Request admission is unrestricted; health probes check Redis directly.
+	allowRequests := func(context.Context, string, int) error { return nil }
 	var execution *worker.Service
 	var accessRuntime *access.Runtime
 	var creationGate *admission.Gate
@@ -122,7 +122,7 @@ func Run(role string) error {
 			if accessRuntime != nil && (o.PublicURL != accessRuntime.Rules.PortalOrigin || o.OrganizationID != accessRuntime.Options.OrganizationID || o.Environment != accessRuntime.Options.Environment || o.KeyID != accessRuntime.Options.DataKeyID) {
 				return access.ErrConfiguration
 			}
-			authorizationServer, err := identity.NewAuthorizationServer(pool, o, limiter.Allow)
+			authorizationServer, err := identity.NewAuthorizationServer(pool, o, allowRequests)
 			if err != nil {
 				return err
 			}
@@ -154,21 +154,23 @@ func Run(role string) error {
 			var entry httpserver.BusinessHandler
 			localAccounts := identity.NewAccounts(pool, o.OrganizationID)
 			configurationService := settings.NewService(pool, cipher, policy, o.Environment, maintenance == "true")
+			skillService := skills.NewService(pool, cipher, o.Environment, maintenance == "true")
 			var commandGate instances.CreationGate
 			if accessRuntime != nil {
-				entry = access.NewAPIHandler(accessRuntime.Service, limiter.Allow)
+				entry = access.NewAPIHandler(accessRuntime.Service, allowRequests)
 				configurationService.WithRuntimeChecks(creationGate)
 				commandGate = creationGate
 			}
 			handler.WithBusiness(httpserver.BusinessMux{
-				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL), limiter.Allow),
-				Context:       contextservice.NewHandler(contextservice.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONTEXT_ENDPOINTS_FILE")), limiter.Allow),
-				Skills:        skills.NewHandler(skills.NewService(pool, cipher, o.Environment, maintenance == "true"), limiter.Allow),
+				Extensions:    &workspaceextensions.Handler{Pool: pool, Cipher: cipher, Environment: o.Environment},
+				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL), allowRequests),
+				Context:       contextservice.NewHandler(contextservice.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONTEXT_ENDPOINTS_FILE")), allowRequests),
+				Skills:        skills.NewHandler(skillService, allowRequests),
 				Management:    identity.NewManagementHandler(identity.NewManagementService(pool, cursor, o.Issuer, localAccounts, cipher, o.Environment)),
-				Configuration: settings.NewHandler(configurationService, limiter.Ready, limiter.Allow),
+				Configuration: settings.NewHandler(configurationService, func(ctx context.Context) error { return cache.Ping(ctx).Err() }, allowRequests),
 				Resources:     instances.NewQueryHandler(instances.NewQueryService(pool, cursor)),
 				Access:        entry,
-				Commands:      instances.NewCommandHandler(instances.NewCommandService(pool, commandGate, maintenance == "true"), limiter.Allow),
+				Commands:      instances.NewCommandHandler(instances.NewCommandService(pool, commandGate, maintenance == "true").WithSkills(skillService), allowRequests),
 			}, o.PublicURL)
 		}
 	}
@@ -192,7 +194,7 @@ func Run(role string) error {
 	}
 	var gateway *access.Gateway
 	if role == "gateway" {
-		gateway = access.NewGateway(accessRuntime.Rules, accessRuntime.Options.OrganizationID, accessRuntime.Service, limiter.Allow)
+		gateway = access.NewGateway(accessRuntime.Rules, accessRuntime.Options.OrganizationID, accessRuntime.Service, allowRequests)
 		defer gateway.Close()
 		root = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Host == c.HTTPAddress && (r.URL.Path == "/livez" || r.URL.Path == "/readyz") {

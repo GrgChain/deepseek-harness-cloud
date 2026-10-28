@@ -11,7 +11,7 @@ import (
 
 func TestBuiltinCatalog(t *testing.T) {
 	catalog := builtinCatalog()
-	want := strings.Fields("tencent-docs tencent-ima tencent-meeting tencent-news wechat-reading tencent-lexiang tencent-weiyun qq-mail qq-music fliggy baidu-map ctrip-wendao meituan-travel didi yuandian qcc tencent-ardot youdao-note notion openalex dida365 feishu-cli wecom-cli dingtalk-cli agently-cli obsidian-cli yuque-mcp weknora dify github context7 linear sentry vercel supabase")
+	want := strings.Fields("tencent-docs tencent-ima tencent-meeting tencent-news wechat-reading tencent-lexiang tencent-weiyun qq-mail qq-music fliggy baidu-map ctrip-wendao meituan-travel didi yuandian qcc tencent-ardot youdao-note notion openalex dida365 feishu-cli wecom-cli dingtalk-cli agently-cli obsidian-cli yuque-mcp weknora dify github gitee gitlab codeup context7 linear sentry vercel supabase")
 	if catalog.Version != 1 || len(catalog.Entries) != len(want) {
 		t.Fatal("incomplete built-in catalog")
 	}
@@ -85,7 +85,7 @@ func TestCatalogBindingsDoNotApproveNetworkTargets(t *testing.T) {
 func TestDefaultEndpointsPreserveDeploymentOverrides(t *testing.T) {
 	s := NewService(nil, nil, "test", false, "")
 	p, err := s.loadPolicy()
-	if err != nil || len(p.Endpoints) != 16 {
+	if err != nil || len(p.Endpoints) != 19 {
 		t.Fatal("official defaults missing", err)
 	}
 	for _, provider := range oauthProviders {
@@ -103,7 +103,7 @@ func TestDefaultEndpointsPreserveDeploymentOverrides(t *testing.T) {
 		return Policy{Endpoints: []Endpoint{{ID: "company-docs", CatalogID: "tencent-docs", URL: "https://company.example/mcp"}}}, nil
 	}
 	p, err = s.loadPolicy()
-	if err != nil || len(p.Endpoints) != 16 || p.Endpoints[0].URL != "https://company.example/mcp" {
+	if err != nil || len(p.Endpoints) != 19 || p.Endpoints[0].URL != "https://company.example/mcp" {
 		t.Fatal("deployment endpoint replaced", err)
 	}
 	for _, endpoint := range p.Endpoints[1:] {

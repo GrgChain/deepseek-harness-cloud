@@ -6,7 +6,7 @@
 
 平台业务接口为同源 `/v1/*` JSON。浏览器使用 `__Host-hc_session` Secure/HttpOnly Cookie，不使用自报用户/组织/Owner头或OIDC Bearer作为管理凭据。`GET /v1/me` 返回固定组织、角色、有效权限、auth_generation、内存CSRF及期限；写操作必须携带精确Portal Origin、X-CSRF-Token和Cookie。响应按需携带X-Request-ID，禁止缓存身份、配置秘密及临时协议材料。
 
-`/auth/login` 建立一次state/nonce/PKCE事务并302到内置OIDC；callback只接受state和code/error二者之一，校验浏览器绑定、一次消费事务、签名与当前授权。return_to仅允许 `/app/` 相对路径白名单。`POST /auth/logout` 需要相同CSRF防护，先撤销Portal/Gateway会话再清Cookie。未配置认证或数据库/限流失效时拒绝认证，不能回退匿名管理。
+`/auth/login` 建立一次state/nonce/PKCE事务并302到内置OIDC；callback只接受state和code/error二者之一，校验浏览器绑定、一次消费事务、签名与当前授权。return_to仅允许 `/app/` 相对路径白名单。`POST /auth/logout` 需要相同CSRF防护，先撤销Portal/Gateway会话再清Cookie。未配置认证或数据库失效时拒绝认证，不能回退匿名管理。
 
 访问工作空间使用固定实例域和一次交接票据；访问入口仍要求当前Owner及权限，不向浏览器发送DSH原生Token/Cookie。HTTP/WebSocket协议见[安全设计](security.md)，模型Messages协议和Terraform执行是后台适配契约，不作为管理API旁路。
 
@@ -59,6 +59,9 @@
 | API-041 | `PUT /v1/roles/{id}` | 修改自定义角色与权限 |
 | API-042 | `DELETE /v1/roles/{id}` | 删除未分配的自定义角色 |
 | API-117 | `GET /v1/users/role-options` | 以users:read读取本组织精简角色选项，支持搜索与分页 |
+| API-118 | `GET /v1/workspace-extensions/plugins` | 创建时可选的固定版本插件及禁选原因 |
+| API-119 | `GET /v1/workspace-extensions/{id}` | 本人已选扩展、冻结版本/范围及当前运行代次状态 |
+| - | `GET /v1/workspace-extensions/{id}/skills` | 本人创建时选择的技能名称与版本，不包含技能内容 |
 | API-043 | `GET /v1/permissions` | 读取固定权限目录、中文名称、用途说明、可分配性及依赖 |
 | API-044 | `GET /v1/model-directory` | 读取已保存配置版本的批准目录 |
 | API-045 | `POST /v1/model-directory:refresh` | 刷新已保存配置版本的批准目录 |
@@ -123,7 +126,7 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 
 ## 7 业务错误与日志
 
-业务错误为 `{code,message,request_id}`；401表示未认证/会话失效，403为无权限或CSRF/Owner拒绝，404隐藏不可访问资源，409表示版本、幂等、引用、状态或额度冲突，422为输入语义不合法，429为限流，503为依赖不可用。具体code以OpenAPI及服务端Problem为准，页面提供安全可操作的提示，不回显上游原始错误。
+业务错误为 `{code,message,request_id}`；401表示未认证/会话失效，403为无权限或CSRF/Owner拒绝，404隐藏不可访问资源，409表示版本、幂等、引用、状态或额度冲突，422为输入语义不合法，429为并发容量已满或上游限流，503为依赖不可用。具体code以OpenAPI及服务端Problem为准，页面提供安全可操作的提示，不回显上游原始错误。
 
 不得记录Cookie、Authorization、密码、Key、ID/Access Token、登录查询中的code/state/nonce/PKCE、签名私钥、模型请求正文或用户文件。认证页面和协议响应no-store，协议响应Referrer-Policy=no-referrer，登录HTML为strict-origin（只发送origin，不携带路径/query）；响应中的路径和ID不能被视为授权。
 
@@ -134,7 +137,7 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 | API-062 | GET /oidc/.well-known/openid-configuration | 公开Discovery，只声明当前授权码/RS256/S256/固定客户端能力 |
 | API-063 | GET /oidc/jwks | 公开RSA公钥及kid，不含私钥 |
 | API-064 | GET /oidc/authorize | 验证客户端、精确redirect_uri、state、nonce、scope、response_type=code、S256；200返回安全登录HTML与临时Cookie |
-| API-065 | POST /oidc/login | 同源Origin、挑战Cookie和表单CSRF；303固定回调+code/state，错误密码401、安全错误403、限流429或依赖503 |
+| API-065 | POST /oidc/login | 同源Origin、挑战Cookie和表单CSRF；303固定回调+code/state，错误密码401、安全错误403、依赖503 |
 | API-066 | POST /oidc/token | client_secret_basic及urlencoded授权码/PKCE；200 Access/ID Token，invalid_client=401，invalid_grant/unsupported_grant_type=400 |
 | API-067 | GET /oidc/userinfo | Authorization: Bearer随机Access Token；200按scope返回sub/name/email/email_verified=false；失效/撤销/资格变更401 |
 
@@ -156,9 +159,9 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 | POST /key/generate、/key/delete | Worker控制凭据；注册必须匹配平台已签发密钥，绑定唯一别名和两个使用路径；已撤销Key不得重开 |
 | GET /readyz | 不含秘密的进程/数据库就绪；不证明提供商真实推理能力 |
 
-管理凭据访问推理和目录返回403；运行密钥访问管理返回403；无效/撤销/失权运行密钥401，跨模型/不支持请求400，限流429，传输/协议故障502。上游错误正文不透传，流开始后失败发送安全error事件而不宣告成功结束。稳定参数、费用及超时见[模型需求](requirements.md#67-平台模型网关外部模型接入规则req-16)。
+管理凭据访问推理和目录返回403；运行密钥访问管理返回403；无效/撤销/失权运行密钥401，跨模型/不支持请求400，并发容量已满429，传输/协议故障502。上游错误正文不透传，流开始后失败发送安全error事件而不宣告成功结束。稳定参数、费用及超时见[模型需求](requirements.md#67-平台模型网关外部模型接入规则req-16)。
 
-提供商实时目录与批量模型：`POST /v1/model-providers/{provider}:sync`（API-068）接收`api_base`和只写`api_key`，返回`items[{id,name}]`。要求`personal-model:write`、Origin/CSRF和每用户每分钟10次限流。它只读目录，无模型推理；失败不含上游原文。`POST /v1/my-models:batch`（API-069）接收`items`，每项沿用个人模型创建DTO，可在`catalog_entry_id`和`selection`中二选一；`selection={provider,api_base,model,response_models?,context_window?,max_output_tokens?}`。1–20项须同一提供商/API根，整体事务及完整请求幂等，202返回全部个人模型。私有目录限2000个版本快照，公共目录100项，读取目录最多100公共+20本人当前绑定项。能力数值为保守配置，只有显式推理校验成功后可使用。
+提供商实时目录与批量模型：`POST /v1/model-providers/{provider}:sync`（API-068）接收`api_base`和只写`api_key`，返回`items[{id,name}]`。要求`personal-model:write`、Origin/CSRF。它只读目录，无模型推理；失败不含上游原文。`POST /v1/my-models:batch`（API-069）接收`items`，每项沿用个人模型创建DTO，可在`catalog_entry_id`和`selection`中二选一；`selection={provider,api_base,model,response_models?,context_window?,max_output_tokens?}`。1–20项须同一提供商/API根，整体事务及完整请求幂等，202返回全部个人模型。私有目录限2000个版本快照，公共目录100项，读取目录最多100公共+20本人当前绑定项。能力数值为保守配置，只有显式推理校验成功后可使用。
 
 ## 用户资源配额（REQ-18）
 
@@ -199,7 +202,7 @@ GET /v1/audit-events新增outcome精确过滤（ACCEPTED/SUCCEEDED/FAILED/DENIED
 
 模型执行网关GET /v1/models?scope=provider-account用运行Bearer密钥返回{object: list, data: [...]}；每项包含id（内部版本别名）、object、name（模型名）、context_window、max_output_tokens、response_models。只返回所选账号有效模型，最多20个当前模型及一个仍有效的冻结默认版本；无有效项返回空列表，管理Key不能执行此接口。
 
-POST /v1/messages?scope=provider-account的model必须是该运行密钥所属账号中可用的模型别名；请求和响应受该目标模型能力约束。越账号/Owner、失效或未批准模型返回403 MODEL_NOT_ALLOWED；超出所选模型能力返回400 INVALID_REQUEST；所有切换共用原运行密钥每分钟60次限制，不能通过换模型重置。未传scope的同步探测接口保留单模型契约，GET /key/info的管理核对仍描述原始锚定绑定。
+POST /v1/messages?scope=provider-account的model必须是该运行密钥所属账号中可用的模型别名；请求和响应受该目标模型能力约束。越账号/Owner、失效或未批准模型返回403 MODEL_NOT_ALLOWED；超出所选模型能力返回400 INVALID_REQUEST；模型切换与推理均不设置平台每分钟请求限制。未传scope的同步探测接口保留单模型契约，GET /key/info的管理核对仍描述原始锚定绑定。
 
 POST /v1/instances已有可选name字段，Portal创建抽屉现提交用户填写名称；留空省略字段自动生成。name、资源规格与默认模型版本均纳入原始幂等摘要，不能改名后重放同键。
 
@@ -224,24 +227,27 @@ API-043 返回当前34项有效权限目录（包含技能包、连接器、记�
 | API-077 | GET /v1/storage-assets | 本人资产分页、状态筛选及名称前缀查询 |
 | API-078 | GET /v1/storage-assets/{id} | 本人资产容量、用量观察、保留与维护阻断原因 |
 | API-079 | GET /v1/storage-assets/{id}/backups | 本人资产的安全备份历史分页 |
-| API-081 | GET /v1/storage-assets/{id}/files | 浏览本人停止或软删除数据盘中的固定目录 `/data/workspace` 或 `/data/dsh`，每页最多100项 |
+| API-081 | GET /v1/storage-assets/{id}/files | 浏览本人运行、停止或软删除数据盘中的固定目录 `/data/workspace` 或 `/data/dsh`，每页最多100项 |
 | API-082 | GET /v1/storage-assets/{id}/file | 预览最多512 KiB纯文本或下载最多64 MiB的普通文件 |
+| - | DELETE /v1/storage-assets/{id} | 删除本人已回收的数据资产列表记录，保留后台关联与备份 |
 
-三个接口均要求当前有效会话、组织成员身份及 `instances:read`；显式限制组织和Owner，管理员无隐式跨Owner访问。跨Owner对象404，失权403，失效会话401。page从1开始，limit默认20、最大100；筛选及重复/未知参数严格校验。资产用量状态为UNSAMPLED/CURRENT/STALE/UNAVAILABLE，未知不回填0；备份返回任务标识、状态与时间，不返回归档路径、密钥、文件或私有摘要。维护阻断原因是说明，实际主机条件由受信CLI重新核验。
+`DELETE /v1/storage-assets/{id}` 要求当前 `instances:release-storage` 权限、同源和 CSRF，且目标属于本人。仅 `DELETED` 可删除；其他状态返回 409 `STORAGE_REMOVE_BLOCKED`，不存在或不属于本人返回 404。成功返回 `{"deleted":true}`；重复请求返回成功。操作只隐藏本人列表、详情和备份历史入口，保留数据库资产、备份及审计记录，不触发物理回收。删除与 `STORAGE_OWNER_REMOVE` 审计同事务提交。
+
+资产读取接口要求当前有效会话、组织成员身份及 `instances:read`；显式限制组织和Owner，管理员无隐式跨Owner访问。跨Owner对象404，失权403，失效会话401。page从1开始，limit默认20、最大100；筛选及重复/未知参数严格校验。资产用量状态为UNSAMPLED/CURRENT/STALE/UNAVAILABLE，未知不回填0；备份返回任务标识、状态与时间，不返回归档路径、密钥、文件或私有摘要。维护阻断原因是说明，实际主机条件由受信CLI重新核验。
 
 API-077的`status=PROCESSING`合并筛选PREPARING、RESTORING、RECLAIM_PENDING，先在服务端筛选再计数和分页，并保持组织、Owner和名称前缀约束；兼容原有精确状态筛选。返回资产的`status`保留原始状态，PROCESSING仅为查询分组，不写入资产状态。页面统一显示四种状态，具体处理阶段在详情中查看。
 
 API-080 `POST /v1/storage-assets/{id}:release` 要求当前 `instances:release-storage`、Owner、Origin与CSRF，提交 `{confirmed_name,confirmed_asset_id}`。精确确认后返回202 `{request_id,asset_id,status}`；每资产请求唯一，重复调用核对原申请。仅限已删除的本人保留数据，可主动提前结束保留期；法律保留、未完成备份/生命周期任务、绑定或账本不明仍409，错误确认422，跨Owner404。GET资产状态确认回收进度；202不释放配额。后台核实物理结果与末尾审计一起提交后才完成。
 
-API-081接收`root=workspace|dsh`、可选相对`path`和目录分页`after`，只返回名称、类型、字节数和更新时间。API-082接收同一根目录与相对文件路径，以及`mode=PREVIEW|DOWNLOAD`；预览仅返回UTF-8纯文本，下载以附件返回。两者仅在工作空间停止或软删除、本人权限有效且没有冲突维护任务时执行；Worker在持有实例锁后只读挂载数据盘。拒绝绝对路径、`..`、符号链接及非普通文件。文件读取不递归扫描、不写入、不由API直接挂载主机路径；一次性密钥保护暂存正文，数据库不保存明文，且内容不进入审计或长期缓存。
+API-081接收`root=workspace|dsh`、可选相对`path`和目录分页`after`，只返回名称、类型、字节数和更新时间。API-082接收同一根目录与相对文件路径，以及`mode=PREVIEW|DOWNLOAD`；预览仅返回UTF-8纯文本，下载以附件返回。两者在运行、停止或软删除工作空间的本人权限有效且没有冲突维护任务时执行；Worker持有实例锁并只读访问原数据盘。拒绝绝对路径、`..`、符号链接及非普通文件。文件读取不递归扫描、不写入、不由API直接挂载主机路径；一次性密钥保护暂存正文，数据库不保存明文，且内容不进入审计或长期缓存。
 
 ## 个人 Skill 库（REQ-20）
 
 API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/保存/删除、调用元数据兼容接口、文件预览、公开链接获取、检查来源更新、确认应用、所选技能导出与上一版下载。另有 API-112～114（`GET/PUT/POST /v1/skills/{id}:file`）用于读取、编辑与新建文本文件；GET 须提供唯一 `path` 查询参数，PUT 提交 `path`、`content`、`expected_version`，保存使用整包版本；POST 使用相同请求字段新建脚本或其他文本文件，拒绝重名及路径冲突。二进制内容不作为文本返回或接受覆盖，其他文件不变。完整请求字段见 [OpenAPI](../api/openapi.yaml) 和[后端说明](backend.md#个人-skill-库)。
 
-`skills:read` 允许查看和导出本人技能，`skills:manage` 允许维护、导入与手动同步，并依赖读取权限；内置角色默认具有两项。来源支持公开 HTTPS Markdown/ZIP 直链及 GitHub 仓库、`tree` 技能目录、`blob` 文件链接；仓库读取默认分支，目录限制扫描范围。拒绝查询参数、凭据、私网和保留地址。GitHub 归档取消总大小上限，流式写入私有临时文件并在处理结束后删除，最多 30,000 条目，选中技能沿用 128 文件、单文件 1 MiB、解压 12 MiB、导入包 5 MiB 限额；多技能来源的更新只暂存当前技能。先预览再应用，预览有效 5 分钟且绑定用户、原记录 ID 和版本。同名默认跳过；明确替换时保留上一版，同步更新保留调用设置；无自动更新或向 DSH 容器写入。
+`skills:read` 允许查看和导出本人技能，`skills:manage` 允许维护、导入与手动同步，并依赖读取权限；内置角色默认具有两项。来源支持公开 HTTPS Markdown/ZIP 直链及 GitHub 仓库、`tree` 技能目录、`blob` 文件链接；仓库读取默认分支，目录限制扫描范围。拒绝查询参数、凭据、私网和保留地址。GitHub 归档流式写入私有临时文件并在处理结束后删除；多技能来源的更新只暂存当前技能。先预览再应用，预览有效 5 分钟且绑定用户、原记录 ID 和版本。同名默认跳过；明确替换时保留上一版，同步更新保留调用设置；无自动更新或向 DSH 容器写入。
 
-请求 JSON 不超过 7 MiB；上传包不超过 5 MiB、单文件 1 MiB、归档文件数 128、解压总量 12 MiB。写操作每用户每分钟 30 次，超限返回 429。`SKILL_INVALID` 返回 422，`SKILL_EXISTS` / `SKILL_LIMIT` / `VERSION_CONFLICT` 返回 409，过期预览及他人技能返回 404。源获取失败保留当前包；导出返回 `no-store` 附件。
+技能包导入不再设置文件数量、上传或解压大小的固定限额，实际规模受浏览器、服务内存及数据库和磁盘容量约束；技能包其他 JSON 写请求仍有 7 MiB 上限，文本文件编辑仍限 1 MiB。远程来源保留下载超时、重定向和公开网络校验；批量导出仍最多选择 50 项。写操作不设置请求频率限制。`SKILL_INVALID` 返回 422，`SKILL_EXISTS` / `VERSION_CONFLICT` 返回 409，过期预览及他人技能返回 404。源获取失败保留当前包；导出返回 `no-store` 附件。
 
 
 ## 外接记忆与知识库（API-095～099）
@@ -272,3 +278,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 `auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
 
 回调处理后返回 `/app/connectors`，查询参数`connector_oauth`为`ready`、`verify_failed`、`cancelled`或`failed`之一，页面展示后清除该参数。返回URL不含授权码、Token或厂商错误正文；登录失效时返回工作台登录流程。授权成功只同步工具，不自动启用或调用。厂商账号完整验收与企查查专用聚合/解绑是独立待完成项，当前没有对应聚合或远端撤销API契约。
+
+## 创建扩展配置（REQ-25；API-005、118～119）
+
+API-005支持可空的`skills/connectors/memory/knowledge/plugins`。新四类只提交资源ID、准确版本、连接器目录版本或`personal/workspace`范围，与模型/资源一起原子接受及幂等重放；不接收密钥、任意npm地址或外部命名空间。非空四类需要`instances:configure`，连接器另需read/manage/invoke，记忆和知识库分别需read/manage。新增`GET /v1/workspace-extensions/plugins`（API-118）返回兼容性及禁选原因；`GET /v1/workspace-extensions/{id}`（API-119）返回本人配置及当前代次逐项状态，不返回无当前类型读取权限的名称或引用。原生DSH工具使用私有Worker通道，无新增公网工具调用接口。字段、数量和状态枚举以[OpenAPI](../api/openapi.yaml)为准。

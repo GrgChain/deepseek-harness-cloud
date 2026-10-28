@@ -10,7 +10,7 @@ import {APIError} from '../../api/error';
 import {expireSession,useExpiredSession} from '../../shared/hooks/use-expired-session';
 import {ListSearch} from '../../shared/components/list-search';
 import {DataPagination,usePagePagination} from '../../shared/components/data-pagination';
-import {ContextServicePicker,ContextServiceSummary} from './context-service-picker';
+import {ContextServiceIcon,ContextServicePicker,ContextServiceSummary} from './context-service-picker';
 import './context.css';
 
 const client=new ContextClient();const resources=new ResourcesClient();
@@ -34,11 +34,11 @@ export function ContextPanel({user,kind}:{user:CurrentUser;kind:ContextKind}){
  const filtered=items.filter(v=>(filter==='全部'||v.enabled===(filter==='已启用'))&&(v.name+' '+(backendNames[v.backend]??v.backend)).toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));const visible=filtered.slice((pagination.page-1)*pagination.pageSize,pagination.page*pagination.pageSize);
  const Symbol=memory?Brain:Library;
  return <section className="instances-section context-panel" aria-label={`${label}管理`}>
-  <div className="provider-page-heading workspace-actions"><h2>{label}</h2>{manage&&<Button type="primary" icon={<Plus size={16} aria-hidden="true"/>} disabled={!list.data||list.isError} onClick={()=>setPickerOpen(true)}>添加连接</Button>}</div>
+  <div className="provider-page-heading workspace-actions"><h2>{label}</h2>{manage&&<Button type="primary" icon={<Plus size={16} aria-hidden="true"/>} disabled={!list.data||list.isError} onClick={()=>setPickerOpen(true)}>{`添加${label}`}</Button>}</div>
   <div className="workspace-toolbar"><Segmented aria-label={`${label}连接状态筛选`} options={['全部','已启用','已停用']} value={filter} onChange={value=>setFilter(String(value))}/><ListSearch label={`搜索${label}连接`} placeholder="搜索名称或方案" value={search} onChange={setSearch} refreshLabel={`刷新${label}`} loading={list.isFetching} onRefresh={()=>void list.refetch()}/></div>
   {(error||list.isError)&&<Alert type="error" showIcon message={error||message(list.error)} action={list.isError?<Button onClick={()=>void list.refetch()}>重试</Button>:undefined}/>}
   <Spin spinning={list.isPending}><div className="workspace-list" aria-label={`${label}连接列表`}>{visible.length?visible.map(v=>{const state=v.enabled?status[v.status]:{label:'已停用',color:'default'};return <article className="workspace-record" key={v.id} aria-label={`${label}连接 ${v.name}`}>
-   <span className="workspace-symbol" aria-hidden="true"><Symbol size={20}/></span>
+   <span className="workspace-symbol" aria-hidden="true"><ContextServiceIcon backend={v.backend} size={24}/></span>
    <div className="workspace-record-content"><div className="workspace-record-heading"><h3><Button type="link" onClick={()=>setSelected(v)}>{v.name}</Button></h3><Tag color={state.color}>{state.label}</Tag></div><div className="workspace-record-meta"><span>{backendNames[v.backend]??v.backend}</span><span>最近验证：{v.verified_at?date(v.verified_at):'—'}</span></div></div>
    <div className="workbench-record-actions"><Button className="workspace-details" onClick={()=>setSelected(v)}>管理内容</Button>{manage&&<><Button loading={busy===v.id} disabled={!v.enabled||!!busy} onClick={()=>void run(v.id,async()=>{await client.call(user,v,'verify');})}>验证</Button><Dropdown trigger={['click']} menu={{items:[{key:'settings',label:'设置'},{key:'remove',label:'移除',danger:true}],onClick:({key})=>{if(key==='settings')edit(v);else if(key==='remove'){setDeleting(v);setConfirm('');}}}}><Button aria-label={`${v.name} 更多操作`} disabled={!!busy} icon={<Ellipsis size={17} aria-hidden="true"/>}/></Dropdown></>}</div>
   </article>;}):<div className="workspace-list-empty"><Symbol size={28} aria-hidden="true"/><Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={list.isError?`未能获取${label}连接`:search||filter!=='全部'?`没有符合条件的${label}连接`:`暂无${label}连接`}/></div>}</div></Spin>

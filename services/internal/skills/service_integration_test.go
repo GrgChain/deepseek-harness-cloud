@@ -360,6 +360,7 @@ func TestPersonalLibraryWithPostgres(t *testing.T) {
 		}
 	}
 	testSkillResourceFiles(t, ctx, s, owner, other)
+	testLargeSkillImport(t, ctx, s, owner)
 	// Changing permissions takes effect even with an old presentation hint.
 	if _, err = root.Exec(ctx, "DELETE FROM role_permissions WHERE role_id=$1 AND permission_id='skills:manage'", owner.RoleID); err != nil {
 		t.Fatal(err)

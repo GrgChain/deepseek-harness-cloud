@@ -9,7 +9,9 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/security"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/settings"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 )
 
 // ExecutionPlan belongs exclusively to the trusted Worker. Its secret is not
@@ -25,8 +27,11 @@ type ExecutionPlan struct {
 	Endpoint                                                                            string
 	FailureCode                                                                         string
 	External                                                                            *BuildAttempt
+	SyncStoppedModel                                                                    bool
 	modelManifest                                                                       *settings.ModelManifest
 	modelKey                                                                            []byte
+	skills                                                                              []skills.WorkspaceSkill
+	extensions                                                                          workspaceextensions.Snapshot
 }
 
 func (p ExecutionPlan) String() string   { return "[private instance execution plan]" }
@@ -35,7 +40,12 @@ func (p ExecutionPlan) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("execution plans cannot be serialized")
 }
 func (p *ExecutionPlan) ModelKey() []byte { return p.modelKey }
-func (p *ExecutionPlan) Destroy()         { clear(p.modelKey); p.modelKey = nil }
+func (p *ExecutionPlan) Destroy() {
+	clear(p.modelKey)
+	p.modelKey = nil
+	skills.DestroyWorkspaceSkills(p.skills)
+	p.skills = nil
+}
 
 // Checkpoint rereads authority and intent before every external mutation. An
 // accepted command survives Portal logout, but never disabled ownership or a
@@ -76,6 +86,11 @@ func (s *ExecutionStore) Checkpoint(ctx context.Context, lease Lease) (Execution
 	if err = tx.QueryRow(ctx, `SELECT (SELECT build_id::text FROM operations WHERE instance_id=$1 AND id<>$2 AND status IN ('SUCCEEDED','FAILED') AND build_id IS NOT NULL ORDER BY updated_at DESC,id DESC LIMIT 1)`, lease.InstanceID, lease.ID).Scan(&plan.LastBuildID); err != nil {
 		return ExecutionPlan{}, err
 	}
+	if r.Action == "START" {
+		if plan.SyncStoppedModel, err = needsStoppedModelSync(ctx, tx, lease.InstanceID, lease.ID); err != nil {
+			return ExecutionPlan{}, err
+		}
+	}
 	if r.Action == "CREATE" || r.Action == "START" || r.Action == "CONFIGURE" {
 		if !r.Authorized || r.ActorKind != "USER" || r.ActorID == nil || *r.ActorID != r.Owner || s.cipher == nil {
 			return ExecutionPlan{}, ErrExecutionRevoked
@@ -101,11 +116,40 @@ func (s *ExecutionStore) Checkpoint(ctx context.Context, lease Lease) (Execution
 			return ExecutionPlan{}, err
 		}
 	}
+	if r.Action == "CREATE" {
+		plan.extensions, err = workspaceextensions.Load(ctx, tx, r.Org, r.Owner, lease.InstanceID)
+		if err != nil {
+			plan.Destroy()
+			return ExecutionPlan{}, err
+		}
+		if len(plan.extensions.Items) > 0 {
+			var authorized bool
+			err = tx.QueryRow(ctx, `SELECT e.auth_generation=m.auth_generation AND public.hc_has_permission(e.org_id,e.owner_id,'instances:configure') FROM workspace_extensions e JOIN memberships m ON m.org_id=e.org_id AND m.user_id=e.owner_id WHERE e.instance_id=$1`, lease.InstanceID).Scan(&authorized)
+			if err != nil || !authorized {
+				plan.Destroy()
+				if err != nil {
+					return ExecutionPlan{}, err
+				}
+				return ExecutionPlan{}, ErrExecutionRevoked
+			}
+		}
+		plan.skills, err = skills.LoadWorkspaceSkills(ctx, tx, s.cipher, s.environment, r.Org, r.Owner, lease.InstanceID)
+		if err != nil {
+			plan.Destroy()
+			return ExecutionPlan{}, err
+		}
+	}
 	if err = tx.Commit(ctx); err != nil {
 		plan.Destroy()
 		return ExecutionPlan{}, err
 	}
 	return plan, nil
+}
+
+func needsStoppedModelSync(ctx context.Context, tx pgx.Tx, instanceID, operationID string) (bool, error) {
+	var needed bool
+	err := tx.QueryRow(ctx, `SELECT COALESCE((SELECT type='CONFIGURE' AND intent->>'target_desired_state'='STOPPED' FROM operations WHERE instance_id=$1 AND id<>$2 AND status='SUCCEEDED' AND type IN ('CREATE','START','CONFIGURE') ORDER BY updated_at DESC,id DESC LIMIT 1),false)`, instanceID, operationID).Scan(&needed)
+	return needed, err
 }
 
 // RememberExternal records only stable, verified external IDs. Callers first

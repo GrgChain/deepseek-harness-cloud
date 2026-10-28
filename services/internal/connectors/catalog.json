@@ -486,6 +486,57 @@
       "guide_url": "https://github.com/github/github-mcp-server"
     },
     {
+      "id": "gitee",
+      "name": "Gitee",
+      "description": "管理代码仓库、文件、Issue 与 Pull Request",
+      "category": "development",
+      "mode": "remote",
+      "auth_kind": "personal_token",
+      "default_url": "https://api.gitee.com/mcp",
+      "doc_url": "https://gitee.com/oschina/mcp-gitee",
+      "guide_url": "https://gitee.com/oschina/mcp-gitee/blob/master/README_CN.md",
+      "setup_hint": "已预填 Gitee 官方 MCP 地址。填写个人访问令牌后保存并验证，再选择需要启用的工具。",
+      "requirements": [
+        "Gitee 个人访问令牌",
+        "令牌须具备目标仓库及所需操作的权限"
+      ],
+      "color": "#c71d23"
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "description": "查询代码仓库、项目、Issue、合并请求与流水线",
+      "category": "development",
+      "mode": "remote",
+      "auth_kind": "personal_token",
+      "default_url": "https://gitlab.com/api/v4/mcp",
+      "doc_url": "https://docs.gitlab.com/user/model_context_protocol/mcp_server/",
+      "guide_url": "https://docs.gitlab.com/user/model_context_protocol/mcp_server/",
+      "setup_hint": "已预填 GitLab.com 官方 MCP 地址；自建实例可改为该实例的 /api/v4/mcp 地址。使用具有 MCP 工具执行权限的细粒度个人访问令牌，或切换 OAuth 授权。传统个人、项目和组访问令牌不能用于官方 MCP。",
+      "requirements": [
+        "顶层群组或自建实例已允许访问 MCP 服务",
+        "细粒度个人访问令牌须具有 MCP tool 资源的 Execute 权限；OAuth 须具有 mcp scope"
+      ],
+      "color": "#e24329"
+    },
+    {
+      "id": "codeup",
+      "name": "Codeup",
+      "description": "管理云效代码仓库、分支、合并请求与研发流水线",
+      "category": "development",
+      "mode": "remote",
+      "auth_kind": "personal_token",
+      "default_url": "https://openapi-rdc.aliyuncs.com/ai/mcp",
+      "doc_url": "https://help.aliyun.com/zh/yunxiao/developer-reference/cloud-effect-mcp-tool-instructions",
+      "guide_url": "https://github.com/aliyun/alibabacloud-devops-mcp-server/blob/master/docs/hosted-mcp-guide.zh-CN.md",
+      "setup_hint": "已预填云效官方托管 MCP 地址，填写云效个人访问令牌。专有 Region 站用户请改为本组织域名下的 /ai/mcp 地址；平台使用标准 Bearer 认证。",
+      "requirements": [
+        "云效个人访问令牌",
+        "按需授予代码管理、项目协作或流水线等 API 权限"
+      ],
+      "color": "#ff6a00"
+    },
+    {
       "id": "context7",
       "name": "Context7",
       "description": "查询开发框架和依赖库的最新文档、API 用法与代码示例",

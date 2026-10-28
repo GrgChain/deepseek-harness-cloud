@@ -22,6 +22,7 @@
 .context-service-select:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
 .context-service-card-heading{display:flex;align-items:center;gap:12px}.context-service-card-heading strong{font-size:15px;font-weight:600}
 .context-service-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:10px;flex:0 0 40px;color:var(--color-primary);background:var(--color-selected)}
+.context-service-logo{display:block;object-fit:contain;max-width:100%;max-height:100%}
 .context-service-description{font-size:13px;line-height:1.7;color:var(--muted);min-height:44px}
 .context-service-card-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:auto;font-size:12px}
 .context-service-card-footer>span:first-child{display:inline-flex;align-items:center;gap:6px;color:var(--muted)}.context-service-card-footer>span:first-child::before{content:'';width:5px;height:5px;border-radius:50%;background:currentColor}

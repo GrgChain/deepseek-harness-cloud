@@ -27,6 +27,7 @@ type Service struct {
 	usage                     *StorageUsageCollector
 	releaser                  *StorageReleaser
 	browser                   *StorageBrowser
+	extensions                *ExtensionBroker
 	client                    *workspaceengine.Client
 	provisioner               *workspaceengine.Terraform
 	host                      *LocalHost
@@ -78,6 +79,7 @@ func NewService(ctx context.Context, pool *pgxpool.Pool, path string) (*Service,
 	service.usage = NewStorageUsageCollector(pool, host)
 	service.releaser = NewStorageReleaser(pool, host)
 	service.browser = NewStorageBrowser(pool, host)
+	service.extensions = NewExtensionBroker(pool, o.Host.RuntimeRoot, cipher, o.Environment, maintenance == "true")
 	service.releaser.maintenance = maintenance == "true"
 	service.models = settings.NewAutoValidator(settings.NewService(pool, cipher, policy, o.Environment, maintenance == "true"))
 	if o.ModelControlKeyFile != "" {
@@ -102,7 +104,7 @@ func NewService(ctx context.Context, pool *pgxpool.Pool, path string) (*Service,
 func (s *Service) Run(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	count := 8
+	count := 9
 	if s.modelSync != nil {
 		count += 2
 	}
@@ -118,6 +120,7 @@ func (s *Service) Run(ctx context.Context) error {
 	go func() { results <- s.usage.Run(ctx) }()
 	go func() { results <- s.releaser.Run(ctx) }()
 	go func() { results <- s.browser.Run(ctx) }()
+	go func() { results <- s.extensions.Run(ctx) }()
 	go func() { results <- s.client.RunBuilds(ctx, s.provisioner) }()
 	var runErr error
 	for range count {

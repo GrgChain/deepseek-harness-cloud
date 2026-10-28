@@ -295,6 +295,15 @@ func (h *LocalHost) Start(ctx context.Context, p ExecutionPlan, buildID string) 
 			readinessErr = err
 			continue
 		}
+		var selection []string
+		if p.Action == "CONFIGURE" || p.SyncStoppedModel {
+			selection = []string{native.Provider, native.Model}
+		}
+		if !checkNativeWorkspace(ctx, "http://"+ip+":3080", h.authority(p.InstanceID), cookie, selection...) {
+			clear(cookie)
+			readinessErr = ErrNativeUnavailable
+			continue
+		}
 		checked := time.Now().UTC()
 		return Completion{AssetReady: true, FilesystemID: proof.FilesystemID, Running: &RuntimeEvidence{WorkspaceID: *p.WorkspaceID, BuildID: buildID, Host: h.host(p.InstanceID), IP: ip, Generation: p.RuntimeGeneration, NativeCookie: cookie, NativeExpiresAt: expires, CheckedAt: checked}}, nil
 	}

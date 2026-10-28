@@ -2,11 +2,14 @@ package access
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -128,6 +131,39 @@ func TestGatewayConnectionConfirmationHasNoAuthorizationSideEffects(t *testing.T
 		g.ServeHTTP(w, httptest.NewRequest(tc.method, rules.URL(rules.Host(id))+tc.path, nil))
 		if w.Code < 400 || strings.Contains(w.Body.String(), "private") {
 			t.Fatal("connection confirmation accepts credentials or unsafe methods")
+		}
+	}
+}
+
+func TestHandoffHealthConflictReturnsBrowserToEntry(t *testing.T) {
+	rules, _ := NewRules("https://portal.harness.test:42013", "harness.test")
+	id := webapi.ID()
+	host := rules.Host(id)
+	svc := &browserService{fail: webapi.Fail(409, "STATE_CONFLICT", "unavailable")}
+	g := NewGateway(rules, webapi.ID(), svc, nil)
+	defer g.Close()
+	form := url.Values{"ticket": {strings.Repeat("t", 43)}, "challenge_id": {webapi.ID()}}.Encode()
+	for _, navigation := range []bool{false, true} {
+		r := httptest.NewRequest("POST", rules.URL(host)+"/__dsh/handoff", strings.NewReader(form))
+		r.Header.Set("Origin", rules.PortalOrigin)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.Header.Set("Cookie", ChallengeCookie+"="+strings.Repeat("b", 43))
+		if navigation {
+			r.Header.Set("Sec-Fetch-Mode", "navigate")
+		}
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if navigation {
+			if w.Code != 303 || w.Header().Get("Location") != rules.PortalOrigin+"/app/instances/"+id+"?resume_workspace=1" {
+				t.Fatal("navigation did not return to entry")
+			}
+		} else if w.Code != 409 {
+			t.Fatal("API conflict changed", w.Code)
+		}
+		for _, cookie := range w.Result().Cookies() {
+			if cookie.Name == SessionCookie {
+				t.Fatal("conflict minted a session")
+			}
 		}
 	}
 }
@@ -275,5 +311,112 @@ func TestOfficePreviewHasSeparateBoundedProxyBudget(t *testing.T) {
 				t.Fatalf("status=%d, expected=%d", w.Code, tc.status)
 			}
 		})
+	}
+}
+
+func TestProxySeparatesConnectionsAfterRuntimeReplacement(t *testing.T) {
+	rules, _ := NewRules("https://portal.harness.test:42013", "harness.test")
+	id := webapi.ID()
+	host := rules.Host(id)
+	svc := &browserService{target: Target{InstanceID: id, Host: host, IP: "172.18.0.5", Generation: webapi.ID()}, cookie: []byte("dsh-auth-" + base64Host(rules.authority(host)) + "=v1.synthetic.signature")}
+	var connections atomic.Int64
+	type connectionKey struct{}
+	upstream := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != rules.authority(host) {
+			t.Error("runtime pool identity leaked into native Host")
+		}
+		fmt.Fprint(w, r.Context().Value(connectionKey{}))
+	}))
+	upstream.Config.ConnContext = func(ctx context.Context, _ net.Conn) context.Context {
+		return context.WithValue(ctx, connectionKey{}, connections.Add(1))
+	}
+	upstream.Start()
+	defer upstream.Close()
+	g := NewGateway(rules, webapi.ID(), svc, nil)
+	defer g.Close()
+	g.transport.DialContext = testDial(upstream)
+	g.documentTransport.DialContext = testDial(upstream)
+	request := func(path string) string {
+		t.Helper()
+		r := httptest.NewRequest("POST", rules.URL(host)+path, strings.NewReader("{}"))
+		r.Header.Set("Cookie", SessionCookie+"="+strings.Repeat("s", 43))
+		r.Header.Set("Origin", rules.URL(host))
+		w := httptest.NewRecorder()
+		g.ServeHTTP(w, r)
+		if w.Code != 200 {
+			t.Fatalf("RPC failed: %d", w.Code)
+		}
+		return w.Body.String()
+	}
+	first := request("/api/workspaceFiles/list")
+	document := request("/api/officeToPdf/render")
+	if request("/api/workspaceFiles/list") != first || request("/api/officeToPdf/render") != document {
+		t.Fatal("same runtime did not reuse its connections")
+	}
+	// Switching a provider replaces the runtime; Docker may assign its old IP.
+	svc.target.Generation = webapi.ID()
+	if request("/api/workspaceFiles/list") == first || request("/api/officeToPdf/render") == document {
+		t.Fatal("replacement reused an old runtime connection")
+	}
+	if connections.Load() != 4 {
+		t.Fatal("RPC unexpectedly replayed or opened redundant connections", connections.Load())
+	}
+}
+
+func TestRuntimeTransportDialsAuthorizedAddress(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "ready") }))
+	defer upstream.Close()
+	transport := runtimeTransport()
+	defer transport.CloseIdleConnections()
+	address := strings.TrimPrefix(upstream.URL, "http://")
+	ctx := context.WithValue(context.Background(), runtimeAddressKey{}, address)
+	r := httptest.NewRequest("GET", "http://generation.instance.runtime.invalid:3080/", nil).WithContext(ctx)
+	response, err := transport.RoundTrip(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode != 200 {
+		t.Fatal("authorized address not used")
+	}
+	missing := httptest.NewRequest("GET", "http://another.runtime.invalid:3080/", nil)
+	if response, err := transport.RoundTrip(missing); err == nil {
+		response.Body.Close()
+		t.Fatal("unbound runtime address accepted")
+	}
+}
+
+func TestStaleRuntimeRequestsCannotClearNewHandoffCookie(t *testing.T) {
+	rules, _ := NewRules("https://portal.harness.test:42013", "harness.test")
+	host := rules.Host(webapi.ID())
+	svc := &browserService{fail: denied()}
+	gateway := NewGateway(rules, webapi.ID(), svc, nil)
+	defer gateway.Close()
+	for _, kind := range []string{"rpc", "websocket", "navigation"} {
+		r := httptest.NewRequest("GET", rules.URL(host)+"/", nil)
+		r.Header.Set("Cookie", SessionCookie+"="+strings.Repeat("s", 43))
+		expected := 401
+		if kind == "rpc" {
+			r.Method = "POST"
+			r.Header.Set("Origin", rules.URL(host))
+		}
+		if kind == "websocket" {
+			r.URL.Path = "/api/remote.mux"
+			r.Header.Set("Sec-WebSocket-Version", "13")
+			r.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+			r.Header.Set("Connection", "Upgrade")
+			r.Header.Set("Upgrade", "websocket")
+			r.Header.Set("Origin", rules.URL(host))
+		}
+		if kind == "navigation" {
+			r.Header.Set("Sec-Fetch-Mode", "navigate")
+			r.Header.Set("Accept", "text/html")
+			expected = 303
+		}
+		w := httptest.NewRecorder()
+		gateway.ServeHTTP(w, r)
+		if w.Code != expected || w.Header().Get("Set-Cookie") != "" {
+			t.Fatalf("late %s response could clear replacement session: status=%d", kind, w.Code)
+		}
 	}
 }

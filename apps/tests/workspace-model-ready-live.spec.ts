@@ -11,6 +11,12 @@ test('measures first model readiness without inference',async({page,context},inf
  await page.getByRole('button',{name:'登录',exact:true}).click();
  await expect(page).toHaveURL(/\/app\/instances$/);
  await page.goto('/app/instances/'+process.env.HC_ENTRY_INSTANCE_ID);
+ let simulatedFailures=0;
+ const failureCount=Number(process.env.HC_CATALOG_FAILURE_COUNT ?? 0);
+ if(failureCount)await context.route('**/api/session/modelCatalog',async route=>{
+  if(simulatedFailures++<failureCount)await route.fulfill({status:502,json:{code:'UPSTREAM_UNAVAILABLE',message:'Temporary test failure'}});
+  else await route.continue();
+ });
  let catalogRequests=0,adapted=false;let modelCatalog:any;context.on('request',r=>{if(new URL(r.url()).pathname==='/api/session/modelCatalog'){catalogRequests++;if(process.env.HC_CAPTURE_MODEL_ONBOARDING==='true')console.log('Catalog wire',r.method(),r.postData());}});context.on('response',async r=>{if(new URL(r.url()).pathname==='/plugins/')try{const code=await r.text();if(code.includes('id: "@deepseek-ai/dsh-client-ui-model-selection"'))writeFileSync(info.outputPath('plugins.js'),code);if(code.includes('this.readManagedCatalog(generation)'))adapted=true;}catch{}});
  context.on('response',async r=>{if(new URL(r.url()).pathname==='/api/session/modelCatalog'){modelCatalog=(await r.json()).result;if(process.env.HC_CAPTURE_MODEL_ONBOARDING==='true')console.log('Catalog ready',modelCatalog?.ok,modelCatalog?.value?.groups?.length);}});
  const responses:string[]=[];context.on('response',r=>{const u=new URL(r.url());if(u.hostname.startsWith('i-'))responses.push(`${r.status()} ${u.pathname} ${r.headers()['content-encoding']??''}`);});context.on('requestfailed',r=>{const u=new URL(r.url());if(u.hostname.startsWith('i-'))responses.push(`failed ${u.pathname} ${r.failure()?.errorText}`);});
@@ -30,7 +36,12 @@ test('measures first model readiness without inference',async({page,context},inf
   const catalog=modelCatalog.value;
   expect(catalog.routableProviders).toContain(catalog.default.provider);
   expect(catalog.groups.find((g:any)=>g.id===catalog.default.provider)?.models.some((m:any)=>m.id===catalog.default.model)).toBe(true);
+  if(process.env.HC_EXPECT_DEFAULT_SESSION_MODEL==='true'){
+   const selected=catalog.groups.find((g:any)=>g.id===catalog.default.provider).models.find((m:any)=>m.id===catalog.default.model);
+   await expect(workspace.getByRole('button',{name:/^选择模型，当前 /})).toContainText(selected.name);
+  }
  }
+ if(failureCount)expect(simulatedFailures).toBe(failureCount+1);
  const timing={model_ready_ms:Date.now()-started,catalog_requests:catalogRequests,adapted,resources:await workspace.evaluate(()=>performance.getEntriesByType('resource').map(e=>{const r=e as PerformanceResourceTiming;return {path:new URL(r.name).pathname,duration:r.duration,bytes:r.transferSize,encoded:r.encodedBodySize,decoded:r.decodedBodySize};}))};
  writeFileSync(info.outputPath('initiators.json'),JSON.stringify(initiators,null,2));
  console.log('Model requests',catalogRequests,'adapted',adapted);

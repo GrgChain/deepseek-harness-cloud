@@ -23,10 +23,10 @@ type echoArgs struct {
 	Text string `json:"text"`
 }
 
-func testMCP(t *testing.T) (*mcp.Server, Endpoint, *atomic.Int32) {
+func testMCP(t *testing.T, versions ...string) (*mcp.Server, Endpoint, *atomic.Int32) {
 	t.Helper()
 	calls := &atomic.Int32{}
-	server := mcp.NewServer(&mcp.Implementation{Name: "connector-fixture", Version: "1"}, &mcp.ServerOptions{PageSize: 1})
+	server := mcp.NewServer(&mcp.Implementation{Name: "connector-fixture", Version: "1"}, &mcp.ServerOptions{PageSize: 1, SupportedProtocolVersions: versions})
 	mcp.AddTool(server, &mcp.Tool{Name: "echo", Description: "Return the supplied text", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: ptr(false)}}, func(ctx context.Context, req *mcp.CallToolRequest, in echoArgs) (*mcp.CallToolResult, any, error) {
 		calls.Add(1)
 		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: in.Text}}}, nil, nil
@@ -69,6 +69,50 @@ func TestOfficialMCPInteroperability(t *testing.T) {
 			_, err = openSession(ctx, endpoint, "wrong", version)
 			if !errors.Is(err, errAuth) {
 				t.Fatal("authentication not identified", err)
+			}
+		})
+	}
+}
+func TestAutomaticProtocolCompatibility(t *testing.T) {
+	for _, tc := range []struct {
+		name, configured, negotiated string
+		versions                     []string
+	}{
+		{"prefer-modern", "2026-07-28", "2026-07-28", []string{"2026-07-28", "2025-11-25"}},
+		{"modern-only", "2026-07-28", "2026-07-28", []string{"2026-07-28"}},
+		{"legacy-fallback", "2026-07-28", "2025-11-25", []string{"2025-11-25"}},
+		{"preserve-legacy", "2025-11-25", "2025-11-25", []string{"2026-07-28", "2025-11-25"}},
+		{"unsupported-version", "2026-07-28", "", []string{"2025-06-18"}},
+		{"legacy-does-not-upgrade", "2025-11-25", "", []string{"2026-07-28"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, endpoint, calls := testMCP(t, tc.versions...)
+			ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
+			defer cancel()
+			session, err := openSession(ctx, endpoint, "private-test-token", tc.configured)
+			if tc.negotiated == "" {
+				if err == nil {
+					session.Close()
+					t.Fatal("unsupported protocol accepted")
+				}
+				if calls.Load() != 0 {
+					t.Fatal("negotiation executed a tool")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer session.Close()
+			if got := session.InitializeResult().ProtocolVersion; got != tc.negotiated {
+				t.Fatalf("negotiated %s, want %s", got, tc.negotiated)
+			}
+			if _, err := discover(ctx, session); err != nil || calls.Load() != 0 {
+				t.Fatalf("discovery failed or executed a tool: %v", err)
+			}
+			result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "echo", Arguments: map[string]any{"text": "compatibility"}})
+			if err != nil || result.IsError || calls.Load() != 1 {
+				t.Fatalf("tool call failed or repeated: %v, calls=%d", err, calls.Load())
 			}
 		})
 	}

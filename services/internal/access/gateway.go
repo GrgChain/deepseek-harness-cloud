@@ -41,6 +41,23 @@ type BrowserAccess interface {
 	CheckSession(context.Context, string, string, bool) (Authorization, error)
 }
 type Limit func(context.Context, string, int) error
+type runtimeAddressKey struct{}
+
+// Pool connections by runtime identity, while dialing only the authorized IP.
+// A replacement container can reuse the same IP after a model change.
+func runtimeTransport() *http.Transport {
+	t := fixedTransport()
+	dial := t.DialContext
+	t.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) {
+		address, ok := ctx.Value(runtimeAddressKey{}).(string)
+		if !ok || address == "" {
+			return nil, errors.New("runtime address missing")
+		}
+		return dial(ctx, network, address)
+	}
+	return t
+}
+
 type Gateway struct {
 	rules             Rules
 	organization      string
@@ -57,7 +74,7 @@ type Gateway struct {
 
 func NewGateway(rules Rules, organization string, service BrowserAccess, limit Limit) *Gateway {
 	ctx, stop := context.WithCancel(context.Background())
-	transport := fixedTransport()
+	transport := runtimeTransport()
 	// Browser pages and plugin bundles may need cold initialization. Keep the
 	// verifier's short probe budget separate from real browser requests.
 	transport.ResponseHeaderTimeout = 15 * time.Second
@@ -194,6 +211,13 @@ func (g *Gateway) handoff(w http.ResponseWriter, r *http.Request, host string) {
 	defer a.Destroy()
 	if err != nil {
 		clearCookie(w, ChallengeCookie)
+		var problem *webapi.Problem
+		if errors.As(err, &problem) && problem.Code == "STATE_CONFLICT" && r.Header.Get("Sec-Fetch-Mode") == "navigate" {
+			id, _ := g.rules.Resolve(g.rules.authority(host))
+			w.Header().Set("Location", g.rules.PortalOrigin+"/app/instances/"+id+"?resume_workspace=1")
+			w.WriteHeader(http.StatusSeeOther)
+			return
+		}
 		webapi.WriteError(w, r, err)
 		return
 	}
@@ -292,7 +316,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request, host string) {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		r.ContentLength = int64(len(body))
 	}
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(context.WithValue(r.Context(), runtimeAddressKey{}, net.JoinHostPort(a.Target.IP, "3080")))
 	defer cancel()
 	transport := g.transport
 	if r.Method == http.MethodPost && r.URL.Path == "/api/officeToPdf/render" {
@@ -319,7 +343,9 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request, host string) {
 	}
 	proxy := &httputil.ReverseProxy{Transport: transport, FlushInterval: -1, ErrorLog: log.New(io.Discard, "", 0), Rewrite: func(p *httputil.ProxyRequest) {
 		p.Out.URL.Scheme = "http"
-		p.Out.URL.Host = net.JoinHostPort(a.Target.IP, "3080")
+		// URL authority is the transport pool key; the actual dial address comes
+		// from the validated target above. Host remains the public authority.
+		p.Out.URL.Host = a.Target.Generation + "." + a.Target.InstanceID + "." + a.Target.IP + ".runtime.invalid:3080"
 		p.Out.Host = g.rules.authority(host)
 		p.Out.Header = proxyHeaders(p.In.Header, websocket)
 		p.Out.Trailer = nil
@@ -401,7 +427,9 @@ func safeLocation(location, origin string) bool {
 func (g *Gateway) sessionError(w http.ResponseWriter, r *http.Request, host string, err error) {
 	var problem *webapi.Problem
 	if errors.As(err, &problem) && (problem.Code == "FORBIDDEN" || problem.Code == "NOT_FOUND") {
-		clearCookie(w, SessionCookie)
+		// A late request from the previous runtime must not delete a newer
+		// handoff cookie shared by other tabs. Rejection revokes no new session;
+		// the next successful handoff replaces the cookie normally.
 		if r.Method == "GET" && !isWebsocket(r) && r.Header.Get("Sec-Fetch-Mode") == "navigate" && strings.Contains(r.Header.Get("Accept"), "text/html") {
 			id, _ := g.rules.Resolve(g.rules.authority(host))
 			w.Header().Set("Location", g.rules.PortalOrigin+"/app/instances/"+id)

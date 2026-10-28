@@ -97,7 +97,6 @@ func TestGitHubArchiveRejectsUnsafeSkills(t *testing.T) {
 		"same name":    {"repo-sha/one/SKILL.md": markdown("same", "body"), "repo-sha/two/SKILL.md": markdown("same", "body")},
 		"case clash":   {"repo-sha/a/SKILL.md": markdown("test", "body"), "repo-sha/a/skill.md": []byte("case")},
 		"hidden":       {"repo-sha/a/SKILL.md": markdown("test", "body"), "repo-sha/a/.env": []byte("secret")},
-		"oversize":     {"repo-sha/a/SKILL.md": markdown("test", "body"), "repo-sha/a/big.bin": make([]byte, MaxFile+1)},
 		"invalid yaml": {"repo-sha/a/SKILL.md": []byte("not valid frontmatter")},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -108,13 +107,6 @@ func TestGitHubArchiveRejectsUnsafeSkills(t *testing.T) {
 	}
 	if _, err := githubSkills(zipFiles(t, map[string][]byte{"repo-sha/skill/SKILL.md": markdown("test", "body")}, fs.ModeSymlink|0600), ""); err == nil {
 		t.Fatal("accepted symlink")
-	}
-	files := map[string][]byte{"repo-sha/skill/SKILL.md": markdown("test", "body")}
-	for i := 0; i < MaxFiles; i++ {
-		files["repo-sha/skill/"+strings.Repeat("x", i+1)] = []byte("small")
-	}
-	if _, err := githubSkills(zipFiles(t, files, 0600), ""); err == nil {
-		t.Fatal("accepted too many files")
 	}
 }
 

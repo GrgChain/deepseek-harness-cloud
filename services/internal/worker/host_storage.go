@@ -128,6 +128,12 @@ func (h *LocalHost) Prepare(ctx context.Context, p ExecutionPlan) (AssetProof, e
 	if err = h.volume(ctx, p, proof, initialize); err != nil {
 		return AssetProof{}, err
 	}
+	if err = h.installSkills(ctx, p); err != nil {
+		return AssetProof{}, err
+	}
+	if err = h.installExtensions(ctx, p); err != nil {
+		return AssetProof{}, err
+	}
 	return proof, nil
 }
 func (h *LocalHost) network(ctx context.Context, id, action string) error {

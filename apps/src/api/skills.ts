@@ -12,8 +12,9 @@ export interface HubSearch {provider:'skills.sh'|'clawhub'|'tencent'|'skillsmp';
 export class SkillsClient {
  constructor(private readonly fetcher:typeof fetch=(...args)=>fetch(...args)){}
  private async response(user:CurrentUser,path:string,body?:unknown,method=body===undefined?'GET':'POST',signal?:AbortSignal){
-  const timeout=AbortSignal.timeout(path==='/v1/skills:source'||path.endsWith(':check-update')?127_000:22_000);
-  const response=await this.fetcher(path,{method,credentials:'same-origin',cache:'no-store',headers:body===undefined?undefined:{'Content-Type':'application/json','X-CSRF-Token':user.csrf_token},body:body===undefined?undefined:JSON.stringify(body),signal:signal?AbortSignal.any([timeout,signal]):timeout});
+  const unrestricted=['/v1/skills:preview','/v1/skills:apply','/v1/skills:export'].includes(path)||path.endsWith(':previous');
+  const timeout=unrestricted?undefined:AbortSignal.timeout(path==='/v1/skills:source'||path.endsWith(':check-update')?127_000:22_000);
+  const response=await this.fetcher(path,{method,credentials:'same-origin',cache:'no-store',headers:body===undefined?undefined:{'Content-Type':'application/json','X-CSRF-Token':user.csrf_token},body:body===undefined?undefined:JSON.stringify(body),signal:signal&&timeout?AbortSignal.any([timeout,signal]):signal??timeout});
   if(!response.ok){const problem=await response.json().catch(()=>({}));const error=new APIError(response.status,problem.code??'DEPENDENCY_UNAVAILABLE');if(['SKILL_INVALID','SKILL_EXISTS','SKILL_LIMIT','VERSION_CONFLICT','NOT_FOUND','PAYLOAD_TOO_LARGE'].includes(problem.code)&&typeof problem.message==='string')error.message=problem.message;throw error;}
   return response;
  }
@@ -27,7 +28,7 @@ export class SkillsClient {
  createFile(user:CurrentUser,id:string,path:string,version:number,content:string){return this.request<Skill>(user,`/v1/skills/${encodeURIComponent(id)}:file`,{path,content,expected_version:version});}
  remove(user:CurrentUser,skill:Skill,name:string){return this.request(user,'/v1/skills/'+skill.id,{confirmed_name:name,expected_version:skill.version},'DELETE');}
  async import(user:CurrentUser,file:File){
-  if(file.size>5*1024*1024||file.size===0)throw new Error('请选择不超过 5 MiB 的非空 Markdown 或 ZIP 文件');
+  if(file.size===0)throw new Error('请选择非空 Markdown 或 ZIP 文件');
   const data=await new Promise<string>((resolve,reject)=>{const reader=new FileReader();reader.onerror=()=>reject(new Error('文件无法读取，请重新选择'));reader.onload=()=>resolve(String(reader.result).split(',')[1]);reader.readAsDataURL(file);});
   return this.request<SkillPreview>(user,'/v1/skills:preview',{filename:file.name,content_base64:data});
  }
@@ -37,7 +38,7 @@ export class SkillsClient {
  apply(user:CurrentUser,preview:SkillPreview,mode:'skip'|'replace'){return this.request<{applied:string[];skipped:string[]}>(user,'/v1/skills:apply',{token:preview.token,mode});}
  async download(user:CurrentUser,ids:string[],previous=false){
   const response=await this.response(user,previous?`/v1/skills/${ids[0]}:previous`:'/v1/skills:export',previous?{}:{ids});
-  const blob=await response.blob();if(blob.size>5*1024*1024)throw new Error('导出文件超过 5 MiB');
+  const blob=await response.blob();
   const disposition=response.headers.get('Content-Disposition')??'';const name=disposition.match(/filename="?([a-z0-9.-]+)"?/i)?.[1]??'skills-export.zip';
   return {blob,name};
  }

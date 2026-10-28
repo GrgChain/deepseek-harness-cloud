@@ -13,23 +13,27 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/runtimeapproval"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	workspaceengine "github.com/jonluo94/deepseek-harness-cloud/services/internal/workspace"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 )
 
 var keyPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 var namePattern = regexp.MustCompile(`^[\p{L}\p{N}_-]{1,32}$`)
 
 type CreateInput struct {
-	OrganizationID  *string `json:"organization_id,omitempty"`
-	Name            *string `json:"name,omitempty"`
-	Backend         *string `json:"backend_type,omitempty"`
-	TemplateID      *string `json:"template_id,omitempty"`
-	TemplateVersion *string `json:"template_version,omitempty"`
-	SpecID          *string `json:"spec_id,omitempty"`
-	ModelID         *string `json:"model_configuration_id,omitempty"`
-	ModelVersion    *int64  `json:"model_configuration_version,omitempty"`
-	Autostart       *bool   `json:"autostart,omitempty"`
+	workspaceextensions.Input
+	OrganizationID  *string            `json:"organization_id,omitempty"`
+	Name            *string            `json:"name,omitempty"`
+	Backend         *string            `json:"backend_type,omitempty"`
+	TemplateID      *string            `json:"template_id,omitempty"`
+	TemplateVersion *string            `json:"template_version,omitempty"`
+	SpecID          *string            `json:"spec_id,omitempty"`
+	ModelID         *string            `json:"model_configuration_id,omitempty"`
+	ModelVersion    *int64             `json:"model_configuration_version,omitempty"`
+	Autostart       *bool              `json:"autostart,omitempty"`
+	Skills          []skills.Selection `json:"skills,omitempty"`
 }
 type Accepted struct {
 	InstanceID  string `json:"instance_id"`
@@ -46,6 +50,12 @@ type CommandService struct {
 	pool        *pgxpool.Pool
 	gate        CreationGate
 	maintenance bool
+	skills      *skills.Service
+}
+
+func (s *CommandService) WithSkills(service *skills.Service) *CommandService {
+	s.skills = service
+	return s
 }
 
 func NewCommandService(pool *pgxpool.Pool, gate CreationGate, maintenance bool) *CommandService {
@@ -70,6 +80,9 @@ func requestHash(value any) ([]byte, error) {
 	return hash[:], nil
 }
 func (input CreateInput) valid() bool {
+	if !skills.ValidSelections(input.Skills) || !input.Input.Valid() {
+		return false
+	}
 	for _, id := range []*string{input.OrganizationID, input.TemplateID, input.TemplateVersion, input.SpecID, input.ModelID} {
 		if id != nil && !idPattern.MatchString(*id) {
 			return false
@@ -265,6 +278,17 @@ func (s *CommandService) acceptCreate(ctx context.Context, p identity.Principal,
 		return Accepted{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE instances SET storage_asset_id=$2 WHERE id=$1`, accepted.InstanceID, asset); err != nil {
+		return Accepted{}, err
+	}
+	if len(input.Skills) > 0 {
+		if s.skills == nil {
+			return Accepted{}, webapi.Fail(503, "DEPENDENCY_UNAVAILABLE", "技能服务暂不可用")
+		}
+		if err = s.skills.SnapshotWorkspace(ctx, tx, p, accepted.InstanceID, input.Skills); err != nil {
+			return Accepted{}, err
+		}
+	}
+	if err = workspaceextensions.Save(ctx, tx, p, accepted.InstanceID, input.Input); err != nil {
 		return Accepted{}, err
 	}
 	if trace == "" {
