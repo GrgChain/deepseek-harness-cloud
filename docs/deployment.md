@@ -48,6 +48,10 @@ Worker JSON 使用 `schema_version=1`，字段为 `workspace_engine`、`workspac
 
 DSH 运行镜像基于固定 digest 的 Ubuntu 24.04 LTS，预装 Node.js 24.21.0（含 npm/npx）、Python 3.12（`python`/`python3`、pip、venv），以及 `curl`、`wget`、`unzip` 和 `xz-utils`。Node 二进制和 npm 从固定版本的 Node 官方镜像复制，最终运行系统为 Ubuntu；DSH npm 包版本保持锁定。安装脚本可下载并解压 ZIP、tar.xz 包，HTTPS 使用系统 CA；Python 项目依赖在可写工作盘的虚拟环境中安装。通过 `make runtime-build runtime-test` 构建并验证系统版本、Node/Python、虚拟环境及下载解压；下载测试使用容器内本地服务，在普通用户、只读根文件系统下运行。镜像变更须按本文的兼容运行镜像升级流程发布；仅重建镜像标签或重启旧实例不会改变其固定 digest，已有实例须通过显式配置应用切换到已批准的新模板。
 
+使用模型网关的DSH若安装脚本返回`fetch failed`，同时检查网络helper：旧schema2出口仅允许模型网关，换用Node下载仍会失败。新版`public-web-v1`保留宿主机/私网隔离，并允许公网HTTP/HTTPS及DNS；manifest由实际helper源码和镜像核验后记录`network_adapter`。发布前使用`HC_NETWORK_GATEWAY_POLICY_FILE=/private/gateway-policy.json make network-test`验证模型网关、官方WeStock下载、私网及错误端口拒绝，再按兼容升级流程切换helper和模板，不能只重建运行镜像。
+
+运行镜像的`HOME=/data/dsh`，`PATH`包含`/data/dsh/.local/bin`及固定pnpm所在目录。CLI安装器默认写入持久用户目录，避免写入只读系统home；安装后无需临时导出PATH。普通启停保留已安装工具。WeStock使用技能包自带的官方安装脚本，保留其固定版本和SHA256校验，不在基础镜像中复制未经校验的下载二进制。
+
 个人 Skill 库由 Portal 与平台 API 提供，执行迁移 46 并更新 API 角色对 `personal_skills`、`skill_import_previews`、`skill_replacements` 的权限。技能内容使用平台数据密钥加密；DB 备份及恢复须保留对应 keyring。链接导入需要 API 主机能够访问公开 HTTPS 文件来源，下载器自行校验 DNS/IP 与重定向，不使用代理；无需新增 Worker 配置、DSH 插件、镜像或容器挂载。更新平台服务时保持数据库迁移版本一致。
 
 公开技能搜索包含 skills.sh、ClawHub、SkillHub 和 SkillsMP。SkillHub 与 SkillsMP 默认可使用匿名额度；需要密钥时，将 API 进程环境变量 `HC_TENCENT_SKILLHUB_API_KEY_FILE`、`HC_SKILLSMP_API_KEY_FILE` 分别指向模式为 0600 或 0400 的密钥文件。密钥仅由服务端读取，SkillHub 密钥只发送给 `api.skillhub.cn`，SkillsMP 密钥只发送给 `skillsmp.com`，下载跳转不携带市场密钥。SkillsMP 匿名查询存在每日及每分钟限额；前端缓存同一关键词 60 秒且失败不自动重试。网络策略须允许 `api.skillhub.cn`、腾讯 COS 技能包存储及 `skillsmp.com`；来源流量继续复用公开 IP 校验和显式配置的 Skill 来源代理。

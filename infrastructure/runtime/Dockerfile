@@ -14,6 +14,8 @@ WORKDIR /opt/harness-runtime
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 COPY contract.mjs private-file.mjs bootstrap.mjs start.mjs external-model.mjs messages-wire.mjs ./
-ENV NODE_ENV=production
+ENV NODE_ENV=production \
+    HOME=/data/dsh \
+    PATH=/data/dsh/.local/bin:/opt/harness-runtime/node_modules/.bin:${PATH}
 USER 1000:1000
 ENTRYPOINT ["/usr/bin/tini", "--", "node", "/opt/harness-runtime/start.mjs"]

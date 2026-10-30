@@ -494,6 +494,35 @@ paths:
                   description: hc-mcp-v1 or mcpServers remote entries; never executes commands.
                 confirmed:
                   type: boolean
+  /v1/context/knowledge/parse:
+    post:
+      operationId: parseKnowledgeDocument
+      x-api-id: API-120
+      tags: [Context]
+      summary: Extract editable document text with the configured Docling service
+      description: Requires knowledge:manage and CSRF. One file up to 16 MiB is sent to the configured parser; extracted text is not saved until the separate preview and apply operations.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Parsed Markdown, at most 256 KiB in UTF-8
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content]
+                properties:
+                  content: { type: string }
+        default: { $ref: '#/components/responses/Error' }
   /v1/context/{kind}:
     parameters:
     - $ref: '#/components/parameters/ContextKind'
@@ -3434,8 +3463,10 @@ paths:
               properties:
                 name:
                   type: string
-                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                  pattern: ^[\p{Script=Han}a-z0-9]+(?:-[\p{Script=Han}a-z0-9]+)*$
+                  minLength: 1
                   maxLength: 64
+                  description: Supports Chinese Han characters; length counts Unicode characters. Hyphens cannot repeat or appear at either end.
                 description:
                   type: string
                   minLength: 1
@@ -4779,6 +4810,9 @@ components:
         kind: { type: string, enum: [memory, knowledge] }
         backend: { type: string, enum: [openviking, mem0, graphiti, milvus, weaviate, qdrant] }
         endpoint_id: { type: string }
+        embedding: { $ref: '#/components/schemas/ContextEmbedding' }
+        embedding_key_configured: { type: boolean, description: Indicates a saved embedding credential without returning it. }
+        service_url: { type: string, format: uri, description: Connection-specific Milvus, Weaviate or Qdrant REST address. The address and native credential are encrypted together; credentials are never returned. }
         name: { type: string }
         version: { type: integer, format: int64 }
         enabled: { type: boolean }
@@ -4787,6 +4821,17 @@ components:
         verified_at: { type: string, format: date-time, nullable: true }
         updated_at: { type: string, format: date-time }
         integration: { type: string, enum: [NOT_CONNECTED], deprecated: true, description: Reserved compatibility field; workbench operations do not depend on DSH integration. }
+    ContextEmbedding:
+      type: object
+      additionalProperties: false
+      required: [provider, model, dimensions]
+      description: Required when creating knowledge connections. New connections use openai_compatible with an explicit API base, model and dimensions for a self-hosted or cloud service. Local is retained only for existing connections. Provider, model, API base and dimensions are fixed after creation to prevent mixed vector spaces; changing models requires a new knowledge connection and reimport. Omit on edit to retain.
+      properties:
+        provider: { type: string, enum: [local, openai_compatible] }
+        model: { type: string, minLength: 1, maxLength: 256, description: Local mode currently supports BAAI/bge-small-zh-v1.5; API mode uses the specified service model. }
+        dimensions: { type: integer, minimum: 1, maximum: 32768, description: Must match actual returned vectors; local BGE requires 512. }
+        api_base: { type: string, maxLength: 1000, description: HTTP(S) API base for an external embedding service; the embeddings path is appended. }
+        api_key: { type: string, maxLength: 4096, writeOnly: true, description: Encrypted API credential. Empty on edit retains the saved key. May be empty for services without authentication. }
     ContextList:
       type: object
       required: [items, endpoints, bindings, integration]
@@ -4803,6 +4848,7 @@ components:
               name: { type: string }
               backend: { type: string }
               data_use: { type: string }
+              custom_service: { type: boolean, description: Whether this vector database companion accepts per-connection native addresses and credentials. }
         bindings:
           type: array
           items:
@@ -4820,7 +4866,9 @@ components:
       properties:
         name: { type: string, maxLength: 100 }
         endpoint_id: { type: string, maxLength: 64 }
-        credential: { type: string, maxLength: 4096, writeOnly: true }
+        embedding: { $ref: '#/components/schemas/ContextEmbedding' }
+        service_url: { type: string, format: uri, maxLength: 1000, description: Native Milvus, Weaviate or Qdrant HTTP(S) origin without credentials or paths. Fixed after creation; omit on edit to retain. }
+        credential: { type: string, maxLength: 4096, writeOnly: true, description: Native Milvus token or username:password, or Weaviate/Qdrant API key for a custom service; may be empty for unauthenticated servers. Empty on edit retains the saved credential. Other backends use the approved companion credential. }
         enabled: { type: boolean }
         expected_version: { type: integer, format: int64 }
         confirmed_name: { type: string }
@@ -4842,6 +4890,10 @@ components:
         idempotency_key: { type: string, maxLength: 64, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
         scope: { type: string, description: personal or workspace UUID scope, default: personal }
         query: { type: string, maxLength: 4000 }
+        search_mode: { type: string, enum: [semantic, exact, keyword, hybrid], description: Knowledge search mode; keyword uses Chinese-tokenized full-text search, exact retains legacy literal matching, hybrid fuses keyword and semantic rankings. Omit for semantic search. }
+        min_similarity: { type: number, minimum: -1, maximum: 1, description: Optional minimum cosine similarity for semantic results; keyword matches in hybrid search are retained. }
+        page: { type: integer, minimum: 1, maximum: 1000000, description: Knowledge document list page; use with page_size. }
+        page_size: { type: integer, minimum: 1, maximum: 100, description: Knowledge document list page size. }
         limit: { type: integer, minimum: 1, maximum: 20, default: 5 }
         record_id: { type: string, maxLength: 128 }
         record_version: { type: integer, format: int64 }
@@ -8343,7 +8395,9 @@ components:
           format: uuid
         name:
           type: string
+          minLength: 1
           maxLength: 64
+          description: Chinese Han characters, lowercase ASCII letters, digits, and single internal hyphens; length counts Unicode characters.
         description:
           type: string
           maxLength: 2000

@@ -92,7 +92,7 @@ func Upgrade(ctx context.Context, pool *pgxpool.Pool, org, template, operator, p
 
 // The additive Messages adapter preserves native auth and the disk/config
 // format. Its reviewed network helper must pass both the legacy public-TLS
-// fence and the gateway-only fence before the operator approves its manifest.
+// fence and the private gateway isolation contract before approval.
 func compatibleRuntime(source, target Manifest) bool {
 	compatible := source
 	compatible.Image, compatible.TemplateVersion = target.Image, target.TemplateVersion
@@ -104,6 +104,9 @@ func compatibleRuntime(source, target Manifest) bool {
 	}
 	if (source.ExternalModels == "" && target.ExternalModels == ExternalModelAdapter) || (source.ExternalModels == ExternalModelAdapter && target.ExternalModels == "") {
 		compatible.ExternalModels, compatible.NetworkImage = target.ExternalModels, target.NetworkImage
+	}
+	if (source.NetworkAdapter == "" && target.NetworkAdapter == NetworkAdapter) || (source.NetworkAdapter == NetworkAdapter && target.NetworkAdapter == "") {
+		compatible.NetworkAdapter, compatible.NetworkImage = target.NetworkAdapter, target.NetworkImage
 	}
 	return reflect.DeepEqual(compatible, target)
 }

@@ -13,6 +13,20 @@ async function setup(page:Page,readOnly=false){
  await page.route('**/v1/skills/'+id,r=>r.fulfill({json:skill}));
  await page.route('**/v1/skills/'+id+':file?*',r=>r.fulfill({json:{path:new URL(r.request().url()).searchParams.get('path'),content:'资源说明',version:skill.version,editable:true}}));
 }
+test('Chinese skill creation validates characters and exports the UTF-8 filename',async({page})=>{
+ await setup(page);
+ const name='财报分析-v2';const chinese={...skill,name,content:content.replace('meeting-notes',name)};let creates=0;
+ await page.route('**/v1/skills',async r=>{expect(r.request().method()).toBe('POST');expect(r.request().postDataJSON()).toEqual({name,description:'分析中文财报'});creates++;await r.fulfill({json:chinese});});
+ await page.route('**/v1/skills/'+id,r=>r.fulfill({json:chinese}));
+ await page.route('**/v1/skills:export',r=>r.fulfill({contentType:'text/markdown',headers:{'Content-Disposition':"attachment; filename*=utf-8''"+encodeURIComponent(name+'.md')},body:chinese.content}));
+ await page.goto('/app/skills');await page.getByRole('button',{name:'新建技能',exact:true}).click();
+ await page.getByLabel('用途说明',{exact:true}).fill('分析中文财报');
+ for(const invalid of ['中文--技能','-中文','中文/技能','中'.repeat(65)]){
+  await page.getByLabel('Skill 名称',{exact:true}).fill(invalid);await page.getByRole('button',{name:'创建并编辑',exact:true}).click();await expect(page.getByText('使用 1–64 个中文、小写字母、数字或连字符，连字符不能连续或位于首尾',{exact:true})).toBeVisible();
+ }
+ expect(creates).toBe(0);await page.getByLabel('Skill 名称',{exact:true}).fill(name);await page.getByRole('button',{name:'创建并编辑',exact:true}).click();await expect(page.getByLabel('SKILL.md',{exact:true})).toHaveValue(chinese.content);expect(creates).toBe(1);
+ await page.getByRole('button',{name:'关闭',exact:true}).click();await page.getByRole('button',{name:'下载 meeting-notes',exact:true}).click();const waiting=page.waitForEvent('download');await page.getByRole('button',{name:/^下\s*载$/}).click();expect((await waiting).suggestedFilename()).toBe(name+'.md');
+});
 test('list, failed save retains text, close confirmation and download',async({page},info)=>{
  await setup(page);
  await page.route('**/v1/skills/'+id,async r=>{if(r.request().method()==='PUT'){expect(r.request().postDataJSON()).toEqual({content:content+'补充要求',expected_version:3});expect(await r.request().headerValue('x-csrf-token')).toBe(user.csrf_token);await r.fulfill({status:409,json:{code:'VERSION_CONFLICT',message:'Skill 已被修改，请刷新后重新操作'}});}else await r.fulfill({json:skill});});
@@ -110,7 +124,7 @@ test('new file dialog preserves failed scripts and opens the saved script',async
 
 test('live personal library creates, edits, imports, exports and deletes without workspace operations',async({page})=>{
  test.skip(process.env.HC_REAL_SKILLS!=='true','requires local platform OIDC and migration 46');test.setTimeout(60_000);
- const {readFileSync}=await import('node:fs');const name='test-skill-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);
+ const {readFileSync}=await import('node:fs');const name='中文技能-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,6);
  await page.goto('/auth/login?return_to=/app/skills');await page.locator('input[name=login]').fill('member@harness.local');await page.locator('input[name=password]').fill(readFileSync('../.local/auth/member-password','utf8').trim());await page.getByRole('button',{name:'登录',exact:true}).click();await expect(page).toHaveURL(/\/app\/skills$/);
  const me=await page.request.get('/v1/me');expect(me.status()).toBe(200);const identity=await me.json();const headers={Origin:new URL(page.url()).origin,'X-CSRF-Token':identity.csrf_token};
  try{

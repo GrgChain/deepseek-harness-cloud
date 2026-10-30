@@ -2,11 +2,12 @@ import {APIError} from './error';
 import type {CurrentUser} from './identity';
 
 export type ContextKind = 'memory'|'knowledge';
-export interface ContextConnection {id:string;kind:ContextKind;backend:string;endpoint_id:string;name:string;version:number;enabled:boolean;status:'UNVERIFIED'|'READY'|'FAILED';capabilities:Record<string,unknown>;verified_at:string|null;updated_at:string;integration:'NOT_CONNECTED'}
-export interface ContextEndpoint {id:string;name:string;backend:string;data_use:string}
+export interface EmbeddingConfig {provider:'local'|'openai_compatible';model:string;dimensions:number;api_base?:string;api_key?:string}
+export interface ContextConnection {id:string;kind:ContextKind;backend:string;endpoint_id:string;service_url?:string;embedding?:EmbeddingConfig;embedding_key_configured?:boolean;name:string;version:number;enabled:boolean;status:'UNVERIFIED'|'READY'|'FAILED';capabilities:Record<string,unknown>;verified_at:string|null;updated_at:string;integration:'NOT_CONNECTED'}
+export interface ContextEndpoint {id:string;name:string;backend:string;data_use:string;custom_service?:boolean}
 export interface ContextBinding {instance_id:string;connection_id:string;version:number;enabled:boolean;integration:string}
 export interface ContextList {items:ContextConnection[];endpoints:ContextEndpoint[];bindings:ContextBinding[];integration:string}
-export interface ContextRecord {id:string;title:string;content?:string;type:string;source:string;scope:string;version:number;status:string;created_at:string;updated_at:string;snippet?:string;position?:string;score?:number;conflict?:boolean}
+export interface ContextRecord {id:string;title:string;content?:string;type:string;source:string;scope:string;version:number;status:string;created_at:string;updated_at:string;snippet?:string;position?:string;section?:string;score?:number;fusion_score?:number;match_methods?:('keyword'|'semantic')[];conflict?:boolean}
 export interface ContextPreview {token:string;items:ContextRecord[];warnings:string[];data_use:string;expires_in:number}
 export class ContextClient {
  constructor(private readonly fetcher:typeof fetch=(...args)=>fetch(...args)){}

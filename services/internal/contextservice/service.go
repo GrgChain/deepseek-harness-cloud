@@ -10,6 +10,7 @@ import (
 	"errors"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/config"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -25,27 +26,32 @@ import (
 )
 
 type Connection struct {
-	ID           string          `json:"id"`
-	Kind         string          `json:"kind"`
-	Backend      string          `json:"backend"`
-	EndpointID   string          `json:"endpoint_id"`
-	Name         string          `json:"name"`
-	Version      int64           `json:"version"`
-	Enabled      bool            `json:"enabled"`
-	Status       string          `json:"status"`
-	Capabilities json.RawMessage `json:"capabilities"`
-	VerifiedAt   *time.Time      `json:"verified_at"`
-	UpdatedAt    time.Time       `json:"updated_at"`
-	Integration  string          `json:"integration"`
-	envelope     security.Envelope
+	ID                     string           `json:"id"`
+	Kind                   string           `json:"kind"`
+	Backend                string           `json:"backend"`
+	EndpointID             string           `json:"endpoint_id"`
+	ServiceURL             string           `json:"service_url,omitempty"`
+	Embedding              *EmbeddingConfig `json:"embedding,omitempty"`
+	EmbeddingKeyConfigured bool             `json:"embedding_key_configured,omitempty"`
+	Name                   string           `json:"name"`
+	Version                int64            `json:"version"`
+	Enabled                bool             `json:"enabled"`
+	Status                 string           `json:"status"`
+	Capabilities           json.RawMessage  `json:"capabilities"`
+	VerifiedAt             *time.Time       `json:"verified_at"`
+	UpdatedAt              time.Time        `json:"updated_at"`
+	Integration            string           `json:"integration"`
+	envelope               security.Envelope
 }
 type Input struct {
-	Name            string `json:"name"`
-	EndpointID      string `json:"endpoint_id"`
-	Credential      string `json:"credential"`
-	Enabled         *bool  `json:"enabled"`
-	ExpectedVersion int64  `json:"expected_version"`
-	ConfirmedName   string `json:"confirmed_name"`
+	Name            string           `json:"name"`
+	EndpointID      string           `json:"endpoint_id"`
+	ServiceURL      string           `json:"service_url"`
+	Embedding       *EmbeddingConfig `json:"embedding"`
+	Credential      string           `json:"credential"`
+	Enabled         *bool            `json:"enabled"`
+	ExpectedVersion int64            `json:"expected_version"`
+	ConfirmedName   string           `json:"confirmed_name"`
 }
 
 // Only these fields cross the external boundary. Scope and namespace are always
@@ -55,6 +61,10 @@ type Action struct {
 	IdempotencyKey  string          `json:"idempotency_key"`
 	Scope           string          `json:"scope"`
 	Query           string          `json:"query"`
+	SearchMode      string          `json:"search_mode,omitempty"`
+	MinSimilarity   *float64        `json:"min_similarity,omitempty"`
+	Page            int             `json:"page,omitempty"`
+	PageSize        int             `json:"page_size,omitempty"`
 	Limit           int             `json:"limit"`
 	RecordID        string          `json:"record_id"`
 	RecordVersion   int64           `json:"record_version"`
@@ -171,6 +181,9 @@ func (s *Service) List(ctx context.Context, p identity.Principal, kind string) (
 	items := []Connection{}
 	for rows.Next() {
 		v, e := scan(rows)
+		if e == nil {
+			v, e = s.presentConnection(p, v)
+		}
 		if e != nil {
 			rows.Close()
 			return nil, e
@@ -190,6 +203,8 @@ func (s *Service) List(ctx context.Context, p identity.Principal, kind string) (
 		if kindOf(e.Backend) == kind {
 			e.URL = ""
 			e.ProxyKeyFile = ""
+			e.CustomService = (e.Backend == "milvus" || e.Backend == "weaviate" || e.Backend == "qdrant") && e.ServiceKeyFile != ""
+			e.ServiceKeyFile = ""
 			endpoints = append(endpoints, e)
 		}
 	}
@@ -238,8 +253,30 @@ func (s *Service) Save(ctx context.Context, p identity.Principal, kind, id strin
 	if kindOf(endpoint.Backend) != kind {
 		return Connection{}, invalid("服务类型不匹配")
 	}
+	if input.ServiceURL != "" {
+		if (endpoint.Backend != "milvus" && endpoint.Backend != "weaviate" && endpoint.Backend != "qdrant") || endpoint.ServiceKeyFile == "" {
+			return Connection{}, invalid("此服务尚不支持自定义地址")
+		}
+		input.ServiceURL, err = milvusURL(input.ServiceURL, endpoint.AllowPrivateHTTP)
+		if err != nil {
+			return Connection{}, err
+		}
+	}
 	if len(input.Credential) > 4096 || strings.ContainsAny(input.Credential, "\r\n\x00") {
 		return Connection{}, invalid("凭据格式不正确")
+	}
+	if kind == "knowledge" && id == "" && (input.Embedding == nil || input.Embedding.Provider != "openai_compatible") {
+		return Connection{}, invalid("请配置自建或云端 Embedding API 的地址、模型名称和向量维度")
+	}
+	if input.Embedding != nil {
+		if kind != "knowledge" {
+			return Connection{}, invalid("记忆连接不支持此Embedding模型配置")
+		}
+		normalized, e := validateEmbedding(*input.Embedding, endpoint.AllowPrivateHTTP)
+		if e != nil {
+			return Connection{}, e
+		}
+		input.Embedding = &normalized
 	}
 	tx, err := s.begin(ctx, p, kind, true)
 	if err != nil {
@@ -265,13 +302,54 @@ func (s *Service) Save(ctx context.Context, p identity.Principal, kind, id strin
 	if input.Enabled != nil {
 		v.Enabled = *input.Enabled
 	}
-	if input.Credential != "" {
-		v.envelope, err = s.cipher.Encrypt([]byte(input.Credential), s.aad(p, v.ID, "context-credential"))
+	settings := connectionSettings{}
+	if id != "" {
+		settings, err = s.connectionSettings(p, v)
 		if err != nil {
 			return v, err
 		}
-	} else if id == "" {
+		if input.ServiceURL != "" && input.ServiceURL != settings.ServiceURL {
+			return v, invalid("更换服务地址请新建连接，原数据和绑定不会迁移")
+		}
+	}
+	if id == "" {
+		settings.ServiceURL = input.ServiceURL
+	}
+	if input.Embedding != nil {
+		if id != "" {
+			previous := defaultEmbedding()
+			if settings.Embedding != nil {
+				previous = *settings.Embedding
+			}
+			if !sameEmbedding(previous, *input.Embedding) {
+				return v, invalid("更换Embedding模型请新建知识库并重新导入文档，不能混用已有向量")
+			}
+			if input.Embedding.APIKey == "" {
+				input.Embedding.APIKey = previous.APIKey
+			}
+		}
+		settings.Embedding = input.Embedding
+	}
+	if input.Credential != "" {
+		settings.Credential = input.Credential
+	}
+	if id == "" && settings.Credential == "" && settings.ServiceURL == "" {
 		return v, invalid("请输入外部服务凭据")
+	}
+	if settings.ServiceURL != "" || settings.Embedding != nil {
+		raw, _ := json.Marshal(settings)
+		secret := append([]byte(settingsSecretPrefix), raw...)
+		v.envelope, err = s.cipher.Encrypt(secret, s.aad(p, v.ID, "context-credential"))
+		clear(secret)
+		clear(raw)
+		if err != nil {
+			return v, err
+		}
+	} else if id == "" || input.Credential != "" {
+		v.envelope, err = s.cipher.Encrypt([]byte(settings.Credential), s.aad(p, v.ID, "context-credential"))
+		if err != nil {
+			return v, err
+		}
 	}
 	if id == "" {
 		var count int
@@ -296,6 +374,9 @@ func (s *Service) Save(ctx context.Context, p identity.Principal, kind, id strin
 		return v, err
 	}
 	v, err = load(ctx, tx, p, kind, v.ID)
+	if err == nil {
+		v, err = s.presentConnection(p, v)
+	}
 	if err != nil {
 		return v, err
 	}
@@ -417,9 +498,34 @@ func remoteWrite(action string) bool {
 	return false
 }
 func (s *Service) remote(ctx context.Context, e Endpoint, v Connection, p identity.Principal, action string, input Action) (json.RawMessage, error) {
-	credential, err := s.cipher.Decrypt(v.envelope, s.aad(p, v.ID, "context-credential"))
+	settings, err := s.connectionSettings(p, v)
 	if err != nil {
 		return nil, unavailable()
+	}
+	authorization := settings.Credential
+	var service *milvusService
+	if settings.ServiceURL != "" {
+		service = &milvusService{URL: settings.ServiceURL, Token: settings.Credential}
+		if (e.Backend != "milvus" && e.Backend != "weaviate" && e.Backend != "qdrant") || e.ServiceKeyFile == "" {
+			return nil, unavailable()
+		}
+		if _, err := milvusURL(service.URL, e.AllowPrivateHTTP); err != nil {
+			return nil, err
+		}
+		key, err := config.ReadPrivateFile(e.ServiceKeyFile)
+		if err != nil || len(bytes.TrimSpace(key)) < 32 {
+			return nil, unavailable()
+		}
+		authorization = string(bytes.TrimSpace(key))
+		clear(key)
+	}
+	if settings.Embedding != nil {
+		if v.Kind != "knowledge" {
+			return nil, unavailable()
+		}
+		if _, err := validateEmbedding(*settings.Embedding, e.AllowPrivateHTTP); err != nil {
+			return nil, err
+		}
 	}
 	client, err := endpointClient(ctx, e)
 	if err != nil {
@@ -428,11 +534,14 @@ func (s *Service) remote(ctx context.Context, e Endpoint, v Connection, p identi
 	// Namespaces do not expose browser-selected organization or user identities.
 	digest := sha256.Sum256([]byte(p.OrganizationID + ":" + p.UserID + ":" + v.ID))
 	body, _ := json.Marshal(struct {
-		Contract  string `json:"contract"`
-		Namespace string `json:"namespace"`
-		Kind      string `json:"kind"`
+		Contract  string           `json:"contract"`
+		Namespace string           `json:"namespace"`
+		Kind      string           `json:"kind"`
+		Service   *milvusService   `json:"service,omitempty"`
+		Embedding *EmbeddingConfig `json:"embedding,omitempty"`
 		Action
-	}{Contract, hex.EncodeToString(digest[:]), v.Kind, input})
+	}{Contract, hex.EncodeToString(digest[:]), v.Kind, service, settings.Embedding, input})
+	defer clear(body)
 	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(e.URL, "/")+"/v1/"+action, bytes.NewReader(body))
 	if err != nil {
 		return nil, unavailable()
@@ -448,7 +557,7 @@ func (s *Service) remote(ctx context.Context, e Endpoint, v Connection, p identi
 	req.Header.Set("X-Context-Timestamp", stamp)
 	req.Header.Set("X-Context-Signature", hex.EncodeToString(signature.Sum(nil)))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+string(credential))
+	req.Header.Set("Authorization", "Bearer "+authorization)
 	response, err := client.Do(req)
 	if err != nil {
 		return nil, unavailable()
@@ -489,8 +598,17 @@ func validateAction(action string, in Action) error {
 	if in.Limit < 0 || in.Limit > 20 {
 		return invalid("返回条数须为 1～20")
 	}
+	if in.Page < 0 || in.Page > 1000000 || in.PageSize < 0 || in.PageSize > 100 || (in.Page != 0 || in.PageSize != 0) && (action != "list" || in.Page < 1 || in.PageSize < 1) {
+		return invalid("分页参数不正确")
+	}
 	if action == "search" && strings.TrimSpace(in.Query) == "" {
 		return invalid("请输入检索问题")
+	}
+	if in.SearchMode != "" && (action != "search" || (in.SearchMode != "semantic" && in.SearchMode != "exact" && in.SearchMode != "keyword" && in.SearchMode != "hybrid")) {
+		return invalid("检索方式不正确")
+	}
+	if in.MinSimilarity != nil && (action != "search" || in.SearchMode == "exact" || in.SearchMode == "keyword" || math.IsNaN(*in.MinSimilarity) || math.IsInf(*in.MinSimilarity, 0) || *in.MinSimilarity < -1 || *in.MinSimilarity > 1) {
+		return invalid("最低相关度须在 -1 到 1 之间，仅适用于语义或混合检索")
 	}
 	if remoteWrite(action) && (!endpointPattern.MatchString(in.IdempotencyKey) || !in.Confirmed) {
 		return invalid("请确认操作并提供唯一操作标识")
@@ -504,6 +622,15 @@ func validateAction(action string, in Action) error {
 func (s *Service) Call(ctx context.Context, p identity.Principal, kind, id, action string, in Action, trace string) (json.RawMessage, error) {
 	if err := validateAction(action, in); err != nil {
 		return nil, err
+	}
+	if kind != "knowledge" && in.SearchMode != "" {
+		return nil, invalid("此服务不支持该检索方式")
+	}
+	if kind != "knowledge" && in.MinSimilarity != nil {
+		return nil, invalid("此服务不支持相似度过滤")
+	}
+	if kind != "knowledge" && (in.Page != 0 || in.PageSize != 0) {
+		return nil, invalid("此服务不支持文档分页")
 	}
 	write := !readAction(action)
 	tx, err := s.begin(ctx, p, kind, write)

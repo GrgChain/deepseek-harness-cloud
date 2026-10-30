@@ -169,6 +169,9 @@ func manifestFromFacts(c Contract, sources map[string][]byte, image ImageFacts) 
 	if bytes.Contains(sources["storage-helper.py"], []byte("MAX_CAPACITY = 100 * GiB")) {
 		m.StorageAdapter = StorageAdapter
 	}
+	if bytes.Contains(sources["network-helper.py"], []byte(`PUBLIC_WEB_PORTS = "80,443"`)) {
+		m.NetworkAdapter = NetworkAdapter
+	}
 	if !m.Valid() {
 		return invalid()
 	}

@@ -163,6 +163,28 @@ test('asset name opens the directory tree and browsing stays read-only',async({p
  await page.getByRole('button',{name:'返回工作数据'}).click();
  await expect(page).toHaveURL('/app/storage');
 });
+test('first directory load does not display cancellation errors and populates the tree',async({page})=>{
+ await setup(page);
+ await page.addInitScript(()=>{const events:string[]=[];(window as typeof window&{storageAlerts:string[]}).storageAlerts=events;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes){if(node instanceof Element){if(node.matches('[role=alert]'))events.push(node.textContent??'');node.querySelectorAll('[role=alert]').forEach(el=>events.push(el.textContent??''));}}}).observe(document,{subtree:true,childList:true});});
+ await page.route('**/v1/storage-assets/'+base.id+'/files?*',async route=>{
+  await new Promise(resolve=>setTimeout(resolve,250));
+  const query=new URL(route.request().url()).searchParams;
+  await route.fulfill({json:{root:query.get('root'),path:query.get('path')??'',entries:[{name:'first-folder',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'}]}}).catch(()=>{});
+ });
+ await page.goto('/app/storage');await page.getByRole('button',{name:'浏览 测试 数据目录'}).click();
+ await expect(page.locator('.storage-file-tree').getByText('first-folder',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'进入文件夹 first-folder'})).toBeVisible();
+ const alerts=await page.evaluate(()=>(window as typeof window&{storageAlerts:string[]}).storageAlerts);
+ expect(alerts.filter(text=>/cancel(?:led)?error|aborterror/i.test(text))).toEqual([]);
+});
+test('directory tree retains retry for real read failures',async({page})=>{
+ await setup(page);let fail=true;
+ await page.route('**/v1/storage-assets/'+base.id+'/files?*',route=>fail?route.fulfill({status:503,json:{code:'DEPENDENCY_UNAVAILABLE'}}):route.fulfill({json:{root:'workspace',path:'',entries:[{name:'retry-folder',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'}]}}));
+ await page.goto('/app/storage');await page.getByRole('button',{name:'浏览 测试 数据目录'}).click();
+ const tree=page.locator('.storage-file-tree');await expect(tree.getByRole('alert')).toBeVisible();
+ fail=false;await tree.getByRole('button',{name:/重\s*试/}).click();
+ await expect(tree.getByText('retry-folder',{exact:true})).toBeVisible();await expect(tree.getByRole('alert')).toHaveCount(0);
+});
 test('directory tree has no horizontal overflow when names fit',async({page})=>{
  await setup(page);
  await page.route('**/v1/storage-assets/'+base.id+'/files?*',route=>route.fulfill({json:{root:'workspace',path:'',entries:[{name:'docs',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'},{name:'assets',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'}]}}));

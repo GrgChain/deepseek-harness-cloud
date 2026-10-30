@@ -39,7 +39,10 @@ export class SkillsClient {
  async download(user:CurrentUser,ids:string[],previous=false){
   const response=await this.response(user,previous?`/v1/skills/${ids[0]}:previous`:'/v1/skills:export',previous?{}:{ids});
   const blob=await response.blob();
-  const disposition=response.headers.get('Content-Disposition')??'';const name=disposition.match(/filename="?([a-z0-9.-]+)"?/i)?.[1]??'skills-export.zip';
+  const disposition=response.headers.get('Content-Disposition')??'';
+  let name=disposition.match(/filename="?([a-z0-9.-]+)"?/i)?.[1]??'skills-export.zip';
+  const encoded=disposition.match(/filename\*=utf-8''([^;\s]+)/i)?.[1];
+  if(encoded){try{name=decodeURIComponent(encoded);}catch{/* Retain the fallback for malformed headers. */}}
   return {blob,name};
  }
 }

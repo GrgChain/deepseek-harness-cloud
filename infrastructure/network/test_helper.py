@@ -18,13 +18,25 @@ class NetworkContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             helper.parse(json.dumps(value)[:-1] + ',"schema_version":1}')
 
-    def test_external_model_fence_allows_only_approved_gateway_port(self):
+    def test_external_model_fence_preserves_private_isolation_and_public_web(self):
         value = {'schema_version': 2, 'instance_id': str(uuid.uuid4()), 'gateway': {'addresses': ['10.50.0.10/32'], 'port': 14000}}
         self.assertEqual(helper.parse(json.dumps(value)), value)
         entries = helper.rules(value)[1][-1]
-        self.assertIn(['-d', '10.50.0.10/32', '-p', 'tcp', '-m', 'tcp', '--dport', '14000', '-j', 'ACCEPT'], entries)
+        approved = ['-d', '10.50.0.10/32', '-p', 'tcp', '-m', 'tcp', '--dport', '14000', '-j', 'ACCEPT']
+        web = ['-p', 'tcp', '-m', 'multiport', '--dports', '80,443', '-j', 'RETURN']
+        self.assertIn(approved, entries)
+        self.assertIn(web, entries)
+        dns = [['-p', protocol, '-m', protocol, '--dport', '53', '-j', 'RETURN'] for protocol in ['udp', 'tcp']]
+        for rule in dns:
+            self.assertIn(rule, entries)
+        for network in helper.PRIVATE:
+            denied = ['-d', network, '-j', 'DROP']
+            self.assertLess(entries.index(approved), entries.index(denied))
+            self.assertLess(entries.index(denied), entries.index(web))
+            for rule in dns:
+                self.assertLess(entries.index(denied), entries.index(rule))
         self.assertEqual(entries[-1], ['-j', 'DROP'])
-        self.assertEqual(helper.rules(value)[0][-1], entries)
+        self.assertEqual(helper.rules(value)[0][-1], [entries[0], approved, ['-j', 'DROP']])
         for address in ['127.0.0.1/32', '169.254.169.254/32', '10.0.0.0/8', '0.0.0.0/0']:
             with self.assertRaises(ValueError):
                 helper.parse(json.dumps({**value, 'gateway': {'addresses': [address], 'port': 14000}}))

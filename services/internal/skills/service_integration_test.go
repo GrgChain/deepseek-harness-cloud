@@ -123,7 +123,7 @@ func TestPersonalLibraryWithPostgres(t *testing.T) {
 		return p
 	}
 	owner, other := login("owner"), login("admin")
-	skill, err := s.Create(ctx, owner, "notes", "整理个人会议记录", "")
+	skill, err := s.Create(ctx, owner, "会议纪要", "整理个人会议记录", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestPersonalLibraryWithPostgres(t *testing.T) {
 	if bytes.Contains(ciphertext, []byte("private body token")) {
 		t.Fatal("stored plaintext")
 	}
-	preview, err := s.Preview(ctx, owner, "notes.md", markdown("notes", "remote body"), "", "", 0)
+	preview, err := s.Preview(ctx, owner, "notes.md", markdown("会议纪要", "remote body"), "", "", 0)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -32,6 +32,9 @@ test('real hardened Docker runtime preserves files and fences HTTP and WebSocket
     assert.fail('Runtime did not publish its private readiness contract');
   };
   const native = await ready();
+  assert.equal(await docker('exec', name, 'node', '-e', "process.stdout.write(require('os').homedir())"), '/data/dsh');
+  await docker('exec', name, 'node', '-e', "const fs=require('fs');fs.mkdirSync('/data/dsh/.local/bin',{recursive:true});fs.writeFileSync('/data/dsh/.local/bin/hc-install-proof','#!/bin/sh\\necho persistent-user-tool\\n',{mode:0o755})");
+  assert.equal(await docker('exec', name, 'bash', '-c', 'hc-install-proof'), 'persistent-user-tool', 'Tools installed in the persistent user home must be callable without manual PATH changes');
   assert.equal(native.provider, config.provider ?? 'deepseek-official'); assert.equal(native.workspace_path, '/data/workspace'); assert.equal(native.model, config.model);
   assert.equal((await stat(join(run, 'native.json'))).mode & 0o777, 0o600);
   const ip = await docker('inspect', '-f', '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}', name);

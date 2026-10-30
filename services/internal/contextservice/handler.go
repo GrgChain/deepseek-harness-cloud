@@ -75,6 +75,8 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 		if err = decode(w, r, &input); err == nil {
 			result, err = h.service.Save(ctx, p, kind, "", input, trace)
 		}
+	case len(parts) == 2 && kind == "knowledge" && parts[1] == "parse" && r.Method == "POST":
+		result, err = parseDocument(w, r)
 	case len(parts) == 2 && (r.Method == "PUT" || r.Method == "DELETE"):
 		var input Input
 		if err = decode(w, r, &input); err == nil {

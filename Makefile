@@ -164,13 +164,22 @@ model-gateway-init:
 run-model-gateway:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/model_gateway-dsn HC_MODEL_GATEWAY_CONFIG_FILE=$(CURDIR)/.local/model-gateway/config.json $(GO) run ./services/cmd/model-gateway
 
-.PHONY: context-init context-up context-test
+.PHONY: context-init context-up context-test context-embedding-up context-embedding-test context-docling-up
 context-init:
 	python3 deploy/context/prepare.py
 
 context-up: context-init
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile knowledge --profile memory up -d --build
 
+context-docling-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile docling up -d docling
+
+context-embedding-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile embeddings up -d --wait --wait-timeout 300 embeddings
+
+context-embedding-test:
+	HC_CONTEXT_TEST_EMBEDDINGS=true python3 deploy/context/test_services.py EmbeddingService
+
 context-test:
-	python3 deploy/context/test_services.py
+	HC_CONTEXT_TEST_EMBEDDINGS=true python3 deploy/context/test_services.py
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml run --rm --no-deps bridge python test_recovery.py

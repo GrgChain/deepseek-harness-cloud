@@ -12,6 +12,7 @@ import sys
 
 UUID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$")
 PRIVATE = ["0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4"]
+PUBLIC_WEB_PORTS = "80,443"
 
 def parse(data):
     def unique(pairs):
@@ -46,7 +47,10 @@ def rules(config):
     if config['schema_version'] == 2:
         gateway = config['gateway']
         approved = [["-d", address, "-p", "tcp", "-m", "tcp", "--dport", str(gateway['port']), "-j", "ACCEPT"] for address in gateway['addresses']]
-        forward = [established] + approved + [["-j", "DROP"]]
+        # Model gateway access is an explicit private exception. Web tools and
+        # installers may use public HTTP(S), after all private ranges are denied.
+        dns = [["-p", protocol, "-m", protocol, "--dport", "53", "-j", "RETURN"] for protocol in ["udp", "tcp"]]
+        forward = [established] + approved + [["-d", network, "-j", "DROP"] for network in PRIVATE] + dns + [["-p", "tcp", "-m", "multiport", "--dports", PUBLIC_WEB_PORTS, "-j", "RETURN"], ["-j", "DROP"]]
         inbound = [established] + approved + [["-j", "DROP"]]
     return [
         ("iptables", "HC-I-" + suffix, "INPUT", bridge, inbound),

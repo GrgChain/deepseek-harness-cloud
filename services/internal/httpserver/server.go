@@ -102,6 +102,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					budget = 125 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
 				}
+				if r.Method == http.MethodPost && r.URL.Path == "/v1/context/knowledge/parse" {
+					budget = 300 * time.Second
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
+				}
 				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && (strings.HasSuffix(r.URL.Path, "/files") || strings.HasSuffix(r.URL.Path, "/file")) {
 					budget = 65 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))

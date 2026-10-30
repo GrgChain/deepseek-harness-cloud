@@ -61,6 +61,47 @@ func TestPolicyAndArchiveRoundTrip(t *testing.T) {
 		t.Fatal("mutated original")
 	}
 }
+
+func TestChineseSkillNames(t *testing.T) {
+	for _, name := range []string{"会议纪要", "财报分析-v2", "meeting-notes", strings.Repeat("中", 64), strings.Repeat("𠮷", 64)} {
+		t.Run(name, func(t *testing.T) {
+			b, err := newBundle(name, "技能说明")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, resources := range []bool{false, true} {
+				if resources {
+					b.Files["references/说明.txt"] = []byte("保留资源")
+				}
+				for _, bundles := range [][]Bundle{{b}, {b, {Files: map[string][]byte{"SKILL.md": markdown("another", "正文")}}}} {
+					raw, filename, err := exportBundles(bundles)
+					if err != nil {
+						t.Fatal(err)
+					}
+					parsed, err := parseImport(filename, raw)
+					if err != nil || len(parsed) != len(bundles) {
+						t.Fatal("Chinese archive round trip failed", err)
+					}
+					found := false
+					for _, item := range parsed {
+						found = found || bundleDigest(item) == bundleDigest(b)
+					}
+					if !found {
+						t.Fatal("lost name, content or resources")
+					}
+				}
+			}
+		})
+	}
+	for _, name := range []string{"", strings.Repeat("中", 65), strings.Repeat("a", 65), "-会议", "会议-", "会议--纪要", "会议/纪要", "会议 纪要", "Meeting", "纪要🙂", "中\xff"} {
+		if _, err := newBundle(name, "说明"); err == nil {
+			t.Errorf("accepted invalid name %q", name)
+		}
+	}
+	if safePath(strings.Repeat("a", 129) + "/SKILL.md") {
+		t.Fatal("relaxed the resource path limit")
+	}
+}
 func TestRejectUnsafeImports(t *testing.T) {
 	cases := map[string][]byte{
 		"traversal":                zipFiles(t, map[string][]byte{"../SKILL.md": markdown("test", "body")}, 0600),

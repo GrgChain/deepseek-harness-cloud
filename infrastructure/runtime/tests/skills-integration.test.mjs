@@ -24,9 +24,13 @@ test('installed workspace skills reach the native user catalog and model loader'
       'SKILL.md': Buffer.from('---\\nname: ' + (enabled ? 'selected' : 'disabled') + '\\ndescription: Workspace instructions\\nwhenToUse: During verification\\ndisable-model-invocation: ' + !enabled + '\\nuser-invocable: ' + enabled + '\\n---\\nRead references/guide.txt before acting.').toString('base64'),
       'references/guide.txt': Buffer.from('Associated resource').toString('base64'),
     } });
+    const chineseName = 'hc-skill-b3e2b3e2-1111-4111-8111-111111111111';
+    const chineseBundle = bundle(true);
+    chineseBundle.files['SKILL.md'] = Buffer.from(Buffer.from(chineseBundle.files['SKILL.md'], 'base64').toString().replace('name: selected', 'name: ' + chineseName + '\\ndisplay-name: 财报分析-v2')).toString('base64');
     installSkills(root, { ...identity, skills: [
       { name: 'selected', bundle: bundle(true) },
       { name: 'disabled', bundle: bundle(false) },
+      { name: chineseName, bundle: chineseBundle },
     ] });
     const ctx = new Context();
     const mounted = [];
@@ -36,7 +40,7 @@ test('installed workspace skills reach the native user catalog and model loader'
       mounted.push(ctx.plugin(filesystem, { dshHome: root + '/dsh', agentsHome: '/tmp/agents', watch: false }));
       await mounted.at(-1);
       const listed = await ctx.skills.list({ cwd: '/tmp' });
-      assert.deepEqual(listed.filter(isUserInvocable).map(item => item.name), ['selected']);
+      assert.deepEqual(listed.filter(isUserInvocable).map(item => item.name).sort(), [chineseName, 'selected'].sort());
       assert.equal(listed.find(item => item.name === 'selected').invocation.modelInvocable, true);
       let tool;
       mountTool({ skills: ctx.skills, tools: { register(value) { tool = value; } }, on() {} });
@@ -44,6 +48,10 @@ test('installed workspace skills reach the native user catalog and model loader'
       assert.equal(loaded.content, 'Read references/guide.txt before acting.');
       assert.equal(loaded.resourceBase.path, root + '/dsh/skills/selected');
       assert.equal(await fs.readFile(loaded.resourceBase.path + '/references/guide.txt', 'utf8'), 'Associated resource');
+      const chinese = await tool.execute({ name: chineseName }, {});
+      assert.equal(chinese.content, loaded.content);
+      assert.equal(await fs.readFile(chinese.resourceBase.path + '/references/guide.txt', 'utf8'), 'Associated resource');
+      assert.match(await fs.readFile(chinese.resourceBase.path + '/SKILL.md', 'utf8'), /display-name: 财报分析-v2/);
       await assert.rejects(tool.execute({ name: 'disabled' }, {}), /not available for model invocation/);
       console.log(JSON.stringify({ user_catalog: true, model_loader: true, resources: true }));
     } finally { for (const fiber of mounted.reverse()) await fiber.dispose(); }

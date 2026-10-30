@@ -32,10 +32,21 @@ func (h *LocalHost) installSkills(ctx context.Context, p ExecutionPlan) error {
 	if container != nil {
 		return validateContainer(*container, p, h.options.RuntimeRoot, true)
 	}
+	runtimeSkills, err := skills.RuntimeWorkspaceSkills(p.skills)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		for i, item := range runtimeSkills {
+			if item.Name != p.skills[i].Name {
+				clear(item.Bundle.Files["SKILL.md"])
+			}
+		}
+	}()
 	input, err := json.Marshal(struct {
 		storageRequest
 		Skills []skills.WorkspaceSkill `json:"skills"`
-	}{identity, p.skills})
+	}{identity, runtimeSkills})
 	if err != nil {
 		return err
 	}

@@ -250,9 +250,11 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 技能包导入不再设置文件数量、上传或解压大小的固定限额，实际规模受浏览器、服务内存及数据库和磁盘容量约束；技能包其他 JSON 写请求仍有 7 MiB 上限，文本文件编辑仍限 1 MiB。远程来源保留下载超时、重定向和公开网络校验；批量导出仍最多选择 50 项。写操作不设置请求频率限制。`SKILL_INVALID` 返回 422，`SKILL_EXISTS` / `VERSION_CONFLICT` 返回 409，过期预览及他人技能返回 404。源获取失败保留当前包；导出返回 `no-store` 附件。
 
 
-## 外接记忆与知识库（API-095～099）
+## 外接记忆与知识库（API-095～099、API-120）
 
 `/v1/context/{memory|knowledge}`提供本人连接列表/创建，`/{id}`更新/移除；`/{id}/{action}`提供验证、list/search/get/export、预览/保存、内容删除/重建、绑定和核实。POST即使只读仍校验Origin及CSRF。`apply/delete/rebuild`使用请求内幂等键；绑定同时检查连接与绑定版本；`reconcile`只接受空对象，重放服务器加密保存的原始操作。移除连接保留外部数据，永久内容删除独立确认。公开字段以[OpenAPI](../api/openapi.yaml)为准，支持程度见[实施记录](context-implementation.md)。
+
+`POST /v1/context/knowledge/parse` 接收一个 multipart 文件并转交配置的 Docling，返回可编辑的 Markdown，不直接写入知识库。知识库 `list` 可提交 `page`、`page_size` 和标题 `query`；`search` 支持 `semantic`、`keyword`、`hybrid`，保留旧客户端的 `exact` 模式。`min_similarity` 可选，适用于语义和混合检索的向量结果；关键词命中不受阈值限制。未提交阈值时保持原有行为。
 
 
 ## 工作台连接器（REQ-23，API-100～111、API-115/116）

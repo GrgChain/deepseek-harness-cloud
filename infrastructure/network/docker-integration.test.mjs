@@ -30,7 +30,7 @@ test('real bridge fences block new host/control-plane connections and preserve p
   assert.equal(await docker('exec', name, 'node', '-e', publicTLS), 'public-tls');
 });
 
-test('gateway fence allows only the approved private TLS address and port', {skip: !process.env.HC_NETWORK_GATEWAY_POLICY_FILE || !process.env.HC_NETWORK_IMAGE || !process.env.HC_RUNTIME_IMAGE,timeout:60000},async t=>{
+test('gateway fence permits public downloads while blocking private hosts and unapproved ports', {skip: !process.env.HC_NETWORK_GATEWAY_POLICY_FILE || !process.env.HC_NETWORK_IMAGE || !process.env.HC_RUNTIME_IMAGE,timeout:60000},async t=>{
   const {readFile}=await import('node:fs/promises');
   const policy=JSON.parse(await readFile(process.env.HC_NETWORK_GATEWAY_POLICY_FILE,'utf8'));
   const endpoint=new URL(policy.endpoint),instance=randomUUID(),network='hc-network-gateway-test-'+instance,name=network,bridge='hci-'+instance.replaceAll('-','').slice(0,11);
@@ -57,12 +57,15 @@ test('gateway fence allows only the approved private TLS address and port', {ski
   const probeTLS=`const https=require('https'),fs=require('fs');const r=https.get(${JSON.stringify(policy.endpoint+'/readyz')},{ca:fs.readFileSync('/gateway-ca.pem'),timeout:4000},response=>{console.log(response.statusCode);response.resume()});r.on('timeout',()=>r.destroy());r.on('error',error=>console.log('blocked:'+error.code))`;
   const probePrivate=`fetch('http://${gateway}:${privateServer.address().port}',{signal:AbortSignal.timeout(2000)}).then(r=>console.log(r.status)).catch(()=>console.log('blocked'))`;
   const wrongPort=`fetch(${JSON.stringify('http://'+endpoint.hostname+':'+wrongPortServer.address().port)},{signal:AbortSignal.timeout(2000)}).then(r=>console.log(r.status)).catch(()=>console.log('blocked'))`;
+  const publicDownload=`fetch('https://stockbuddy.qq.com/release/clawhub/cli/v0.0.2/SHA256.txt',{signal:AbortSignal.timeout(8000)}).then(async r=>console.log(r.ok && (await r.text()).includes('westock-linux-amd64')?'public-download':'download-failed')).catch(()=>console.log('blocked'))`;
   assert.equal(await docker('exec',name,'node','-e',probeTLS),'200','The private host TLS endpoint must be reachable before applying the fence');
   assert.equal(await docker('exec',name,'node','-e',probePrivate),'200');
   assert.equal(await docker('exec',name,'node','-e',wrongPort),'200');
+  assert.equal(await docker('exec',name,'node','-e',publicDownload),'public-download','The official WeStock download must be reachable before fencing');
   assert.equal((await helper('install')).isolated,true);
   assert.deepEqual(await helper('inspect'),await helper('install'));
   assert.equal(await docker('exec',name,'node','-e',probeTLS),'200');
   assert.equal(await docker('exec',name,'node','-e',probePrivate),'blocked');
   assert.equal(await docker('exec',name,'node','-e',wrongPort),'blocked');
+  assert.equal(await docker('exec',name,'node','-e',publicDownload),'public-download','A model gateway configuration must not disable public HTTPS downloads');
 });

@@ -395,7 +395,7 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 		cipher, _ := security.NewSecretCipher("workspace-test", bytes.Repeat([]byte{7}, 32))
 		library := skills.NewService(appDB, cipher, "test", false)
 		service := NewCommandService(appDB, fixtureCreationGate{}, false).WithSkills(library)
-		skill, e := library.Create(ctx, p, "meeting-notes", "整理会议记录", "")
+		skill, e := library.Create(ctx, p, "会议纪要", "整理会议记录", "")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -480,9 +480,14 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 		defer tx.Rollback(ctx)
 		copied, e := skills.LoadWorkspaceSkills(ctx, tx, cipher, "test", p.OrganizationID, p.UserID, accepted.InstanceID)
 		defer skills.DestroyWorkspaceSkills(copied)
-		if e != nil || len(copied) != 33 || copied[0].Version != skill.Version || string(copied[0].Bundle.Files["scripts/run.py"]) != "private script snapshot" || len(copied[0].Bundle.Files["SKILL.md"]) == 0 {
+		if e != nil || len(copied) != 33 || copied[0].Version != skill.Version || copied[0].Name != "会议纪要" || string(copied[0].Bundle.Files["scripts/run.py"]) != "private script snapshot" || len(copied[0].Bundle.Files["SKILL.md"]) == 0 {
 			t.Fatal("frozen bundle did not retain all files", e)
 		}
+		runtimeSkills, e := skills.RuntimeWorkspaceSkills(copied)
+		if e != nil || runtimeSkills[0].Name != "hc-skill-"+skill.ID || !strings.Contains(string(runtimeSkills[0].Bundle.Files["SKILL.md"]), "display-name: 会议纪要") {
+			t.Fatal("Chinese snapshot cannot be installed in native DSH", e)
+		}
+		clear(runtimeSkills[0].Bundle.Files["SKILL.md"])
 		for _, item := range copied {
 			content := string(item.Bundle.Files["SKILL.md"])
 			if !strings.Contains(content, "disable-model-invocation: false") || !strings.Contains(content, "user-invocable: true") {

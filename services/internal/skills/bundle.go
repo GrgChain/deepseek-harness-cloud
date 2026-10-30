@@ -25,7 +25,8 @@ const (
 	MaxFiles  = 128
 )
 
-var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var namePattern = regexp.MustCompile(`^[\p{Han}a-z0-9]+(?:-[\p{Han}a-z0-9]+)*$`)
+var runtimeNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var idPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$`)
 
 type Bundle struct {
@@ -43,7 +44,7 @@ type document struct {
 
 func invalid(message string) error { return webapi.Fail(422, "SKILL_INVALID", message) }
 func validName(name string) bool {
-	return len(name) > 0 && len(name) <= 64 && namePattern.MatchString(name)
+	return utf8.ValidString(name) && utf8.RuneCountInString(name) > 0 && utf8.RuneCountInString(name) <= 64 && namePattern.MatchString(name)
 }
 
 func parseDocument(content []byte) (document, error) {
@@ -96,7 +97,7 @@ func parseDocument(content []byte) (document, error) {
 	}
 	name, ok := fields["name"].(string)
 	if !ok || !validName(name) {
-		return out, invalid("名称须为 1–64 个小写字母、数字和单个连字符")
+		return out, invalid("名称须为 1–64 个中文、小写字母、数字或连字符，连字符不能连续或位于首尾")
 	}
 	desc, ok := fields["description"].(string)
 	if !ok || strings.TrimSpace(desc) == "" || utf8.RuneCountInString(desc) > 2000 || strings.ContainsFunc(desc, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
@@ -177,7 +178,7 @@ func safePath(name string) bool {
 		return false
 	}
 	for _, part := range strings.Split(name, "/") {
-		if part == "" || part == "." || part == ".." || len(part) > 128 || strings.HasPrefix(part, ".") || part == "__MACOSX" {
+		if part == "" || part == "." || part == ".." || len(part) > 128 && !validName(part) || strings.HasPrefix(part, ".") || part == "__MACOSX" {
 			return false
 		}
 		for _, r := range part {

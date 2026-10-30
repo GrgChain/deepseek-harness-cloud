@@ -23,6 +23,7 @@ const (
 	NativeAdapter          = "dsh-root-token-cookie-v1"
 	ExternalModelAdapter   = "platform-messages-v1"
 	StorageAdapter         = "bounded-ext4-v1"
+	NetworkAdapter         = "public-web-v1"
 )
 
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
@@ -50,9 +51,13 @@ type Manifest struct {
 	AdapterDigest          string   `json:"runtime_adapter_digest"`
 	ExternalModels         string   `json:"external_model_adapter,omitempty"`
 	StorageAdapter         string   `json:"storage_adapter,omitempty"`
+	NetworkAdapter         string   `json:"network_adapter,omitempty"`
 }
 
 func (m Manifest) Valid() bool {
+	if m.NetworkAdapter != "" && m.NetworkAdapter != NetworkAdapter {
+		return false
+	}
 	if m.StorageAdapter != "" && m.StorageAdapter != StorageAdapter {
 		return false
 	}

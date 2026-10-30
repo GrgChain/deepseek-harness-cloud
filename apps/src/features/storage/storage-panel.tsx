@@ -12,6 +12,7 @@ import { AssetStatus, assetStatuses, assetProcessingStages } from '../../shared/
 import { expireSession, useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { downloadFile, FilePreviewModal, filePreviewKind, filePreviewLimit, type PreviewFile } from './file-preview';
 import { clearResumedPreview, readResumedPreview } from './preview-recovery';
+import {isCancelledRead,readDirectoryForTree} from './directory-read';
 
 const client=new StorageClient();
 const backupStatuses:Record<string,string>={RUNNING:'进行中',SUCCEEDED:'备份成功',FAILED:'备份失败',UNCERTAIN:'结果待确认',PRUNE_PENDING:'清理待确认',PRUNED:'已清理',EXPIRED:'已过期'};
@@ -71,6 +72,8 @@ function FileBrowser({user,asset}:{user:CurrentUser;asset:StorageAsset}){
  const treeDataRef=useRef(treeData);const [loadedKeys,setLoadedKeys]=useState<string[]>(['data:']);const loadedKeysRef=useRef(new Set<string>(['data:']));const [expandedKeys,setExpandedKeys]=useState<string[]>(['data:','workspace:']);const [selectedKeys,setSelectedKeys]=useState<string[]>(['workspace:']);
  const morePages=useRef(new Map<string,StorageMorePage>());const inFlightLoads=useRef(new Map<string,Promise<void>>());const [treeError,setTreeError]=useState<{message:string;retry:()=>void}|null>(null);
  const cache=useQueryClient();
+ const mounted=useRef(false);
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
  const activeFileRequest=useRef<AbortController|null>(null);
  useEffect(()=>()=>activeFileRequest.current?.abort(),[]);
  const browsable=['READY','RETAINED'].includes(asset.status)&&['RUNNING','STOPPED','DELETED'].includes(asset.workspace_state);
@@ -85,14 +88,14 @@ function FileBrowser({user,asset}:{user:CurrentUser;asset:StorageAsset}){
   if(result.next_after){const key=`more:${encodeURIComponent(JSON.stringify([rootValue,pathValue,result.next_after]))}`;morePages.current.set(key,{root:rootValue,path:pathValue,after:result.next_after,parentKey:storageTreeKey(rootValue,pathValue)});nodes.push({key,title:'加载更多…',isLeaf:true});}
   return nodes;
  }
- async function loadNode(key:string):Promise<void>{
-  if(loadedKeysRef.current.has(key))return;const pending=inFlightLoads.current.get(key);if(pending)return pending;const location=storageTreeLocation(key);if(!location)return;
-  const request=(async()=>{try{const result=await directoryQuery(location.root,location.path,'');setTree(replaceStorageTreeChildren(treeDataRef.current,key,pageNodes(result,location.root,location.path)));markLoaded([...loadedKeysRef.current,key]);setTreeError(null);}catch(cause){const message=cause instanceof Error?cause.message:'目录树加载失败';setTreeError({message,retry:()=>{void loadNode(key).catch(()=>{});}});throw cause;}})();
+ async function loadNode(key:string,force=false):Promise<void>{
+  if(!force&&loadedKeysRef.current.has(key))return;const pending=inFlightLoads.current.get(key);if(pending)return pending;const location=storageTreeLocation(key);if(!location)return;
+  const request=(async()=>{try{const result=await readDirectoryForTree(()=>directoryQuery(location.root,location.path,''),()=>mounted.current);if(!mounted.current)return;setTree(replaceStorageTreeChildren(treeDataRef.current,key,pageNodes(result,location.root,location.path)));markLoaded([...loadedKeysRef.current,key]);setTreeError(null);}catch(cause){if(mounted.current&&!isCancelledRead(cause)){markLoaded([...loadedKeysRef.current,key]);const message=cause instanceof Error?cause.message:'目录树加载失败';setTreeError({message,retry:()=>{void loadNode(key,true).catch(()=>{});}});}throw cause;}})();
   inFlightLoads.current.set(key,request);try{await request;}finally{inFlightLoads.current.delete(key);}
  }
  async function loadMore(key:string,more:StorageMorePage){
   try{const result=await directoryQuery(more.root,more.path,more.after);const existing=findStorageTreeNode(treeDataRef.current,more.parentKey)?.children??[];morePages.current.delete(key);setTree(replaceStorageTreeChildren(treeDataRef.current,more.parentKey,[...existing.filter(node=>!node.key.startsWith('more:')),...pageNodes(result,more.root,more.path,existing)]));setTreeError(null);}
-  catch(cause){const message=cause instanceof Error?cause.message:'目录树加载失败';setTreeError({message,retry:()=>{void loadMore(key,more).catch(()=>{});}});throw cause;}
+  catch(cause){if(mounted.current&&!isCancelledRead(cause)){const message=cause instanceof Error?cause.message:'目录树加载失败';setTreeError({message,retry:()=>{void loadMore(key,more).catch(()=>{});}});}throw cause;}
  }
  async function revealPath(nextRoot:StorageRoot,nextPath:string){
   const segments=nextPath?nextPath.split('/'):[];let parentPath='';const expanded=[storageTreeKey(nextRoot,'')];

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -133,6 +134,174 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 	}
 
 	owner, other := login("owner"), login("admin")
+	t.Run("custom Milvus connections retain and isolate their own targets and encrypted tokens", func(t *testing.T) {
+		const bridgeKey = "platform-bridge-secret-32-characters-long"
+		keyFile := filepath.Join(t.TempDir(), "service-key")
+		if err := os.WriteFile(keyFile, []byte(bridgeKey), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var target milvusService
+		var embedding *EmbeddingConfig
+		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				Service   milvusService    `json:"service"`
+				Embedding *EmbeddingConfig `json:"embedding"`
+			}
+			if json.NewDecoder(r.Body).Decode(&req) != nil || r.Header.Get("Authorization") != "Bearer "+bridgeKey {
+				t.Error("native token used as companion credential")
+			}
+			target = req.Service
+			embedding = req.Embedding
+			io.WriteString(w, `{"contract":"hc-context-v1","backend":"milvus","ready":true,"capabilities":{"search":true}}`)
+		}))
+		defer remote.Close()
+		custom := NewService(app, cipher, "test", false, "")
+		custom.policy = func() (Policy, error) {
+			return Policy{[]Endpoint{{ID: "milvus-bridge", Name: "Milvus", Backend: "milvus", URL: remote.URL, AllowPrivateHTTP: true, DataUse: "user Milvus", ProxyKeyFile: keyFile, ServiceKeyFile: keyFile}}}, nil
+		}
+		external := EmbeddingConfig{Provider: "openai_compatible", Model: "custom-embedding-model", APIBase: "https://embedding.example/v1", Dimensions: 768, APIKey: "embedding-secret"}
+		local := defaultEmbedding()
+		for _, config := range []*EmbeddingConfig{nil, &local} {
+			if _, err := custom.Save(ctx, owner, "knowledge", "", Input{Name: "未配置 API", EndpointID: "milvus-bridge", ServiceURL: "https://first.example:19530", Embedding: config}, ""); !problemIs(err, "CONTEXT_INVALID") {
+				t.Fatal("new knowledge accepted an implicit or built-in embedding model", err)
+			}
+		}
+		first, err := custom.Save(ctx, owner, "knowledge", "", Input{Name: "自有 Milvus", EndpointID: "milvus-bridge", ServiceURL: "https://first.example:19530/", Credential: "root:secret", Embedding: &external}, "")
+		if err != nil || first.ServiceURL != "https://first.example:19530" {
+			t.Fatal("target not saved", err)
+		}
+		selfHosted := EmbeddingConfig{Provider: "openai_compatible", Model: "self-hosted-model", APIBase: "http://embedding.internal:11434/v1", Dimensions: 384}
+		second, err := custom.Save(ctx, owner, "knowledge", "", Input{Name: "另一 Milvus", EndpointID: "milvus-bridge", ServiceURL: "http://second.internal:19530", Embedding: &selfHosted}, "")
+		if err != nil {
+			t.Fatal("unauthenticated Milvus not supported", err)
+		}
+		for _, item := range []Connection{first, second} {
+			if _, err := custom.Call(ctx, owner, "knowledge", item.ID, "verify", Action{ExpectedVersion: item.Version}, ""); err != nil || target.URL != item.ServiceURL {
+				t.Fatal("target leaked across connections", err)
+			}
+			if item.ID == first.ID && target.Token != "root:secret" || item.ID == second.ID && target.Token != "" {
+				t.Fatal("wrong native token")
+			}
+			if item.ID == first.ID && (embedding == nil || *embedding != external) || item.ID == second.ID && (embedding == nil || *embedding != selfHosted) {
+				t.Fatal("embedding configuration leaked across connections")
+			}
+		}
+		// Simulate a connection saved before per-connection API models were required.
+		legacyJSON, _ := json.Marshal(connectionSettings{ServiceURL: second.ServiceURL})
+		legacySecret, err := cipher.Encrypt(append([]byte(settingsSecretPrefix), legacyJSON...), custom.aad(owner, second.ID, "context-credential"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = root.Exec(ctx, `UPDATE context_connections SET key_id=$2,nonce=$3,ciphertext=$4 WHERE id=$1`, second.ID, legacySecret.KeyID, legacySecret.Nonce, legacySecret.Ciphertext); err != nil {
+			t.Fatal(err)
+		}
+		legacy, err := custom.Save(ctx, owner, "knowledge", second.ID, Input{Name: second.Name, EndpointID: second.EndpointID, ExpectedVersion: second.Version, Embedding: &local}, "")
+		if err != nil || legacy.Embedding == nil || *legacy.Embedding != local || legacy.ServiceURL != second.ServiceURL {
+			t.Fatal("existing local knowledge settings cannot be retained", err)
+		}
+		var encrypted []byte
+		if err := root.QueryRow(ctx, "SELECT ciphertext FROM context_connections WHERE id=$1", first.ID).Scan(&encrypted); err != nil || bytes.Contains(encrypted, []byte("root:secret")) || bytes.Contains(encrypted, []byte(first.ServiceURL)) || bytes.Contains(encrypted, []byte(external.APIKey)) {
+			t.Fatal("native config not encrypted", err)
+		}
+		listing, err := custom.List(ctx, owner, "knowledge")
+		raw, _ := json.Marshal(listing)
+		if err != nil || !bytes.Contains(raw, []byte(first.ServiceURL)) || bytes.Contains(raw, []byte("root:secret")) || bytes.Contains(raw, []byte(external.APIKey)) || !bytes.Contains(raw, []byte(`"embedding_key_configured":true`)) || bytes.Contains(raw, []byte("service_key_file")) || !bytes.Contains(raw, []byte(`"custom_service":true`)) {
+			t.Fatal("wrong public connection view", err)
+		}
+		otherList, err := custom.List(ctx, other, "knowledge")
+		otherRaw, _ := json.Marshal(otherList)
+		if err != nil || bytes.Contains(otherRaw, []byte(first.ServiceURL)) {
+			t.Fatal("cross owner target disclosure", err)
+		}
+		if _, err := custom.Call(ctx, other, "knowledge", first.ID, "verify", Action{ExpectedVersion: first.Version}, ""); !problemIs(err, "NOT_FOUND") {
+			t.Fatal("cross owner call", err)
+		}
+		updated, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: first.Version}, "")
+		if err != nil || updated.ServiceURL != first.ServiceURL {
+			t.Fatal("blank edit erased service", err)
+		}
+		if _, err := custom.Call(ctx, owner, "knowledge", first.ID, "verify", Action{ExpectedVersion: updated.Version}, ""); err != nil || target.Token != "root:secret" || embedding == nil || embedding.APIKey != external.APIKey {
+			t.Fatal("blank edit erased token", err)
+		}
+		if _, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: updated.Version, ServiceURL: second.ServiceURL}, ""); !problemIs(err, "CONTEXT_INVALID") {
+			t.Fatal("silently moved existing records to another server", err)
+		}
+		rotated, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: updated.Version, ServiceURL: first.ServiceURL, Credential: "new-token"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = custom.Call(ctx, owner, "knowledge", first.ID, "verify", Action{ExpectedVersion: rotated.Version}, ""); err != nil || target.Token != "new-token" {
+			t.Fatal("token rotation failed", err)
+		}
+		for _, change := range []func(*EmbeddingConfig){func(e *EmbeddingConfig) { e.Model = "other" }, func(e *EmbeddingConfig) { e.Dimensions = 512 }, func(e *EmbeddingConfig) { e.APIBase = "https://other.example/v1" }, func(e *EmbeddingConfig) { *e = defaultEmbedding() }} {
+			changed := external
+			change(&changed)
+			if _, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: rotated.Version, Embedding: &changed}, ""); !problemIs(err, "CONTEXT_INVALID") {
+				t.Fatal("allowed mixed vector models", err)
+			}
+		}
+		emptyKey := external
+		emptyKey.APIKey = ""
+		kept, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: rotated.Version, Embedding: &emptyKey}, "")
+		if err != nil || kept.Embedding == nil || kept.Embedding.APIKey != "" || !kept.EmbeddingKeyConfigured {
+			t.Fatal("embedding secret exposed or erased", err)
+		}
+		if _, err = custom.Call(ctx, owner, "knowledge", first.ID, "verify", Action{ExpectedVersion: kept.Version}, ""); err != nil || embedding.APIKey != external.APIKey {
+			t.Fatal("blank key not retained", err)
+		}
+		newKey := external
+		newKey.APIKey = "rotated-embedding-key"
+		changedKey, err := custom.Save(ctx, owner, "knowledge", first.ID, Input{Name: first.Name, EndpointID: first.EndpointID, ExpectedVersion: kept.Version, Embedding: &newKey}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = custom.Call(ctx, owner, "knowledge", first.ID, "verify", Action{ExpectedVersion: changedKey.Version}, ""); err != nil || embedding.APIKey != newKey.APIKey {
+			t.Fatal("embedding key rotation failed", err)
+		}
+	})
+	for _, backend := range []string{"weaviate", "qdrant"} {
+		t.Run("custom "+backend+" target and credentials", func(t *testing.T) {
+			keyFile := filepath.Join(t.TempDir(), "service-key")
+			const bridgeKey = "platform-bridge-secret-32-characters-long"
+			if err := os.WriteFile(keyFile, []byte(bridgeKey), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var target milvusService
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req struct {
+					Service milvusService `json:"service"`
+				}
+				if json.NewDecoder(r.Body).Decode(&req) != nil || r.Header.Get("Authorization") != "Bearer "+bridgeKey {
+					t.Error("invalid bridge authentication")
+				}
+				target = req.Service
+				fmt.Fprintf(w, `{"contract":"hc-context-v1","backend":%q,"ready":true,"capabilities":{"search":true}}`, backend)
+			}))
+			defer remote.Close()
+			custom := NewService(app, cipher, "test", false, "")
+			custom.policy = func() (Policy, error) {
+				return Policy{[]Endpoint{{ID: "own-" + backend, Name: backend, Backend: backend, URL: remote.URL, AllowPrivateHTTP: true, DataUse: "test", ProxyKeyFile: keyFile, ServiceKeyFile: keyFile}}}, nil
+			}
+			embedding := EmbeddingConfig{Provider: "openai_compatible", Model: "test-model", APIBase: "https://embedding.example/v1", Dimensions: 512}
+			v, err := custom.Save(ctx, owner, "knowledge", "", Input{Name: "own " + backend, EndpointID: "own-" + backend, ServiceURL: "http://service.internal:8080", Credential: "native-key", Embedding: &embedding}, "")
+			if err != nil || v.ServiceURL != "http://service.internal:8080" {
+				t.Fatal("save failed", err)
+			}
+			if _, err = custom.Call(ctx, owner, "knowledge", v.ID, "verify", Action{ExpectedVersion: v.Version}, ""); err != nil || target.URL != v.ServiceURL || target.Token != "native-key" {
+				t.Fatal("wrong target or credential", err)
+			}
+			v, err = custom.Save(ctx, owner, "knowledge", v.ID, Input{Name: v.Name, EndpointID: v.EndpointID, ExpectedVersion: v.Version}, "")
+			if err != nil {
+				t.Fatal("edit failed", err)
+			}
+			if _, err = custom.Call(ctx, owner, "knowledge", v.ID, "verify", Action{ExpectedVersion: v.Version}, ""); err != nil || target.Token != "native-key" {
+				t.Fatal("credential not retained", err)
+			}
+			if _, err = custom.Save(ctx, owner, "knowledge", v.ID, Input{Name: v.Name, EndpointID: v.EndpointID, ExpectedVersion: v.Version, ServiceURL: "https://other.example"}, ""); !problemIs(err, "CONTEXT_INVALID") {
+				t.Fatal("address unexpectedly changed", err)
+			}
+		})
+	}
 	for _, p := range []identity.Principal{owner, other} {
 		for _, permission := range []string{"memory:read", "memory:manage", "knowledge:read", "knowledge:manage"} {
 			if !p.Has(permission) {

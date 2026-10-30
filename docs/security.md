@@ -104,7 +104,7 @@ Portal空闲期限在每个已授权Portal请求以及DSH实际HTTP/WS业务消�
 
 设计依据：[OIDC授权码验证](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation)、[Go AEAD nonce契约](https://pkg.go.dev/crypto/cipher#AEAD)。以上浏览器策略由真实同站跨Origin测试验证。
 
-私有网关可部署在受控Host的专用私有桥地址。schema2网络围栏在INPUT及DOCKER-USER中只放行批准的IPv4目标和TCP端口；其他Host新连接、同网关其他端口、未批准私网及公网目标均阻止。私有网关容器采用固定镜像、独立PG账号与数据库，TLS进程只读挂载证书材料，不挂载提供商Key、Master Key或数据库env。Docker默认跨桥直连保护不应通过放宽全局规则关闭，采用固定Host TLS入口。
+私有网关可部署在受控Host的专用私有桥地址。schema2网络围栏在INPUT中只放行批准的网关IPv4目标和TCP端口，其他Host新连接仍拒绝。带`public-web-v1`网络适配器的模板在DOCKER-USER中先放行精确网关，再拒绝全部未批准私网、回环、链路本地、元数据及保留地址，随后允许公网HTTP/HTTPS（TCP 80/443）和DNS（UDP/TCP 53），其余新连接拒绝；用于技能安装、包下载及公开数据工具。IPv6继续拒绝。该变更不开放数据库、Redis、OIDC或同网关其他私网端口。旧版仅网关出口规则须通过新helper及manifest受控升级，不能在宿主机手工插入全局放行规则。私有网关容器采用固定镜像、独立PG账号与数据库，TLS进程只读挂载证书材料，不挂载提供商Key、Master Key或数据库env。Docker默认跨桥直连保护不应通过放宽全局规则关闭，采用固定Host TLS入口。
 
 个人模型网关核对属于Worker控制权限：只读取冻结路由及平台虚拟Key摘要查询的范围，不读取真实Key内容或发送提供商请求。网关可用状态最多60秒，外部变化可能在下一次核对前尚未被发现，不能宣传即时不变证明。API无网关核对写权限，失败/过期不允许收费校验或工作空间新用；虚拟Key范围被扩展后仍可由平台撤销。原始管理响应、认证头、Key、明文提供商错误均不得进入日志、审计或浏览器。
 

@@ -975,3 +975,85 @@ npx playwright test tests/context.spec.ts --grep 'live platform uses' --project=
 已回收资产删除：`go test -race -count=1 ./services/internal/instances ./services/internal/httpserver ./db` 在隔离 PostgreSQL 验证仅允许本人已回收资产、无权限及跨Owner拒绝、重复请求、列表/详情隐藏以及备份和审计保留。`storage.spec.ts --grep 'reclaimed asset'` 覆盖桌面和手机的确认、取消、成功、失败及权限状态；`storage-remove-live.spec.ts` 对真实资产列表只读验证删除入口，未删除用户资产。
 
 工作台入口恢复：迁移57后旧 Worker 与访问网关因数据库版本不匹配而返回依赖不可用；同步构建并重启 Worker、访问网关和模型网关后，Worker/Gateway `/readyz` 返回 ready。`platform-access-ready-live.spec.ts` 在真实平台配置页桌面及手机验证工作台入口检查为 HEALTHY；该检查不代表验证了每个工作空间的实际进入或模型推理。
+
+
+## 2026-10-28 DSH 安装工具与 WeStock 出网修复
+
+实际实例仍固定使用缺少curl/wget的旧镜像；schema2围栏还拦截模型网关以外的公网连接及DNS，导致官方Node安装器同样失败。新运行镜像基于Ubuntu 24.04，包含Node 24.21.0、Python 3.12、pip/venv和下载解压工具；HOME及用户工具PATH指向持久工作盘。新版public-web-v1网络helper先拒绝未批准私网/保留地址，再放行公网HTTP(S)及DNS，宿主机入口只保留精确模型网关例外。
+
+运行镜像sha256:27bc7d8ebc332078470a3ef1feb615b76b82635eb3ae63d6038bd733cc4d9b88、网络helper sha256:5e50de71508e3f7d94109f12118339246ed46f7283e49998209174576b8fb039，模板b9668031-6395-46c6-bf8b-03c6366d4cda。真实Docker验证schema1/schema2认证、会话/设置/插件持久化、普通用户安装目录和PATH、Python虚拟环境、下载解压、Office中英文字体、独立存储容量及原盘；真实围栏验证模型网关和WeStock官方下载成功，私网及错误端口拒绝。隔离hc_test_embedded与hc_test_approval的Terraform、原子升级/回滚竞态测试通过。
+
+保存独立密钥加密数据库备份后，经维护停止、发布不可变模板、受控运行批准、显式CONFIGURE及START，将当时唯一运行实例0f54767d-1707-4b00-908e-da09e8d68dd6切换到新镜像。原资产2e1a8adf-83c6-4c21-8dd3-798620f261c4、原模型ID/版本与原生会话保留，已有压缩会话日志前缀哈希一致；平台访问交接、原生session/list和平台检查通过，API退出维护。
+
+在该实例执行技能自带node scripts/setup.cjs --yes，固定SHA256校验通过并安装WeStock 0.0.2到/data/dsh/.local/bin；普通shell和登录shell均能直接调用。使用宁德时代作为连通性样例完成股票代码搜索，以及sz300750的单条K线、一期财报、限定日期资金流向和单条公告，均返回真实非空表格、退出码0且无错误输出；此处只验收工具能力，不形成股票分析结论，未触发模型推理。受限部署记录、原配置、加密备份及返回样例在.local/qa/westock-runtime-release/，不提交凭据或会话Cookie。
+
+
+### 2026-10-28 技能包支持中文名称
+
+技能名称允许 1–64 个中文汉字、小写字母、数字和单个内部连字符，前后端按 Unicode 字符计数；创建、编辑、Markdown/ZIP 导入与导出共用规则。补充中文 RFC 5987 下载文件名解析，并验证 64 字汉字与扩展汉字的资源包往返。原生 DSH 仍要求 ASCII 调用标识，Worker 安装时将中文名称映射为稳定的 hc-skill-UUID，仅重写安装副本的 name 并保留 display-name；冻结快照、个人库和导出内容保留原中文名称。
+
+隔离 PostgreSQL 下 skills、worker、httpserver 测试通过；instances 创建事务测试验证中文技能及资源的加密快照、删除源后重放和运行时映射。真实批准镜像内的原生 SkillRegistry、文件发现器与 skill 工具验证兼容标识可列出、可加载、资源完整；安装与恢复共 5 项 Node 测试通过。桌面/手机 4 项浏览器测试验证名称校验、中文下载文件名及原英文下载兼容；TypeScript、生产构建、OpenAPI 解析和 diff 检查通过。
+
+本地 API 与 Worker 已重新构建并更新，就绪检查通过；真实 OIDC 浏览器流程创建临时中文技能，完成编辑、导入替换、导出与删除，不创建工作空间或调用模型。部署前进程环境和二进制受限保存在 .local/qa/chinese-skill-names/，凭据不提交。
+
+
+### 2026-10-28 Milvus 按连接配置服务地址与凭据
+
+新增 Milvus 连接改为填写自有 REST 地址和原生 Token（或用户名:密码），认证关闭时可留空；取消单一预置服务选择。平台接入密钥与用户数据库 Token 分离，地址和凭据一起保存在已有加密凭据封装中，无数据库迁移；列表返回地址与能力标记，令牌及密钥路径不回显。地址创建后保持，凭据留空编辑保留原值、更改凭据需重新验证；切换数据库须新建连接。原有预置连接和操作回执兼容，部署默认 Milvus 地址另支持 HC_CONTEXT_DEFAULT_MILVUS_URL。
+
+隔离 PostgreSQL 的 contextservice、worker、workspaceextensions race 检查通过，覆盖不同连接目标隔离、原生/接入鉴权分离、加密存储、跨 Owner 拒绝、留空保留及 Token 轮换。镜像内 7 项 Python 测试通过，覆盖实际请求 URL/鉴权/collection、无全局默认地址的连接、DNS 固定目标与 TLS SNI、私网地址、回环/元数据拒绝及原回执和索引恢复。知识库与记忆页面桌面/手机 16 个场景最终均通过；移动端新场景发现加载图标影响按钮名称，给保存按钮添加固定无障碍名称后两端复测通过。TypeScript、生产构建、OpenAPI 解析和 diff 检查通过。
+
+真实 OIDC 浏览器用临时受限账号填写 http://hc-context-milvus-1:19530（区别于伴随服务默认地址），完成保存、验证、预览确认写入、中文检索与原文读取、删除和连接移除；临时账号/角色已清理。原预置 Qdrant/Milvus 的真实写入、更新、隔离、幂等及删除回归通过。测试使用本地未启用鉴权的 Milvus；带 Token 的请求路由由独立请求测试验证，未连接用户的生产数据库。
+
+本地伴随服务、API、Worker 已更新且就绪；伴随服务镜像 sha256:cd3dd1d6931c6ff0225b713fa06a89b8cb03aeb0475e61f78d0cc256038c0c32。更新前环境、策略和程序保存在受限的 .local/qa/milvus-custom-service/，凭据及会话不提交。
+
+
+### 2026-10-28 知识库可选嵌入模型
+
+Milvus、Weaviate、Qdrant 知识库连接新增嵌入模型来源：平台本地 BGE Small 中文（512 维）或外部 OpenAI 兼容 Embedding API。外部配置包含 API Base URL、模型名、实际向量维度和加密 API Key；无认证自建服务可留空。新增通用版本化加密配置封装，兼容原始服务凭据及先前 Milvus 地址封装，不需要数据库迁移。读取只返回模型配置和是否已保存密钥。空值编辑保留密钥，单独更新密钥须重新验证。来源、模型、地址和维度在创建后固定，更换须新建知识库并重新导入；不提供原连接上隐式更换模型或混写向量。
+
+文档向量及问题向量使用同一连接配置，校验接口数量、索引、向量维度及有限数值；鉴权失败、重定向、服务错误和维度不符不回退本地模型。数据库 collection 使用所选维度，Milvus 现有 collection 的原生 schema 亦须一致；原文预览动态说明嵌入服务的数据去向与费用。外部 API 与 Milvus Token 分离，API Key 不进入操作回执摘要，轮换不改变模型身份。沿用 DNS 检查、固定目标 IP、Host/TLS SNI 与私网 HTTP 限制。
+
+隔离 PostgreSQL 的 contextservice、worker、httpserver race 测试通过，新增覆盖嵌入配置加密、列表不回显密钥、连接间隔离、留空保留、密钥更新及拒绝模型/地址/维度切换。镜像内 12 项 Python 测试通过，包含三维外部接口的建库、文档和问题向量请求，以及错误不回退、认证分离、原幂等与索引恢复；原本地模式在真实 Qdrant、Weaviate、Milvus 完整写入、更新、检索、隔离及删除回归通过。桌面/手机合计 18 个页面场景最终均通过，覆盖来源选择、字段校验、失败保留、凭据不回显及固定模型设置；TypeScript、生产构建、OpenAPI 解析与 diff 检查通过。
+
+真实 OIDC 浏览器创建临时受限账号，通过独立认证 Embedding API 容器调用真实 BGE 模型，再在真实 Milvus 完成验证、预览、写入、中文检索、原文读取、删除和连接移除。该 API 为内部临时自建服务，未调用付费供应商；非默认维度由三维接口测试独立验证。模型配置和密钥不出现在返回数据中，预览包含外部数据发送与费用提示。临时账号、角色与文档已清理；不运行 DSH 或调用对话模型。
+
+本地伴随服务、API 和 Worker 已更新且就绪。伴随服务镜像 sha256:f9b37ea58bb5ffd5e23f47fd28a826f1b7d58ce5788adbc4f1eae6ae1423a735；受限发布记录及更新前环境保存在 .local/qa/embedding-selection/，测试凭据不提交。
+
+
+### 2026-10-28：知识库 Embedding 统一 API 接入
+
+新建 Milvus、Weaviate、Qdrant 连接直接填写 Embedding API Base、模型名称、维度和可选 API Key，本机/私网自建模型同样通过 API 接入。前端移除内置本地模型选择，API 拒绝新建连接缺少配置或指定 local，旧连接保持原向量配置并允许保存设置。
+
+隔离 PostgreSQL 的 contextservice race 测试通过，覆盖新建无配置/内置模式拒绝、自建私网 HTTP 服务与空 API Key、连接间配置隔离、密钥加密及旧版配置保留。桌面/手机 18 个模拟场景及新增旧连接保留的 2 个场景通过；自建 API 连接创建/编辑在两端补测通过，生产构建与 diff 检查通过。本机 API 已更新就绪；发布备份位于 .local/qa/embedding-api-only/，实例运行环境未重启。
+
+
+### 2026-10-28：官方 TEI Docker Embedding 服务与目录清理
+
+采用 Hugging Face `text-embeddings-inference:cpu-1.9` 官方镜像，固定摘要 `sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d`，默认 `BAAI/bge-small-zh-v1.5`、512维，独立缓存卷与回环18581端口；保留容器网络8581接口供平台及OpenViking使用。新增独立启动/测试 Makefile 入口，移除旧自写 Embedding API 文件和两个 Python 缓存目录，构建上下文排除缓存。其余适配器仍有运行或回归引用。
+
+官方模型由宿主机下载并核验权重 SHA-256 后预置到持久卷，以避开本机容器无法直连 Hugging Face 的网络限制；启动后容器健康。2项真实 API 测试通过，覆盖中文批量512维有限非零向量、float/base64一致、认证拒绝、空输入/超批量/非法编码拒绝。真实浏览器使用临时明确授权账号，经平台配置 TEI API、Milvus自有地址，完成验证、写入、检索、原文查看及清理，1项通过；不调用付费推理 API。私有验证配置在 `.local/qa/tei-embeddings/`。
+
+
+### 2026-10-29：Weaviate 和 Qdrant 自有服务
+
+新增按连接配置 Weaviate 和 Qdrant 地址及 API Key，复用独立接入节点认证、目标地址安全校验、加密保存与凭据轮换。隔离 PostgreSQL 的 contextservice race 测试、接入镜像 13 项测试、桌面/手机 8 项表单测试和生产构建通过。真实浏览器使用独立临时账号，分别通过自有 Weaviate 与 Qdrant 服务完成验证、文档写入、检索、查看及清理。已更新本机 API 和伴随服务；发布备份及私有运行环境位于 `.local/qa/custom-vector-service/`。
+
+
+### 2026-10-29：知识库检索窗口和检索方式（历史阶段）
+
+知识库内容页使用独立检索弹窗，支持语义检索、当前范围原文的精确匹配，以及精确和语义结果去重合并的混合检索。默认及旧客户端保持语义检索；记忆检索保持原有方式，历史操作回执不加入空检索参数。
+
+桌面和手机的检索模式切换、空结果、错误与结果原文查看通过；接入层 15 项测试通过，覆盖范围隔离、旧版本可用与精确/混合检索去重。隔离 PostgreSQL 的控制面测试、生产构建及格式检查通过。真实 Milvus、Weaviate、Qdrant 各自完成文档写入、三种检索及清理；本机 API 和接入服务已更新。
+
+### 2026-10-29：知识库文档与检索回归
+
+当前行为和部署步骤见[知识库服务说明](../deploy/context/README.md)。文档导入、服务端分页、全文检索、最低相关度及原文阅读的实现边界以该说明和 [OpenAPI](../api/openapi.yaml) 为准；上节记录的是全文检索升级前的测试。
+
+本次文档整理时，`go test ./services/internal/contextservice` 通过；接入层 `test_recovery` 9 项通过，覆盖文档分页与范围隔离、关键词索引、版本恢复及相关度过滤；桌面和手机 Playwright 10 项通过，覆盖导入界面、文档分页、检索模式、阈值及原文阅读。这些浏览器用例使用模拟 API，不代表真实数据库端到端复验。Docling 真实文件解析、三种数据库真实检索等先前记录为独立验证，不计入本次结果。
+
+### 2026-10-29：知识库结构化分段
+
+接入层 25 项单元测试通过，覆盖标题层级、表格跨片段重复表头、长内容长度、代码块内标题、旧片段兼容，以及重建失败后保留旧版本和重试。桌面与手机 Playwright 4 项通过，验证检索结果章节路径和已就绪文档的重建入口；使用模拟 API。
+
+真实 Qdrant、Weaviate、Milvus 的合成文档完成结构化写入、全文及混合检索、重建和清理；各后端另完成原有写入、检索、更新及删除冒烟。前端生产构建和格式检查通过。本机接入服务已更新；已有用户文档未批量重建。测试验证上述场景，不代表已完成分段质量基准或容量压测。
