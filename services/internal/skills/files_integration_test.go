@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -11,6 +12,30 @@ import (
 
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 )
+
+func testLargeSkillImport(t *testing.T, ctx context.Context, s *Service, owner identity.Principal) {
+	t.Helper()
+	files := map[string][]byte{"SKILL.md": markdown("large-import-test", "Large skill"), "assets/large.bin": bytes.Repeat([]byte("x"), 13<<20)}
+	for i := 0; i < 150; i++ {
+		files[fmt.Sprintf("assets/%d.txt", i)] = []byte("data")
+	}
+	data := zipFiles(t, files, 0600)
+	preview, err := s.Preview(ctx, owner, "large.zip", data, "", "", 0)
+	if err != nil {
+		t.Fatal("large preview failed", err)
+	}
+	if _, err = s.Apply(ctx, owner, preview.Token, "skip", ""); err != nil {
+		t.Fatal("large import failed", err)
+	}
+	list, err := s.List(ctx, owner, "large-import-test", 1, 10)
+	if err != nil || len(list.Items) != 1 || list.Items[0].FileCount != 152 || list.Items[0].Size <= 12<<20 {
+		t.Fatal("large skill was not stored", err)
+	}
+	skill, err := s.Get(ctx, owner, list.Items[0].ID)
+	if err != nil || len(skill.Files) != 152 {
+		t.Fatal("large skill could not be read", err)
+	}
+}
 
 func testSkillResourceFiles(t *testing.T, ctx context.Context, s *Service, owner, other identity.Principal) {
 	t.Helper()

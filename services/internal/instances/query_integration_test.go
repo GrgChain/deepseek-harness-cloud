@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -21,8 +22,11 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/pagination"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/runtimeapproval"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/security"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	workspaceengine "github.com/jonluo94/deepseek-harness-cloud/services/internal/workspace"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 )
 
 func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
@@ -329,6 +333,176 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 	must(`INSERT INTO organization_defaults(org_id,version,template_id,template_version,spec_id,model_config_id,model_config_version) VALUES($1,1,$2,$3,$4,$5,1) ON CONFLICT(org_id) DO UPDATE SET version=organization_defaults.version+1,template_id=EXCLUDED.template_id,template_version=EXCLUDED.template_version,spec_id=EXCLUDED.spec_id,model_config_id=EXCLUDED.model_config_id,model_config_version=1`, org, template, version, spec, model)
 	must(`INSERT INTO quota_policies(org_id,max_instances,max_user_instances,cpu_millicores,memory_bytes,storage_bytes,max_concurrent_creates) VALUES($1,10000,2,20000000,42949672960000,107374182400000,10000) ON CONFLICT(org_id) DO UPDATE SET max_instances=10000,cpu_millicores=20000000,memory_bytes=42949672960000,storage_bytes=107374182400000,max_concurrent_creates=10000`, org)
 	commands := NewCommandService(appDB, fixtureCreationGate{}, false)
+
+	t.Run("workspace expansion freezes authorized selections and rejects partial acceptance", func(t *testing.T) {
+		p, other := principal("MEMBER"), principal("MEMBER")
+		memory, knowledge, connector := webapi.ID(), webapi.ID(), webapi.ID()
+		for _, entry := range []struct{ id, kind, backend string }{{memory, "memory", "mem0"}, {knowledge, "knowledge", "qdrant"}} {
+			must(`INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4,$5,'test','Fixture','READY','test',$6,'x')`, entry.id, org, p.UserID, entry.kind, entry.backend, bytes.Repeat([]byte{0}, 12))
+		}
+		must(`INSERT INTO mcp_connectors(id,org_id,owner_id,name,endpoint_id,protocol_version,auth_type,catalog_version,status,tools,key_id,nonce,ciphertext) VALUES($1,$2,$3,'test connector','test','2026-07-28','none',1,'READY','[{"name":"echo","enabled":true}]','test',$4,'x')`, connector, org, p.UserID, bytes.Repeat([]byte{0}, 12))
+		input := CreateInput{Input: workspaceextensions.Input{Connectors: []workspaceextensions.Selection{{ID: connector, Version: 1, CatalogVersion: 1}}, Memory: []workspaceextensions.Selection{{ID: memory, Version: 1}}, Knowledge: []workspaceextensions.Selection{{ID: knowledge, Version: 1, Scopes: []string{"workspace"}}}, Plugins: []workspaceextensions.PluginSelection{{ID: "session-search", Version: "0.2.1-alpha.2"}}}}
+		if _, e := commands.Create(ctx, other, webapi.ID(), input, ""); queryCode(e) != "NOT_FOUND" {
+			t.Fatal("foreign extension accepted", e)
+		}
+		invalid := input
+		invalid.Plugins = []workspaceextensions.PluginSelection{{ID: "dsh-ssh", Version: "0.4.11"}}
+		if _, e := commands.Create(ctx, p, webapi.ID(), invalid, ""); queryCode(e) != "EXTENSION_INVALID" {
+			t.Fatal("incompatible plugin accepted", e)
+		}
+		var count int
+		if e := database.QueryRow(ctx, `SELECT count(*) FROM instances WHERE owner_id=$1`, p.UserID).Scan(&count); e != nil || count != 0 {
+			t.Fatal("invalid plugin left partial resources", count, e)
+		}
+		old := input
+		old.Connectors = []workspaceextensions.Selection{{ID: connector, Version: 1, CatalogVersion: 2}}
+		if _, e := commands.Create(ctx, p, webapi.ID(), old, ""); queryCode(e) != "VERSION_CONFLICT" {
+			t.Fatal("stale directory accepted", e)
+		}
+		key := webapi.ID()
+		accepted, e := commands.Create(ctx, p, key, input, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer must(`UPDATE quota_reservations SET status='RELEASED' WHERE instance_id=$1`, accepted.InstanceID)
+		tx, e := database.Begin(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		snap, e := workspaceextensions.Load(ctx, tx, org, p.UserID, accepted.InstanceID)
+		_ = tx.Rollback(ctx)
+		if e != nil || len(snap.Items) != 4 || snap.Items[0].Tools[0] != "echo" || snap.Items[2].Scopes[0] != "workspace:"+accepted.InstanceID {
+			t.Fatal("incomplete frozen expansion", snap, e)
+		}
+		if e = database.QueryRow(ctx, `SELECT count(*) FROM context_bindings WHERE instance_id=$1`, accepted.InstanceID).Scan(&count); e != nil || count != 2 {
+			t.Fatal("missing context bindings", count, e)
+		}
+		must(`UPDATE mcp_connectors SET deleted_at=clock_timestamp(),enabled=false WHERE id=$1`, connector)
+		replay, e := commands.Create(ctx, p, key, input, "")
+		if e != nil || replay != accepted {
+			t.Fatal("replay requires mutable sources", e)
+		}
+		changed := input
+		changed.Plugins = nil
+		if _, e = commands.Create(ctx, p, key, changed, ""); queryCode(e) != "IDEMPOTENCY_CONFLICT" {
+			t.Fatal("selection not in digest", e)
+		}
+	})
+
+	t.Run("selected personal skills are frozen with files and survive library deletion", func(t *testing.T) {
+		p := principal("MEMBER")
+		other := principal("MEMBER")
+		cipher, _ := security.NewSecretCipher("workspace-test", bytes.Repeat([]byte{7}, 32))
+		library := skills.NewService(appDB, cipher, "test", false)
+		service := NewCommandService(appDB, fixtureCreationGate{}, false).WithSkills(library)
+		skill, e := library.Create(ctx, p, "会议纪要", "整理会议记录", "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		old := skill.Version
+		skill, e = library.CreateFile(ctx, p, skill.ID, skill.Version, "scripts/run.py", "private script snapshot", "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		policy := [2]bool{false, false}
+		skill, e = library.Edit(ctx, p, skill.ID, skill.Version, "", &policy, "")
+		if e != nil {
+			t.Fatal(e)
+		}
+		input := CreateInput{Skills: []skills.Selection{{ID: skill.ID, Version: skill.Version}}}
+		if _, e = service.Create(ctx, other, webapi.ID(), input, "foreign-skill"); queryCode(e) != "NOT_FOUND" {
+			t.Fatal("accepted another owner's skill", e)
+		}
+		if _, e = service.Create(ctx, p, webapi.ID(), CreateInput{Skills: []skills.Selection{{ID: skill.ID, Version: old}}}, "stale-skill"); queryCode(e) != "VERSION_CONFLICT" {
+			t.Fatal("accepted stale skill", e)
+		}
+		if _, e = service.Create(ctx, p, webapi.ID(), CreateInput{Skills: []skills.Selection{input.Skills[0], input.Skills[0]}}, "duplicate-skill"); queryCode(e) != "INVALID_SPEC" {
+			t.Fatal("accepted duplicate skill", e)
+		}
+		// Copy more than 32 skills and 12 MiB in one acceptance transaction.
+		resource := strings.Repeat("x", 512<<10)
+		for i := 0; i < 32; i++ {
+			extra, err := library.Create(ctx, p, fmt.Sprintf("resource-%d", i), "Workspace resource", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			extra, err = library.CreateFile(ctx, p, extra.ID, extra.Version, "references/resource.txt", resource, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			input.Skills = append(input.Skills, skills.Selection{ID: extra.ID, Version: extra.Version})
+		}
+		key := webapi.ID()
+		accepted, e := service.Create(ctx, p, key, input, "selected-skills")
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer must(`UPDATE quota_reservations SET status='RELEASED' WHERE instance_id=$1`, accepted.InstanceID)
+		var encrypted []byte
+		if e = database.QueryRow(ctx, `SELECT ciphertext FROM workspace_skill_snapshots WHERE instance_id=$1`, accepted.InstanceID).Scan(&encrypted); e != nil || bytes.Contains(encrypted, []byte("private script snapshot")) {
+			t.Fatal("snapshot must be encrypted", e)
+		}
+		source, e := library.Get(ctx, p, skill.ID)
+		if e != nil || source.ModelInvocable || source.UserInvocable || source.Version != skill.Version {
+			t.Fatal("enabling the workspace copy changed the personal library", e)
+		}
+		if e = library.Delete(ctx, p, skill.ID, skill.Version, skill.Name, ""); e != nil {
+			t.Fatal(e)
+		}
+		handler := workspaceextensions.Handler{Pool: appDB, Cipher: cipher, Environment: "test"}
+		request := httptest.NewRequest("GET", "/v1/workspace-extensions/"+accepted.InstanceID+"/skills", nil)
+		response := httptest.NewRecorder()
+		handler.ServeAuthenticated(response, request, p)
+		var listed struct {
+			Items []struct {
+				ID, Name string
+				Version  int64
+			} `json:"items"`
+		}
+		if response.Code != 200 || json.Unmarshal(response.Body.Bytes(), &listed) != nil || len(listed.Items) != 33 || listed.Items[0].ID != skill.ID || listed.Items[0].Version != skill.Version || bytes.Contains(response.Body.Bytes(), []byte("private script snapshot")) {
+			t.Fatal("skill metadata should survive library deletion without exposing content", response.Code)
+		}
+		denied := httptest.NewRecorder()
+		handler.ServeAuthenticated(denied, request, other)
+		if denied.Code != 404 {
+			t.Fatal("another owner could read skill metadata", denied.Code)
+		}
+		if replay, e := service.Create(ctx, p, key, input, "replay-skills"); e != nil || replay != accepted {
+			t.Fatal("receipt depends on deleted library skill", e)
+		}
+		if _, e := service.Create(ctx, p, key, CreateInput{}, "different-selection"); queryCode(e) != "IDEMPOTENCY_CONFLICT" {
+			t.Fatal("selection missing from idempotency digest", e)
+		}
+		tx, e := database.Begin(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		defer tx.Rollback(ctx)
+		copied, e := skills.LoadWorkspaceSkills(ctx, tx, cipher, "test", p.OrganizationID, p.UserID, accepted.InstanceID)
+		defer skills.DestroyWorkspaceSkills(copied)
+		if e != nil || len(copied) != 33 || copied[0].Version != skill.Version || copied[0].Name != "会议纪要" || string(copied[0].Bundle.Files["scripts/run.py"]) != "private script snapshot" || len(copied[0].Bundle.Files["SKILL.md"]) == 0 {
+			t.Fatal("frozen bundle did not retain all files", e)
+		}
+		runtimeSkills, e := skills.RuntimeWorkspaceSkills(copied)
+		if e != nil || runtimeSkills[0].Name != "hc-skill-"+skill.ID || !strings.Contains(string(runtimeSkills[0].Bundle.Files["SKILL.md"]), "display-name: 会议纪要") {
+			t.Fatal("Chinese snapshot cannot be installed in native DSH", e)
+		}
+		clear(runtimeSkills[0].Bundle.Files["SKILL.md"])
+		for _, item := range copied {
+			content := string(item.Bundle.Files["SKILL.md"])
+			if !strings.Contains(content, "disable-model-invocation: false") || !strings.Contains(content, "user-invocable: true") {
+				t.Fatal("selected skill is hidden from native invocation surfaces")
+			}
+		}
+		for i, item := range copied[1:] {
+			if item.ID != input.Skills[i+1].ID || string(item.Bundle.Files["references/resource.txt"]) != resource {
+				t.Fatal("large snapshot lost selected files")
+			}
+		}
+		if hidden, e := skills.LoadWorkspaceSkills(ctx, tx, cipher, "test", p.OrganizationID, other.UserID, accepted.InstanceID); e != nil || len(hidden) != 0 {
+			t.Fatal("snapshot owner filter failed", e)
+		}
+	})
 	t.Run("selected resources are frozen and reserved exactly", func(t *testing.T) {
 		p := principal("MEMBER")
 		small := webapi.ID()

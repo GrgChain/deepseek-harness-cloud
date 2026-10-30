@@ -8,12 +8,12 @@ function fixture(){
  const source=fs.readFileSync(process.env.HC_PATCHED_MODEL_SELECTION_FILE,'utf8');
  const extract=name=>{const start=source.indexOf('var '+name+' = class');assert.ok(start>=0);return source.slice(start,source.indexOf('//#endregion',start));};
  const events=new Map(),remoteEvents=new Map(),requests=[],timers=new Map();let timerId=0;
- const ctx={on:(name,handler)=>events.set(name,handler),remote:{$on:(name,handler)=>remoteEvents.set(name,handler),session:{modelCatalog:()=>new Promise(resolve=>requests.push(resolve))}}};
+ const ctx={on:(name,handler)=>events.set(name,handler),remote:{$on:(name,handler)=>remoteEvents.set(name,handler),session:{modelCatalog:()=>new Promise((resolve,reject)=>{resolve.reject=reject;requests.push(resolve);})}}};
  const sandbox={setTimeout:fn=>{const id=++timerId;timers.set(id,fn);return id;},clearTimeout:id=>timers.delete(id),_deepseek_ai_dsh_client_store:{createSnapshotStore:initial=>{let state=initial;return {getSnapshot:()=>state,set:value=>{state=value;},update:fn=>{state={...state};fn(state);}};}},_deepseek_ai_cordis:{Service:class{constructor(ctx){this.ctx=ctx;}}},WeakMapWithValues:class{values=[];}};
  const Resolver=vm.runInNewContext(extract('ModelCatalogDirectory')+extract('ModelDirectoryResolver')+';ModelDirectoryResolver',sandbox);
  return {resolver:new Resolver(ctx),events,remoteEvents,requests,timers};
 }
-const value=n=>({groups:[{id:'platform-models',models:[{id:'approved-'+n}]}],default:{provider:'platform-models',model:'approved-'+n}});
+const value=n=>({routableProviders:['platform-models'],groups:[{id:'platform-models',models:[{id:'approved-'+n}]}],default:{provider:'platform-models',model:'approved-'+n}});
 test('first connection makes one shared catalog request; reconnect clears old values',async()=>{
  const {resolver,events,requests}=fixture();assert.equal(requests.length,0);
  events.get('connection/reset')();assert.equal(requests.length,1);
@@ -40,6 +40,24 @@ test('empty managed directory retries automatically and becomes usable without a
  assert.equal(timers.size,1);const [id,run]=[...timers.entries()][0];timers.delete(id);run();await flush();
  assert.equal(requests.length,2);requests[1]({ok:true,value:value(1)});await first;
  assert.equal(resolver.catalog.store.getSnapshot().status,'ready');assert.equal(resolver.catalog.store.getSnapshot().value.groups[0].models[0].id,'approved-1');
+});
+test('an unrelated available model does not hide a missing default',async()=>{
+ const {resolver,events,requests,timers}=fixture();events.get('connection/reset')();const pending=resolver.catalog.load();
+ requests[0]({ok:true,value:{...value(1),groups:[{id:'platform-models',models:[{id:'previous-model'}]}]}});await flush();
+ assert.equal(resolver.catalog.store.getSnapshot().status,'loading');assert.equal(timers.size,1);
+ const [id,run]=[...timers.entries()][0];timers.delete(id);run();await flush();requests[1]({ok:true,value:value(1)});await pending;
+ assert.equal(resolver.catalog.store.getSnapshot().value.default.model,'approved-1');
+});
+test('temporary transport failures recover after more than two retries',async()=>{
+ const {resolver,events,requests,timers}=fixture();events.get('connection/reset')();const pending=resolver.catalog.load();
+ for(let i=0;i<4;i++){requests[i]({ok:false,error:{code:'gateway/internal',message:'transport failure for /api/session/modelCatalog: HTTP 502'}});await flush();const [id,run]=[...timers.entries()][0];timers.delete(id);run();await flush();}
+ requests[4]({ok:true,value:value(1)});await pending;assert.equal(resolver.catalog.store.getSnapshot().status,'ready');
+});
+test('a rejected network request is retried without reconnecting',async()=>{
+ const {resolver,events,requests,timers}=fixture();events.get('connection/reset')();const pending=resolver.catalog.load();
+ requests[0].reject(new Error('Failed to fetch'));await flush();assert.equal(timers.size,1);
+ const [id,run]=[...timers.entries()][0];timers.delete(id);run();await flush();requests[1]({ok:true,value:value(1)});await pending;
+ assert.equal(resolver.catalog.store.getSnapshot().status,'ready');
 });
 test('empty catalog reaches a recoverable error and a manual retry can succeed',async()=>{
  const {resolver,events,requests,timers}=fixture();events.get('connection/reset')();const first=resolver.catalog.load();const rejected=assert.rejects(first,/所选模型暂不可用/);

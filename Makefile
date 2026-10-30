@@ -49,7 +49,7 @@ workspace-test:
 	HC_TEST_DB_DSN_FILE=$(CURDIR)/.local/migrator-dsn HC_TEST_TERRAFORM_OPTIONS_FILE=$(CURDIR)/.local/workspace-engine/options.json $(GO_ENV) $(GO) test -race -count=1 -v ./services/internal/workspace
 
 runtime-test:
-	HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 node --test infrastructure/runtime/tests/docker-integration.test.mjs
+	HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 node --test infrastructure/runtime/tests/docker-integration.test.mjs infrastructure/runtime/tests/install-tools-integration.test.mjs
 
 runtime-build:
 	docker build --tag hc-dsh-runtime:0.1.0 infrastructure/runtime
@@ -70,7 +70,7 @@ run-gateway:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/gateway-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password HC_ACCESS_CONFIG_FILE=$(CURDIR)/.local/access-config.json $(GO) run ./services/cmd/gateway
 
 run-worker:
-	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/worker-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password HC_WORKER_CONFIG_FILE=$(CURDIR)/.local/worker-config.json $(GO) run ./services/cmd/worker
+	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/worker-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password HC_WORKER_CONFIG_FILE=$(CURDIR)/.local/worker-config.json $(CONTEXT_ENV) $(CONNECTOR_ENV) $(GO) run ./services/cmd/worker
 
 worker-runtime-test:
 	test -n "$$HC_TEST_DB_DSN_FILE"
@@ -115,7 +115,7 @@ test:
 
 test-integration:
 	test -n "$$HC_TEST_DB_DSN$$HC_TEST_DB_DSN_FILE"
-	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" $(GO) test -race -count=1 -v ./db ./services/cmd/hcctl ./services/internal/devlocal ./services/internal/identity ./services/internal/settings ./services/internal/skills ./services/internal/contextservice ./services/internal/connectors ./services/internal/ratelimit ./services/internal/instances ./services/internal/access ./services/internal/admission ./services/internal/runtimeapproval ./services/internal/operations ./services/internal/worker
+	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" $(GO) test -race -count=1 -v ./db ./services/cmd/hcctl ./services/internal/devlocal ./services/internal/identity ./services/internal/settings ./services/internal/skills ./services/internal/contextservice ./services/internal/connectors ./services/internal/instances ./services/internal/access ./services/internal/admission ./services/internal/runtimeapproval ./services/internal/operations ./services/internal/worker
 
 check:
 	set -e; formatting=$$(gofmt -l db services); test -z "$$formatting"
@@ -164,13 +164,22 @@ model-gateway-init:
 run-model-gateway:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/model_gateway-dsn HC_MODEL_GATEWAY_CONFIG_FILE=$(CURDIR)/.local/model-gateway/config.json $(GO) run ./services/cmd/model-gateway
 
-.PHONY: context-init context-up context-test
+.PHONY: context-init context-up context-test context-embedding-up context-embedding-test context-docling-up
 context-init:
 	python3 deploy/context/prepare.py
 
 context-up: context-init
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile knowledge --profile memory up -d --build
 
+context-docling-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile docling up -d docling
+
+context-embedding-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile embeddings up -d --wait --wait-timeout 300 embeddings
+
+context-embedding-test:
+	HC_CONTEXT_TEST_EMBEDDINGS=true python3 deploy/context/test_services.py EmbeddingService
+
 context-test:
-	python3 deploy/context/test_services.py
+	HC_CONTEXT_TEST_EMBEDDINGS=true python3 deploy/context/test_services.py
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml run --rm --no-deps bridge python test_recovery.py

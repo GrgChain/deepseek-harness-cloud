@@ -25,7 +25,8 @@ const (
 	MaxFiles  = 128
 )
 
-var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var namePattern = regexp.MustCompile(`^[\p{Han}a-z0-9]+(?:-[\p{Han}a-z0-9]+)*$`)
+var runtimeNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var idPattern = regexp.MustCompile(`^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$`)
 
 type Bundle struct {
@@ -43,13 +44,13 @@ type document struct {
 
 func invalid(message string) error { return webapi.Fail(422, "SKILL_INVALID", message) }
 func validName(name string) bool {
-	return len(name) > 0 && len(name) <= 64 && namePattern.MatchString(name)
+	return utf8.ValidString(name) && utf8.RuneCountInString(name) > 0 && utf8.RuneCountInString(name) <= 64 && namePattern.MatchString(name)
 }
 
 func parseDocument(content []byte) (document, error) {
 	var out document
-	if len(content) > MaxFile || !utf8.Valid(content) || bytes.ContainsRune(content, 0) {
-		return out, invalid("SKILL.md 须为不超过 1 MiB 的 UTF-8 文本")
+	if !utf8.Valid(content) || bytes.ContainsRune(content, 0) {
+		return out, invalid("SKILL.md 须为 UTF-8 文本")
 	}
 	text := strings.ReplaceAll(string(content), "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
@@ -96,7 +97,7 @@ func parseDocument(content []byte) (document, error) {
 	}
 	name, ok := fields["name"].(string)
 	if !ok || !validName(name) {
-		return out, invalid("名称须为 1–64 个小写字母、数字和单个连字符")
+		return out, invalid("名称须为 1–64 个中文、小写字母、数字或连字符，连字符不能连续或位于首尾")
 	}
 	desc, ok := fields["description"].(string)
 	if !ok || strings.TrimSpace(desc) == "" || utf8.RuneCountInString(desc) > 2000 || strings.ContainsFunc(desc, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
@@ -177,7 +178,7 @@ func safePath(name string) bool {
 		return false
 	}
 	for _, part := range strings.Split(name, "/") {
-		if part == "" || part == "." || part == ".." || len(part) > 128 || strings.HasPrefix(part, ".") || part == "__MACOSX" {
+		if part == "" || part == "." || part == ".." || len(part) > 128 && !validName(part) || strings.HasPrefix(part, ".") || part == "__MACOSX" {
 			return false
 		}
 		for _, r := range part {
@@ -190,24 +191,19 @@ func safePath(name string) bool {
 }
 
 func validateBundle(bundle Bundle) (Metadata, error) {
-	if len(bundle.Files) < 1 || len(bundle.Files) > MaxFiles {
-		return Metadata{}, invalid("每个 Skill 须包含 1–128 个文件")
+	if len(bundle.Files) < 1 {
+		return Metadata{}, invalid("每个 Skill 须包含文件")
 	}
-	total := 0
 	paths := map[string]bool{}
 	for name := range bundle.Files {
 		paths[strings.ToLower(name)] = true
 	}
 	seen := map[string]bool{}
-	for name, data := range bundle.Files {
+	for name := range bundle.Files {
 		if !safePath(name) || seen[strings.ToLower(name)] {
 			return Metadata{}, invalid("文件路径无效或重复：" + name)
 		}
 		seen[strings.ToLower(name)] = true
-		total += len(data)
-		if len(data) > MaxFile || total > MaxBundle {
-			return Metadata{}, invalid("单文件不能超过 1 MiB，资源包不能超过 12 MiB")
-		}
 		for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
 			if paths[strings.ToLower(parent)] {
 				return Metadata{}, invalid("文件和目录路径冲突：" + parent)
@@ -261,8 +257,8 @@ func changedFiles(a, b Bundle) []string {
 }
 
 func parseImport(filename string, data []byte) ([]Bundle, error) {
-	if len(data) == 0 || len(data) > MaxUpload {
-		return nil, invalid("上传文件须为非空文件，且不超过 5 MiB")
+	if len(data) == 0 {
+		return nil, invalid("上传文件不能为空")
 	}
 	if strings.HasSuffix(strings.ToLower(filename), ".md") {
 		b := Bundle{map[string][]byte{"SKILL.md": data}}
@@ -278,12 +274,8 @@ func parseImport(filename string, data []byte) ([]Bundle, error) {
 	if err != nil {
 		return nil, invalid("ZIP 文件无法读取")
 	}
-	if len(z.File) > MaxFiles*4 {
-		return nil, invalid("ZIP 目录条目过多")
-	}
 	files := map[string][]byte{}
 	seen := map[string]bool{}
-	total := 0
 	for _, entry := range z.File {
 		name := strings.TrimSuffix(entry.Name, "/")
 		if !safePath(name) || seen[strings.ToLower(name)] || entry.Mode()&(^entry.Mode().Perm()) != 0 && !entry.FileInfo().IsDir() {
@@ -293,21 +285,14 @@ func parseImport(filename string, data []byte) ([]Bundle, error) {
 		if entry.FileInfo().IsDir() {
 			continue
 		}
-		if len(files) >= MaxFiles || entry.UncompressedSize64 > MaxFile {
-			return nil, invalid("ZIP 超过 128 个文件或单文件超过 1 MiB")
-		}
 		reader, err := entry.Open()
 		if err != nil {
 			return nil, invalid("ZIP 文件无法解压")
 		}
-		content, readErr := io.ReadAll(io.LimitReader(reader, MaxFile+1))
+		content, readErr := io.ReadAll(reader)
 		reader.Close()
-		if readErr != nil || len(content) > MaxFile {
-			return nil, invalid("ZIP 内容无效或超过单文件限制")
-		}
-		total += len(content)
-		if total > MaxBundle {
-			return nil, invalid("ZIP 解压后不能超过 12 MiB")
+		if readErr != nil {
+			return nil, invalid("ZIP 内容无效")
 		}
 		files[entry.Name] = content
 	}
@@ -387,19 +372,12 @@ func exportBundles(bundles []Bundle) ([]byte, string, error) {
 	}
 	var out bytes.Buffer
 	w := zip.NewWriter(&out)
-	total := 0
-	count := 0
 	for _, b := range bundles {
 		meta, err := validateBundle(b)
 		if err != nil {
 			return nil, "", err
 		}
 		for _, name := range fileNames(b) {
-			total += len(b.Files[name])
-			count++
-			if total > MaxBundle || count > MaxFiles {
-				return nil, "", invalid("导出总量不能超过 12 MiB 或 128 个文件")
-			}
 			entry, err := w.Create(meta.Name + "/" + name)
 			if err != nil {
 				return nil, "", err
@@ -411,9 +389,6 @@ func exportBundles(bundles []Bundle) ([]byte, string, error) {
 	}
 	if err := w.Close(); err != nil {
 		return nil, "", err
-	}
-	if out.Len() > MaxUpload {
-		return nil, "", invalid("导出的 ZIP 超过 5 MiB，请减少选择")
 	}
 	filename := "skills-export.zip"
 	if len(bundles) == 1 {

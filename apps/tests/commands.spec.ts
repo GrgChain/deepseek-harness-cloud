@@ -76,6 +76,28 @@ test('provider update blocks a failed account read and recovers without organiza
  expect(organizationReads).toBe(0);
 });
 
+test('provider update identifies the current model and the selected account default',async({page},info)=>{
+ await session(page);
+ await page.route('**/v1/me',r=>r.fulfill({json:{...user,permissions:[...user.permissions,'personal-model:read']}}));
+ const model={id:'current-model',version:1,model:'gpt-6-luna',enabled:true,credential_configured:true,sync_status:'SYNCED',validation:{status:'HEALTHY'},gateway_check:{status:'HEALTHY'}};
+ const other={...model,id:'other-model',model:'gpt-6.1-sol'};
+ await page.route('**/v1/instances/'+id,r=>r.fulfill({json:{...instance,model_display_name:model.model,config_snapshot:{...instance.config_snapshot,model_configuration_id:model.id,model_configuration_version:1}}}));
+ await page.route('**/v1/my-provider-accounts',r=>r.fulfill({json:{items:[{id:'current-account',name:'自定义2',provider:'custom-openai',status:'ACTIVE',default_model_id:model.id,models:[model]},{id:'other-account',name:'其他账号',provider:'custom-openai',status:'ACTIVE',default_model_id:other.id,models:[other]}]}}));
+ await page.route('**/v1/model-providers',r=>r.fulfill({json:{items:[]}}));
+ await page.goto('/app/instances/'+id);await page.getByRole('button',{name:'更新模型提供商',exact:true}).click();
+ const dialog=page.getByRole('dialog',{name:'更新模型提供商',exact:true});
+ await expect(dialog.locator('.instance-model-comparison-item').first().getByText('gpt-6-luna',{exact:true})).toBeVisible();
+ await dialog.getByRole('combobox',{name:'应用到实例的模型提供商'}).locator('..').locator('..').click();
+ await page.locator('.ant-select-dropdown:visible').getByTitle('自定义 · 自定义2',{exact:true}).click();
+ await expect(dialog.getByRole('status').getByText('与当前相同',{exact:true})).toBeVisible();
+ await expect(dialog.getByRole('button',{name:'应用配置',exact:true})).toBeEnabled();
+ await dialog.getByRole('combobox',{name:'应用到实例的模型提供商'}).locator('..').locator('..').click();
+ await page.locator('.ant-select-dropdown:visible').getByTitle('自定义 · 其他账号',{exact:true}).click();
+ await expect(dialog.getByRole('status').getByText('gpt-6.1-sol',{exact:true})).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ await page.screenshot({path:info.outputPath('model-provider-update.png'),fullPage:true,animations:'disabled'});
+});
+
 test('latest reconciled failure retries with no body and resumes the same request after reload',async({page})=>{
  await session(page);const keys:string[]=[];let attempts=0;
  await page.route('**/v1/instances/'+id,route=>route.fulfill({json:{...instance,observed_state:'ERROR',allowed_actions:[],latest_operation_id:operation}}));

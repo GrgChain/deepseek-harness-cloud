@@ -1,3 +1,4 @@
+import {WorkspaceExtensionStatus} from './workspace-extension-status';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Alert, Button, Collapse, Descriptions, Empty, Segmented, Space, Spin, Tag } from 'antd';
@@ -6,6 +7,7 @@ import { ArrowLeft, Box, ChevronRight, CloudDownload, Cpu, ExternalLink, HardDri
 import { hasPermission, type CurrentUser } from '../../api/identity';
 import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { ResourcesClient } from '../../api/resources';
+import { ProviderAccountsClient } from '../../api/provider-accounts';
 import { enterWorkspace, resumeWorkspace } from '../../api/access';
 import { RetryOperationButton, InstanceCommands, CreateInstanceButton } from './instance-commands';
 import { DataPagination, usePagePagination } from '../../shared/components/data-pagination';
@@ -14,6 +16,7 @@ import { AssetStatus, InstanceStatus } from '../../shared/components/resource-st
 import { instanceDate, instanceModelName, instanceOperationNames, instanceOperationStages, instanceOperationStatuses } from './instance-display';
 
 const resources = new ResourcesClient();
+const providerAccounts = new ProviderAccountsClient();
 const healthNames: Record<string, string> = { application: '应用', storage: '存储', configuration: '配置', access: '访问', model: '模型' };
 const healthLabels: Record<string, string> = { HEALTHY: '健康', UNHEALTHY: '故障', CHECKING: '检查中', UNKNOWN: '待检查' };
 
@@ -50,8 +53,10 @@ export function InstancesPanel({ user, actions }: { user: CurrentUser; actions?:
 export function InstanceDetails({ user }: { user: CurrentUser }) {
  const { id = '' } = useParams(); const navigate = useNavigate();
  const location = useLocation(); const resumed = useRef<string | null>(null);
- const query = useQuery({ queryKey: ['resources', user.id, 'instance', id], queryFn: ({ signal }) => resources.details(user, id, signal), retry: false, refetchInterval: query => query.state.data && ['CREATING','STARTING'].includes(query.state.data.observed_state) ? 1000 : 10_000 });
+ const query = useQuery({ queryKey: ['resources', user.id, 'instance', id], queryFn: ({ signal }) => resources.details(user, id, signal), retry: false, refetchInterval: query => query.state.data && (query.state.data.active_operation_id || ['CREATING','STARTING'].includes(query.state.data.observed_state)) ? 1000 : 10_000 });
  const instance = query.data;
+ const accounts = useQuery({ queryKey: ['provider-accounts', user.id], enabled: hasPermission(user, 'personal-model:read'), queryFn: ({ signal }) => providerAccounts.providerAccounts(user, signal), retry: false });
+ const boundAccount = accounts.data?.items.find(account => account.models.some(model => model.id === instance?.config_snapshot.model_configuration_id && model.version === instance?.config_snapshot.model_configuration_version));
  const [entering, setEntering] = useState(false); const [entryError, setEntryError] = useState<Error | null>(null);
  const operationID = instance?.active_operation_id ?? instance?.latest_operation_id;
  const operation = useQuery({ queryKey: ['resources', user.id, 'operation', operationID], enabled: !!operationID, queryFn: ({ signal }) => resources.operation(operationID!, signal), retry: false, refetchInterval: 3000 });
@@ -98,9 +103,10 @@ export function InstanceDetails({ user }: { user: CurrentUser }) {
    <div><dt><HardDrive size={16} aria-hidden="true" />存储</dt><dd>{spec.storage_bytes / 2 ** 30}<span>GiB</span></dd></div>
   </dl></section>
   <section className="instance-detail-section" aria-label="模型配置"><div className="instance-section-heading"><h3>模型配置</h3></div><dl className="instance-model-summary">
-   <div><dt>模型提供商</dt><dd>{instance.model_provider_name || '未提供'}</dd></div><div><dt>模型</dt><dd>{instanceModelName(instance)}</dd></div>
+   <div><dt>模型提供商</dt><dd>{instance.model_provider_name || '未提供'}{boundAccount ? ` · ${boundAccount.name}` : ''}</dd></div><div><dt>模型</dt><dd>{instanceModelName(instance)}</dd></div>
   </dl></section>
   <Collapse className="instance-detail-disclosure" ghost expandIcon={({ isActive }) => <ChevronRight size={16} aria-hidden="true" style={{ transform: isActive ? 'rotate(90deg)' : undefined }} />} items={[
+   { key: 'extensions', label: '扩展配置', children: <WorkspaceExtensionStatus id={instance.id} user={user}/> },
    { key: 'health', label: '运行检查', children: <div className="instance-health-list">{Object.entries(instance.health).map(([dimension, health]) => <div className="instance-health-row" key={dimension}><div><strong>{healthNames[dimension]}</strong>{health.status !== 'HEALTHY' && <p>{reasons[health.reason_code] ?? (health.status === 'CHECKING' ? '检查正在进行' : '请刷新检查结果或联系管理员')}</p>}</div><Tag color={health.status === 'HEALTHY' ? 'green' : health.status === 'UNHEALTHY' ? 'red' : 'default'}>{healthLabels[health.status]}</Tag></div>)}</div> },
    { key: 'information', label: '实例信息', children: <Descriptions size="small" column={{ xs: 1, sm: 2 }} items={[
     { key: 'created', label: '创建时间', children: instanceDate(instance.created_at) }, { key: 'updated', label: '更新时间', children: instanceDate(instance.updated_at) },

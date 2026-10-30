@@ -110,8 +110,8 @@ func githubSkillArchive(data []byte, directory, selected string) ([]byte, error)
 
 func githubReadArchive(reader io.ReaderAt, size int64, directory, selected string) ([]byte, error) {
 	z, err := zip.NewReader(reader, size)
-	if err != nil || len(z.File) > 30000 {
-		return nil, invalid("GitHub 仓库归档无效或条目过多")
+	if err != nil {
+		return nil, invalid("GitHub 仓库归档无效")
 	}
 	entries := map[string]*zip.File{}
 	rootSet := map[string]bool{}
@@ -138,16 +138,16 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 		entries[relative] = entry
 		if path.Base(relative) == "SKILL.md" {
 			if selected != "" {
-				if !entry.Mode().IsRegular() || entry.UncompressedSize64 > MaxFile {
+				if !entry.Mode().IsRegular() {
 					continue
 				}
 				reader, e := entry.Open()
 				if e != nil {
 					return nil, invalid("GitHub 技能文件无法读取")
 				}
-				content, e := io.ReadAll(io.LimitReader(reader, MaxFile+1))
+				content, e := io.ReadAll(reader)
 				reader.Close()
-				if e != nil || len(content) > MaxFile {
+				if e != nil {
 					continue
 				}
 				doc, e := parseDocument(content)
@@ -165,9 +165,6 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 	if selected != "" && len(rootSet) != 1 {
 		return nil, invalid("仓库中存在多个同名技能，请使用具体技能目录链接")
 	}
-	if len(rootSet) > MaxFiles {
-		return nil, invalid("仓库中的技能过多，请使用具体技能目录链接")
-	}
 	roots := make([]string, 0, len(rootSet))
 	for root := range rootSet {
 		roots = append(roots, root)
@@ -180,7 +177,6 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 	}
 	bundles := make([]Bundle, 0, len(roots))
 	names := map[string]bool{}
-	total, count := 0, 0
 	for _, root := range roots {
 		bundle := Bundle{Files: map[string][]byte{}}
 		for name, entry := range entries {
@@ -192,19 +188,17 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 			if relative == ".gitignore" || relative == ".gitattributes" || strings.HasPrefix(relative, ".github/") {
 				continue
 			}
-			count++
-			if count > MaxFiles || !safePath(relative) || !entry.Mode().IsRegular() || entry.UncompressedSize64 > MaxFile {
-				return nil, invalid("技能包含不安全文件或超出限额，请使用具体技能目录链接")
+			if !safePath(relative) || !entry.Mode().IsRegular() {
+				return nil, invalid("技能包含不安全文件，请使用具体技能目录链接")
 			}
 			reader, err := entry.Open()
 			if err != nil {
 				return nil, invalid("GitHub 技能文件无法读取")
 			}
-			content, err := io.ReadAll(io.LimitReader(reader, MaxFile+1))
+			content, err := io.ReadAll(reader)
 			reader.Close()
-			total += len(content)
-			if err != nil || len(content) > MaxFile || total > MaxBundle {
-				return nil, invalid("GitHub 技能读取失败或超过 12 MiB 解压限额")
+			if err != nil {
+				return nil, invalid("GitHub 技能读取失败")
 			}
 			bundle.Files[relative] = content
 		}

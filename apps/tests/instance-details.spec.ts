@@ -48,6 +48,85 @@ test('a missing display name does not expose a route alias or invent a model', a
  await expect(page.getByText(routeAlias, { exact: true })).toHaveCount(0);
 });
 
+test('runtime checks retain individual statuses and failure details',async({page})=>{
+ const mixed={...instance,health:{...instance.health,model:{...health,status:'UNHEALTHY',reason_code:'MODEL_TRANSPORT_UNAVAILABLE'},storage:{...health,status:'UNKNOWN',reason_code:'HEALTH_REQUIRED'}}};
+ await session(page,mixed);
+ await page.goto('/app/instances/'+id);
+ await page.getByRole('button',{name:'运行检查',exact:true}).click();
+ await expect(page.getByText(/\d+ 项健康/)).toHaveCount(0);
+ await expect(page.locator('.instance-health-row').filter({hasText:'模型'})).toContainText('无法连接模型服务');
+ await expect(page.locator('.instance-health-row').filter({hasText:'存储'})).toContainText('等待检查');
+ for(const width of [375,768,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+});
+
+test('details show the account bound to the current model version', async ({ page }) => {
+ const bound = '00000000-0000-4000-8000-000000000062';
+ await session(page, { ...instance, model_provider_name: '自定义', model_display_name: 'gpt-6-luna', config_snapshot: { ...instance.config_snapshot, model_configuration_id: bound, model_configuration_version: 2 } });
+ await page.route('**/v1/my-provider-accounts', r => r.fulfill({json:{items:[
+  {id:'first',name:'自定义',models:[{id:bound,version:1}]},
+  {id:'second',name:'自定义2',models:[{id:bound,version:2}]}
+ ]}}));
+ await page.goto('/app/instances/' + id);
+ const models=page.getByRole('region',{name:'模型配置',exact:true});
+ await expect(models).toContainText('自定义 · 自定义2');
+ await expect(models).toContainText('gpt-6-luna');
+});
+
+test('details show selected skills and extensions with their status', async ({ page }) => {
+ await session(page,instance,[...user.permissions,'skills:read','connectors:read','memory:read','knowledge:read']);
+ await page.route('**/v1/workspace-extensions/'+id, r=>r.fulfill({json:{items:[
+  {kind:'connector',id:'c',name:'Codeup',version:2,status:'AVAILABLE'},
+  {kind:'memory',id:'m',name:'团队记忆',version:3,scopes:['personal'],status:'AVAILABLE'},
+  {kind:'knowledge',id:'k',name:'研发知识库',version:1,scopes:['workspace'],status:'AUTH_REQUIRED',reason:'需要重新授权'},
+  {kind:'plugin',id:'p',name:'会话搜索',package_version:'0.2.1',status:'STOPPED'}
+ ]}}));
+ await page.route('**/v1/workspace-extensions/'+id+'/skills',r=>r.fulfill({json:{items:[{id:'s',name:'代码审查',version:4}]}}));
+ await page.goto('/app/instances/'+id);
+ const toggle=page.getByRole('button',{name:'扩展配置',exact:true});
+ await expect(toggle).toHaveAttribute('aria-expanded','false');
+ await expect(page.getByText('代码审查',{exact:true})).toHaveCount(0);
+ await toggle.click();
+ await expect(toggle).toHaveAttribute('aria-expanded','true');
+ const panel=page.getByRole('region',{name:'扩展配置'});
+ for(const text of ['技能','代码审查','v4','连接器','Codeup','记忆','团队记忆','个人','知识库','研发知识库','本工作空间','需重新授权','插件','会话搜索','v0.2.1','随工作空间停止']) await expect(panel).toContainText(text);
+ await expect(panel.getByText('创建时选择')).toHaveCount(0);
+ for(const width of [375,768,1440]){await page.setViewportSize({width,height:900});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
+ await toggle.click();
+ await expect(toggle).toHaveAttribute('aria-expanded','false');
+ await expect(panel).not.toBeVisible();
+});
+
+test('extension configuration distinguishes empty, permission and retry states', async ({ page }) => {
+ await session(page,instance,[...user.permissions,'skills:read','connectors:read','memory:read','knowledge:read']);
+ let failed=true;
+ await page.route('**/v1/workspace-extensions/'+id+'/skills',r=>failed?r.fulfill({status:503,json:{code:'DEPENDENCY_UNAVAILABLE'}}):r.fulfill({json:{items:[]}}));
+ await page.goto('/app/instances/'+id);
+ await page.getByRole('button',{name:'扩展配置',exact:true}).click();
+ const panel=page.getByRole('region',{name:'扩展配置'});
+ await expect(panel.getByText('技能配置暂不可用')).toBeVisible();
+ failed=false;await panel.getByRole('button',{name:/重\s*试/}).click();
+ await expect(panel.getByText('暂无扩展配置',{exact:true})).toBeVisible();
+ for(const name of ['技能','连接器','记忆','知识库','插件'])await expect(panel.getByRole('heading',{name,exact:true})).toHaveCount(0);
+ await session(page,instance,['instances:read']);
+ await page.reload();
+ await page.getByRole('button',{name:'扩展配置',exact:true}).click();
+ await expect(panel.getByText('部分配置无查看权限',{exact:true})).toBeVisible();
+ await expect(panel.getByText('暂无可查看的扩展配置',{exact:true})).toBeVisible();
+});
+
+test('only configured extension categories are shown',async({page})=>{
+ await session(page,instance,[...user.permissions,'skills:read','connectors:read','memory:read','knowledge:read']);
+ await page.route('**/v1/workspace-extensions/'+id,r=>r.fulfill({json:{items:[{kind:'connector',id:'c',name:'Codeup',version:2,status:'AVAILABLE'}]}}));
+ await page.route('**/v1/workspace-extensions/'+id+'/skills',r=>r.fulfill({json:{items:[]}}));
+ await page.goto('/app/instances/'+id);
+ await page.getByRole('button',{name:'扩展配置',exact:true}).click();
+ const panel=page.getByRole('region',{name:'扩展配置'});
+ await expect(panel.getByText('Codeup',{exact:true})).toBeVisible();
+ await expect(panel.getByRole('heading',{name:'连接器',exact:true})).toBeVisible();
+ for(const name of ['技能','记忆','知识库','插件'])await expect(panel.getByRole('heading',{name,exact:true})).toHaveCount(0);
+ await expect(panel.getByText('未配置',{exact:true})).toHaveCount(0);
+});
+
 test('stopped read-only details show the actual state and cannot enter or change the instance', async ({ page }) => {
  await session(page, { ...instance, observed_state: 'STOPPED', desired_state: 'STOPPED', can_enter: false, ready: false, allowed_actions: [] }, ['instances:read']);
  await page.goto('/app/instances/' + id);

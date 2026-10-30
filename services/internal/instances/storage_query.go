@@ -68,7 +68,7 @@ type StorageBackupPage struct {
 }
 
 const backupJSON = `jsonb_build_object('id',b.id,'status',b.status,'created_at',b.created_at,'completed_at',b.completed_at,'verified_at',b.verified_at,'expires_at',b.expires_at,'retention_policy',CASE WHEN b.set_id IS NULL THEN 'MANUAL' ELSE 'LAST_7_SUCCESSFUL_DATES' END)`
-const storageFrom = ` FROM storage_assets a JOIN instances i ON i.id=a.instance_id AND i.storage_asset_id=a.id AND i.org_id=a.org_id AND i.owner_id=a.owner_id WHERE a.org_id=$1 AND a.owner_id=$2`
+const storageFrom = ` FROM storage_assets a JOIN instances i ON i.id=a.instance_id AND i.storage_asset_id=a.id AND i.org_id=a.org_id AND i.owner_id=a.owner_id WHERE a.org_id=$1 AND a.owner_id=$2 AND a.owner_removed_at IS NULL`
 const selectStorage = `SELECT a.id::text,a.owner_id::text,i.id::text,i.name,i.observed_state,a.capacity_bytes,a.status,i.created_at,i.deleted_at,a.retention_until,a.legal_hold,a.usage_used_bytes,a.usage_available_bytes,a.usage_sampled_at,a.usage_attempted_at,a.usage_error,
  EXISTS(SELECT 1 FROM operations o WHERE o.instance_id=i.id AND o.status IN ('ACCEPTED','RUNNING','UNCERTAIN')),
  COALESCE(a.filesystem_id=a.id::text AND a.init_version>=1,false),
@@ -238,7 +238,7 @@ func (s *QueryService) StorageBackups(ctx context.Context, p identity.Principal,
 	}
 	defer tx.Rollback(context.Background())
 	var found bool
-	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM storage_assets WHERE id=$3 AND org_id=$1 AND owner_id=$2)`, p.OrganizationID, p.UserID, id).Scan(&found); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM storage_assets WHERE id=$3 AND org_id=$1 AND owner_id=$2 AND owner_removed_at IS NULL)`, p.OrganizationID, p.UserID, id).Scan(&found); err != nil {
 		return out, err
 	}
 	if !found {

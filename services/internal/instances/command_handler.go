@@ -43,6 +43,10 @@ func (h *CommandHandler) ServeAuthenticated(w http.ResponseWriter, r *http.Reque
 		h.releaseStorage(w, r, p)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && r.Method == http.MethodDelete {
+		h.removeStorage(w, r, p)
+		return
+	}
 	accepted, err := h.accept(w, r, p)
 	if err != nil {
 		if errors.Is(err, identity.ErrUnauthenticated) || errors.Is(err, identity.ErrForbidden) {

@@ -45,11 +45,13 @@ GRANT SELECT ON storage_assets,instance_health,audit_events TO hc_api;
 GRANT SELECT,INSERT ON storage_release_requests TO hc_api;
 GRANT SELECT,INSERT,DELETE ON storage_browse_requests TO hc_api;
 GRANT SELECT,INSERT,UPDATE,DELETE ON personal_skills,skill_import_previews,skill_replacements TO hc_api;
+GRANT SELECT,INSERT ON workspace_skill_snapshots TO hc_api;
+GRANT SELECT,INSERT ON workspace_extensions TO hc_api;
 GRANT SELECT,INSERT,UPDATE,DELETE ON context_connections,context_bindings,context_previews TO hc_api;
 GRANT SELECT,INSERT,UPDATE,DELETE ON context_operations TO hc_api;
 GRANT SELECT,INSERT,UPDATE ON mcp_connectors,mcp_calls TO hc_api;
 GRANT SELECT,INSERT,DELETE ON mcp_oauth_transactions TO hc_api;
-GRANT UPDATE(status,maintenance_intent) ON storage_assets TO hc_api;
+GRANT UPDATE(status,maintenance_intent,owner_removed_at) ON storage_assets TO hc_api;
 GRANT SELECT(id,org_id,owner_id,instance_id,asset_id,capacity_bytes,template_version,image_digest,status,created_at,completed_at,verified_at,expires_at,backup_sha256,set_id) ON storage_backups TO hc_api;
 GRANT SELECT,INSERT,DELETE ON idempotency_records TO hc_api;
 GRANT SELECT,INSERT ON quota_reservations TO hc_api;
@@ -81,7 +83,7 @@ func GrantWorker(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `GRANT SELECT ON workspace_template_versions,workspace_templates,workspace_builds TO hc_worker;
 GRANT INSERT,UPDATE ON workspace_workspaces,workspace_builds TO hc_worker;
 GRANT SELECT(status) ON users TO hc_worker;
-GRANT SELECT(org_id,user_id,status) ON memberships TO hc_worker;
+GRANT SELECT(org_id,user_id,status,auth_generation) ON memberships TO hc_worker;
 GRANT EXECUTE ON FUNCTION public.hc_has_permission(uuid,uuid,text) TO hc_worker;`); err != nil {
 		return err
 	}
@@ -106,7 +108,12 @@ GRANT UPDATE(status) ON model_configurations TO hc_worker;
 GRANT UPDATE(status,checked_at,expires_at,reason_code,lease_token,lease_expires_at,attempted_at,evidence) ON model_validations TO hc_worker;
 GRANT SELECT,INSERT ON probe_budgets TO hc_worker;
 GRANT UPDATE(attempts) ON probe_budgets TO hc_worker;
-GRANT SELECT ON instances,storage_assets,quota_policies,quota_reservations,model_configurations,model_validations TO hc_worker;
+GRANT SELECT ON instances,storage_assets,quota_policies,quota_reservations,model_configurations,model_validations,workspace_skill_snapshots TO hc_worker;
+GRANT SELECT,UPDATE(applied_at,applied_generation) ON workspace_extensions TO hc_worker;
+GRANT EXECUTE ON FUNCTION public.hc_extensions_lock_authority(uuid,uuid,uuid,bigint) TO hc_worker;
+GRANT SELECT,UPDATE ON context_connections,context_bindings,mcp_connectors TO hc_worker;
+GRANT SELECT ON context_operations TO hc_worker;
+GRANT SELECT,INSERT,UPDATE ON mcp_calls,mcp_oauth_transactions TO hc_worker;
 GRANT SELECT(id,asset_id,status) ON storage_backups TO hc_worker;
 GRANT SELECT(id,org_id,revoked_at,key_id,nonce,ciphertext) ON secrets TO hc_worker;
 GRANT SELECT(id,workspace_owner_id,status) ON users TO hc_worker;

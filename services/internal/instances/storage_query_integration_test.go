@@ -306,6 +306,47 @@ func TestStorageQueriesWithRestrictedPostgres(t *testing.T) {
 			t.Fatal("processing filter rejected by HTTP handler", w.Code)
 		}
 	}
+	t.Run("remove reclaimed asset without deleting history", func(t *testing.T) {
+		reclaimed := asset(owner, "已回收测试", "DELETED")
+		backup := webapi.ID()
+		must(`INSERT INTO storage_backups(id,org_id,owner_id,instance_id,asset_id,capacity_bytes,template_version,image_digest,status,archive_path) SELECT $2,org_id,owner_id,instance_id,id,capacity_bytes,$3,'sha256:fixture','FAILED','/private/fixture' FROM storage_assets WHERE id=$1`, reclaimed, backup, webapi.ID())
+		commands := NewCommandService(apiDB, nil, false)
+		commandHandler := NewCommandHandler(commands, nil)
+		rejected := httptest.NewRecorder()
+		commandHandler.ServeAuthenticated(rejected, httptest.NewRequest("DELETE", "/v1/storage-assets/"+stopped, nil), owner)
+		if rejected.Code != 409 {
+			t.Fatal("HTTP removal accepted unreclaimed asset", rejected.Code)
+		}
+		if e := commands.RemoveStorage(ctx, owner, stopped, "fixture"); queryCode(e) != "STORAGE_REMOVE_BLOCKED" {
+			t.Fatal("unreclaimed asset removed", e)
+		}
+		if e := commands.RemoveStorage(ctx, administrator, reclaimed, "fixture"); queryCode(e) != "NOT_FOUND" {
+			t.Fatal("foreign asset removed", e)
+		}
+		if e := commands.RemoveStorage(ctx, other, foreignAsset, "fixture"); !errors.Is(e, identity.ErrForbidden) {
+			t.Fatal("permission bypass", e)
+		}
+		if e := commands.RemoveStorage(ctx, owner, reclaimed, "fixture"); e != nil {
+			t.Fatal("remove failed", e)
+		}
+		if e := commands.RemoveStorage(ctx, owner, reclaimed, "fixture"); e != nil {
+			t.Fatal("retry failed", e)
+		}
+		if _, e := service.StorageAsset(ctx, owner, reclaimed); queryCode(e) != "NOT_FOUND" {
+			t.Fatal("removed asset still visible", e)
+		}
+		if _, e := service.StorageBackups(ctx, owner, reclaimed, 1, 10); queryCode(e) != "NOT_FOUND" {
+			t.Fatal("removed asset backups still visible", e)
+		}
+		page, e := service.StorageAssets(ctx, owner, StorageListInput{Page: 1, Limit: 10, Status: "DELETED"})
+		if e != nil || page.Total != 0 {
+			t.Fatal("removed asset still listed", e)
+		}
+		var assets, backups, audits int
+		if e = adminDB.QueryRow(ctx, `SELECT (SELECT count(*) FROM storage_assets WHERE id=$1 AND owner_removed_at IS NOT NULL),(SELECT count(*) FROM storage_backups WHERE asset_id=$1),(SELECT count(*) FROM audit_events WHERE resource_id=$1 AND action='STORAGE_OWNER_REMOVE')`, reclaimed).Scan(&assets, &backups, &audits); e != nil || assets != 1 || backups != 1 || audits != 1 {
+			t.Fatal("history or audit lost", e, assets, backups, audits)
+		}
+	})
 	must(`UPDATE memberships SET status='DISABLED' WHERE org_id=$1 AND user_id=$2`, owner.OrganizationID, owner.UserID)
 	if _, e = service.StorageAsset(ctx, owner, retained); e == nil {
 		t.Fatal("disabled owner could read retained asset")

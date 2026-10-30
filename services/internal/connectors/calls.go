@@ -185,6 +185,13 @@ func (s *Service) Invoke(ctx context.Context, p identity.Principal, id string, i
 		return Call{}, invalid("参数不符合此工具的JSON Schema，请检查必填项和类型")
 	}
 	var active, connectionActive int
+	var recent int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM mcp_calls WHERE org_id=$1 AND owner_id=$2 AND created_at>clock_timestamp()-interval '1 minute'`, p.OrganizationID, p.UserID).Scan(&recent); err != nil {
+		return Call{}, err
+	}
+	if recent >= 30 {
+		return Call{}, webapi.Fail(429, "CONNECTOR_BUSY", "工具调用过于频繁，请稍后重试")
+	}
 	err = tx.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE connector_id=$3) FROM mcp_calls WHERE org_id=$1 AND owner_id=$2 AND status='RUNNING' AND created_at+make_interval(secs=>timeout_seconds+5)>clock_timestamp()`, p.OrganizationID, p.UserID, id).Scan(&active, &connectionActive)
 	if err != nil {
 		return Call{}, err

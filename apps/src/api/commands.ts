@@ -1,3 +1,4 @@
+import type {WorkspaceExtensionsInput} from './workspace-extensions';
 import type { CurrentUser } from './identity';
 import { APIError } from './error';
 
@@ -5,7 +6,7 @@ export type CommandAction = 'create' | 'start' | 'stop' | 'delete' | 'configure'
 export interface Acceptance { instance_id: string; operation_id: string; state: string }
 export interface ConfigurationInput { expected_instance_version: number; model_configuration_id: string; model_configuration_version: number }
 export interface ModelSelection { model_configuration_id: string; model_configuration_version: number }
-export type CreateInput = Partial<ModelSelection> & { name?: string; spec_id?: string };
+export type CreateInput = Partial<ModelSelection> & WorkspaceExtensionsInput & { name?: string; spec_id?: string; skills?: {id:string;version:number}[] };
 type Submission = { schema_version: 1; action: CommandAction; target: string; key: string; created_at: number; state: 'pending' | 'accepted' | 'rejected'; uncertain?: boolean; response?: Acceptance; body?: ConfigurationInput | CreateInput | Record<string, never>; confirmed_name?: string; source_operation?: string };
 type StoragePort = Pick<Storage,'getItem'|'setItem'|'removeItem'>;
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -62,10 +63,12 @@ export class CommandsClient {
    let response:Response;
    try {response=await this.fetcher(path,{method:action==='delete'?'DELETE':'POST',credentials:'same-origin',cache:'no-store',headers,body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(10_000)});} catch {submission.uncertain=true;this.write(scope,submission);throw new Error('提交结果待确认，请使用原请求确认结果或查看实例记录');}
    if(response.status!==202) {
-    const problem:{code?:unknown}=await response.json().catch(()=>({}));
+    const problem:{code?:unknown;message?:unknown}=await response.json().catch(()=>({}));
     if(!submission.uncertain && response.status>=400 && response.status<500 && ![401,403,429].includes(response.status))submission.state='rejected';else submission.uncertain=true;
     this.write(scope,submission);
-    throw new APIError(response.status,typeof problem.code==='string'?problem.code:'DEPENDENCY_UNAVAILABLE');
+    const error=new APIError(response.status,typeof problem.code==='string'?problem.code:'DEPENDENCY_UNAVAILABLE');
+    if(action==='create'&&body&&['SKILL_INVALID','EXTENSION_INVALID','VERSION_CONFLICT','NOT_FOUND'].includes(error.code))error.message=typeof problem.message==='string'?problem.message:'所选扩展不可用，请重新加载并重新选择';
+    throw error;
    }
    const result:Acceptance=await response.json().catch(()=>null);
    if(!result || !uuid.test(result.instance_id) || !uuid.test(result.operation_id) || (action!=='create' && result.instance_id!==target) || !['CREATING','STARTING','RUNNING','STOPPING','STOPPED','DELETING'].includes(result.state)){submission.uncertain=true;this.write(scope,submission);throw new Error('提交结果无效，请使用原请求确认结果');}

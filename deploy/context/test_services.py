@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
 """Real, isolated external-service smoke tests. No DSH container is accessed."""
 import hashlib
+import base64
+import math
 import os
 import hmac
 import json
 from pathlib import Path
 import time
 import unittest
+import struct
 import urllib.error
 import urllib.request
 import uuid
@@ -41,7 +44,66 @@ def call(backend, namespace, action, signed=True, **values):
             time.sleep(2)
 
 
+@unittest.skipUnless(os.environ.get("HC_CONTEXT_TEST_EMBEDDINGS") == "true", "standalone Embedding service required")
+class EmbeddingService(unittest.TestCase):
+    def request(self, path, body=None, key=KEY):
+        data = json.dumps(body, ensure_ascii=False).encode() if body is not None else None
+        headers = {"Authorization": "Bearer " + key, "Content-Type": "application/json"}
+        request = urllib.request.Request("http://127.0.0.1:18581" + path, data, headers)
+        with HTTP.open(request, timeout=30) as response:
+            raw = response.read()
+            return json.loads(raw) if raw else None
+
+    def test_model_authentication_and_input_validation(self):
+        self.request("/health")
+        info = self.request("/info")
+        self.assertEqual(info["model_id"], "BAAI/bge-small-zh-v1.5")
+        valid = {"model": info["model_id"], "input": "中文服务验证"}
+        with self.assertRaises(urllib.error.HTTPError) as rejected:
+            self.request("/v1/embeddings", valid, key="invalid")
+        self.assertEqual(rejected.exception.code, 401)
+        for change, status in (({"input": []}, 400), ({"input": ["文本"] * 65}, 422), ({"encoding_format": "invalid"}, 422)):
+            with self.subTest(change=next(iter(change))), self.assertRaises(urllib.error.HTTPError) as rejected:
+                self.request("/v1/embeddings", {**valid, **change})
+            self.assertEqual(rejected.exception.code, status)
+
+    def test_chinese_batch_vectors_and_base64_encoding(self):
+        model = self.request("/info")["model_id"]
+        result = self.request("/v1/embeddings", {"model": model, "input": ["星河项目每周三发布。", "发布负责人是李明。"]})
+        self.assertEqual([row["index"] for row in result["data"]], [0, 1])
+        for row in result["data"]:
+            self.assertEqual(len(row["embedding"]), 512)
+            self.assertTrue(all(math.isfinite(value) for value in row["embedding"]))
+            self.assertGreater(sum(value * value for value in row["embedding"]), 0)
+        encoded = self.request("/v1/embeddings", {"model": model, "input": "星河项目每周三发布。", "encoding_format": "base64", "dimensions": 512})
+        vector = struct.unpack("<512f", base64.b64decode(encoded["data"][0]["embedding"]))
+        for actual, expected in zip(vector, result["data"][0]["embedding"]):
+            self.assertAlmostEqual(actual, expected, places=5)
+
+
 class ExternalServices(unittest.TestCase):
+    def test_structure_aware_search_and_rebuild(self):
+        for backend in os.environ.get("HC_CONTEXT_TEST_BACKENDS", "qdrant,weaviate,milvus").split(","):
+            namespace = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
+            identity = None
+            version = 1
+            try:
+                call(backend, namespace, "verify")
+                staged = call(backend, namespace, "preview", title="结构化测试报告", content="# 项目报告\n\n## 财务\n\n营业收入增长。\n\n## 风险\n\n负债水平较高。")
+                identity = staged["items"][0]["id"]
+                call(backend, namespace, "apply", token=staged["token"], mode="skip", idempotency_key=uuid.uuid4().hex, confirmed=True)
+                for mode in ("keyword", "hybrid"):
+                    hits = call(backend, namespace, "search", query="营业收入", search_mode=mode)["items"]
+                    self.assertTrue(any(hit["section"] == "项目报告 / 财务" and "营业收入" in hit["snippet"] for hit in hits))
+                call(backend, namespace, "rebuild", record_id=identity, record_version=1, idempotency_key=uuid.uuid4().hex, confirmed=True)
+                version = 2
+                self.assertEqual(call(backend, namespace, "get", record_id=identity)["version"], 2)
+                hits = call(backend, namespace, "search", query="营业收入", search_mode="hybrid")["items"]
+                self.assertTrue(any(hit["version"] == 2 and hit["section"] == "项目报告 / 财务" for hit in hits))
+            finally:
+                if identity:
+                    call(backend, namespace, "delete", record_id=identity, record_version=version, idempotency_key=uuid.uuid4().hex, confirmed=True)
+
     def test_native_write_recall_isolation_update_and_delete(self):
         for backend in os.environ.get("HC_CONTEXT_TEST_BACKENDS","qdrant,weaviate,milvus,mem0").split(","):
             with self.subTest(backend=backend):
@@ -65,6 +127,17 @@ class ExternalServices(unittest.TestCase):
                     self.assertEqual(len(call(backend, namespace, "list")["items"]), 1)
                     hits = call(backend, namespace, "search", query="星河项目什么时候发布？", limit=5)["items"]
                     self.assertTrue(any(h["id"] == record_id and "每周三" in h["snippet"] for h in hits))
+                    if backend not in ("mem0", "openviking", "graphiti"):
+                        for search_mode in ("keyword", "hybrid"):
+                            found = call(backend, namespace, "search", query="星河 李明", limit=5, search_mode=search_mode)["items"]
+                            match = next(hit for hit in found if hit["id"] == record_id)
+                            self.assertIn("keyword", match["match_methods"])
+                            if search_mode == "keyword":
+                                self.assertNotIn("score", match)
+                                self.assertNotIn("fusion_score", match)
+                            else:
+                                self.assertGreater(match["fusion_score"], 0)
+                        self.assertEqual(call(backend, other, "search", query="星河 李明", search_mode="keyword")["items"], [])
                     # The same service credential cannot bypass the platform's namespace MAC.
                     self.assertEqual(call(backend, other, "list")["items"], [])
                     with self.assertRaises(urllib.error.HTTPError) as rejected:
@@ -78,6 +151,9 @@ class ExternalServices(unittest.TestCase):
                     hits = call(backend, namespace, "search", query="星河项目的发布日", limit=5)["items"]
                     self.assertTrue(any("每周五" in h["snippet"] for h in hits))
                     self.assertFalse(any("每周三" in h["snippet"] for h in hits))
+                    if backend not in ("mem0", "openviking", "graphiti"):
+                        hits = call(backend, namespace, "search", query="每周五", search_mode="keyword")["items"]
+                        self.assertTrue(any(h["id"] == record_id and "每周五" in h["snippet"] for h in hits))
                     if backend in ("mem0","openviking","graphiti"):
                         package = call(backend, namespace, "export")
                         self.assertEqual(package["schema"], "hc-memory-v1")
@@ -86,6 +162,8 @@ class ExternalServices(unittest.TestCase):
                     call(backend, namespace, "delete", record_id=record_id, record_version=2, idempotency_key=uuid.uuid4().hex, confirmed=True)
                     records.clear()
                     self.assertEqual(call(backend, namespace, "search", query="星河项目", limit=5)["items"], [])
+                    if backend not in ("mem0", "openviking", "graphiti"):
+                        self.assertEqual(call(backend, namespace, "search", query="每周五", search_mode="keyword")["items"], [])
                 finally:
                     for identity, version in records:
                         try:

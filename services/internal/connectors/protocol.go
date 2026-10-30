@@ -176,7 +176,10 @@ func openSession(ctx context.Context, e Endpoint, credential, version string) (*
 	if err != nil {
 		return nil, err
 	}
-	if session.InitializeResult().ProtocolVersion != version {
+	// New connections prefer the modern protocol and accept the SDK's legacy
+	// handshake fallback. Explicit legacy configurations remain pinned.
+	negotiated := session.InitializeResult().ProtocolVersion
+	if negotiated != version && !(version == "2026-07-28" && negotiated == "2025-11-25") {
 		session.Close()
 		return nil, errors.New("MCP protocol version mismatch")
 	}

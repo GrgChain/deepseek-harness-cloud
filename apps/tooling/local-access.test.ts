@@ -1,7 +1,8 @@
 import { createServer, connect } from 'node:http2';
-import { once } from 'node:events';
+import { EventEmitter, once } from 'node:events';
 import { expect, test } from 'vitest';
-import { proxyResponseHeaders } from './local-access';
+import { PassThrough } from 'node:stream';
+import { localAccess, proxyResponseHeaders } from './local-access';
 
 test('HTTP/1 chunked responses cross the HTTP/2 listener without crashing or losing cookies', async () => {
  const server = createServer();
@@ -25,4 +26,17 @@ test('HTTP/1 chunked responses cross the HTTP/2 listener without crashing or los
   expect(result.body).toBe('native-root'); expect(result.cookies).toEqual(headers['set-cookie']);
  } finally { session.destroy(); server.close(); }
  expect(headers['transfer-encoding']).toBe('chunked');
+});
+
+test('browser reset before an upgrade completes does not escape the local HTTPS proxy', () => {
+ const httpServer=new EventEmitter();
+ const plugin=localAccess();
+ const server={middlewares:{use:()=>{}},httpServer,config:{server:{port:42013}}};
+ (plugin.configureServer as Function)(server);
+ const socket=new PassThrough();
+ const request={headers:{host:'i-796c8262e76d452dbddcb87a83e2ee53.harness.localhost:42013'},url:'/api/remote.mux',method:'GET'};
+ httpServer.emit('upgrade',request,socket,Buffer.alloc(0));
+ expect(socket.listenerCount('error')).toBeGreaterThan(0);
+ expect(()=>socket.emit('error',Object.assign(new Error('reset'),{code:'ECONNRESET'}))).not.toThrow();
+ socket.destroy();
 });

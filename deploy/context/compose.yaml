@@ -13,6 +13,21 @@ x-direct-network: &direct-network
 # Only external knowledge/memory services belong in this project. Portal and
 # existing DSH containers are managed by their existing deployment.
 services:
+  docling:
+    image: hc-docling:1.36.0
+    build: ./docling
+    profiles: [knowledge, docling]
+    ports: ["127.0.0.1:18582:5001"]
+    environment:
+      <<: *direct-network
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "false"
+      DOCLING_SERVE_MAX_SYNC_WAIT: "280"
+      DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: "280"
+    mem_limit: 4g
+    cpus: 2
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+
   bridge:
     image: hc-context-bridge:dev
     build: ./bridge
@@ -23,7 +38,7 @@ services:
       HC_CONTEXT_PROXY_KEY: ${HC_CONTEXT_PROXY_KEY:?run prepare.py first}
       QDRANT_URL: http://qdrant:6333
       WEAVIATE_URL: http://weaviate:8080
-      MILVUS_URL: http://milvus:19530
+      MILVUS_URL: ${HC_CONTEXT_DEFAULT_MILVUS_URL:-http://milvus:19530}
       HC_CONTEXT_MODEL_CONFIG: ${HC_CONTEXT_MODEL_CONFIG:-e30=}
       GRAPHITI_TELEMETRY_ENABLED: "false"
       SEMAPHORE_LIMIT: "2"
@@ -44,21 +59,27 @@ services:
     restart: unless-stopped
 
   embeddings:
-    image: hc-context-bridge:dev
-    profiles: [openviking]
-    command: [uvicorn, embeddings:app, --host, 0.0.0.0, --port, "8581", --no-access-log]
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
+    profiles: [knowledge, embeddings, openviking]
+    ports: ["127.0.0.1:18581:8581"]
+    command: [--hostname, "0.0.0.0", --port, "8581", --tokenization-workers, "2", --max-client-batch-size, "64", --max-batch-tokens, "4096", --max-concurrent-requests, "16"]
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8581/healthz')"]
+      test: [CMD, curl, --fail, --silent, http://localhost:8581/health]
       interval: 10s
       timeout: 5s
       retries: 12
+      start_period: 120s
     environment:
       <<: *direct-network
-      HC_CONTEXT_TEST_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
-      HF_HUB_OFFLINE: "1"
-    volumes: ["embedding-models:/models"]
-    mem_limit: 768m
-    cpus: 1
+      MODEL_ID: ${HC_CONTEXT_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
+      API_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
+      HUGGINGFACE_HUB_CACHE: /data
+      OMP_NUM_THREADS: "2"
+      LOG_LEVEL: warn
+    volumes: ["embedding-api-data:/data"]
+    mem_limit: 1g
+    cpus: 2
+    security_opt: [no-new-privileges:true]
     restart: unless-stopped
 
   openviking:
@@ -204,6 +225,7 @@ volumes:
   openviking-data:
   bridge-data:
   embedding-models:
+  embedding-api-data:
   qdrant-data:
   weaviate-data:
   etcd-data:

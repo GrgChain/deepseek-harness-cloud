@@ -55,8 +55,8 @@ func TestManagedModelsPinnedRealBundle(t *testing.T) {
 	if !changed {
 		t.Fatal("pinned module was not adapted")
 	}
-	if !bytes.Contains(patched, []byte("state.managedCatalog = catalog.value")) || !bytes.Contains(patched, []byte(`href:"https://portal.harness.test:42013/app/models"`)) {
-		t.Fatal("managed directory or fixed Portal action missing")
+	if !bytes.Contains(patched, []byte("state.managedCatalog = catalog.value")) || !bytes.Contains(patched, []byte("data-hc-managed-models-directory")) {
+		t.Fatal("managed directory missing")
 	}
 	// Only the two known insertion points change; the pinned module and all
 	// other modules remain intact, including the existing local settings path.

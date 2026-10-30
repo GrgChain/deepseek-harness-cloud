@@ -1,13 +1,14 @@
 import {ConnectorsPanel} from '../features/connectors/connectors-panel';
 import { ContextPanel } from '../features/context/context-panel';
 import { SkillsPanel } from '../features/skills/skills-panel';
+import { PluginsPanel } from '../features/plugins/plugins-panel';
 import { StorageBrowsePage, StoragePanel } from '../features/storage/storage-panel';
 import { OperationLogsPanel } from '../features/operation-logs/operation-logs-panel';
 import { useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, Avatar, Button, Card, Drawer, Empty, Layout, Menu, Space, Spin, Tooltip, type MenuProps } from 'antd';
-import { Activity, BookOpen, Brain, Library, Box, Check, CircleHelp, Cloud, Database, ExternalLink, FileText, Gauge, LayoutGrid, LockKeyhole, Menu as MenuIcon, RefreshCw, Settings2, ShieldCheck } from 'lucide-react';
+import { Activity, BookOpen, Brain, Library, Box, Check, CircleHelp, Cloud, Database, ExternalLink, FileText, Gauge, LayoutGrid, LockKeyhole, Menu as MenuIcon, Puzzle, RefreshCw, Settings2, ShieldCheck } from 'lucide-react';
 import { PlatformClient } from '../api/platform';
 import { IdentityClient, hasPermission } from '../api/identity';
 import { UsersPanel, RolesPanel } from '../features/management/management-panel';
@@ -34,7 +35,7 @@ export function App() {
   const login = location.pathname === '/login';
   const detail = location.pathname.startsWith('/app/instances/');
   const storageBrowse = /^\/app\/storage\/[^/]+\/browse$/.test(location.pathname);
-  const titles: Record<string, string> = { '/app/instances': '工作空间', '/app/storage': '工作数据', '/app/skills': '技能包', '/app/connectors': '连接器', '/app/memory': '记忆', '/app/knowledge': '知识库', '/app/models': '模型提供商', '/app/users': '用户管理', '/app/quotas': '资源配额', '/app/roles': '角色与权限', '/app/settings': '平台配置', '/app/audit': '操作日志', '/login': '账户' };
+  const titles: Record<string, string> = { '/app/instances': '工作空间', '/app/storage': '工作数据', '/app/skills': '技能包', '/app/connectors': '连接器', '/app/plugins': '插件', '/app/memory': '记忆', '/app/knowledge': '知识库', '/app/models': '模型提供商', '/app/users': '用户管理', '/app/quotas': '资源配额', '/app/roles': '角色与权限', '/app/settings': '平台配置', '/app/audit': '操作日志', '/login': '账户' };
   const title = detail ? '实例详情' : storageBrowse ? '数据浏览' : titles[location.pathname] ?? '工作空间';
   const status = useQuery({ queryKey: ['platform-status'], queryFn: ({ signal }) => platform.status(signal), refetchInterval: query => query.state.status === 'error' ? false : 30_000 });
   const online = status.data?.online === true && !status.isError;
@@ -61,6 +62,7 @@ export function App() {
     ...(hasPermission(user, 'connectors:read') ? [{key:'/app/connectors',icon:<ExternalLink size={18}/>,label:<Link to="/app/connectors">连接器</Link>}] : []),
     ...(hasPermission(user, 'memory:read') ? [{ key: '/app/memory', icon: <Brain size={18} />, label: <Link to="/app/memory">记忆</Link> }] : []),
     ...(hasPermission(user, 'knowledge:read') ? [{ key: '/app/knowledge', icon: <Library size={18} />, label: <Link to="/app/knowledge">知识库</Link> }] : []),
+    ...(hasPermission(user, 'instances:read') ? [{ key: '/app/plugins', icon: <Puzzle size={18} />, label: <Link to="/app/plugins">插件</Link> }] : []),
     ...(hasPermission(user, 'personal-model:read') ? [{ key: '/app/models', icon: <Box size={18} />, label: <Link to="/app/models">模型提供商</Link> }] : []),
   ];
   const administrationItems: MenuProps['items'] = [
@@ -100,6 +102,7 @@ export function App() {
           <Route path="/app/storage/:assetId/browse" element={user && hasPermission(user, 'instances:read') ? <StorageBrowsePage user={user}/> : <Alert type={user?'error':'info'} message={user?'没有数据资产读取权限':'请先登录组织账户'}/>} />
           <Route path="/app/skills" element={user && hasPermission(user, 'skills:read') ? <SkillsPanel key={user.id} user={user}/> : <Alert type={user?'error':'info'} message={user?'没有 Skill 读取权限':'请先登录组织账户'}/>} />
           <Route path="/app/connectors" element={user && hasPermission(user, 'connectors:read') ? <ConnectorsPanel key={user.id} user={user}/> : <Alert type="error" message="没有连接器读取权限"/>} />
+          <Route path="/app/plugins" element={user && hasPermission(user, 'instances:read') ? <PluginsPanel key={user.id} /> : <Alert type={user ? 'error' : 'info'} showIcon message={user ? '没有实例读取权限' : '请先登录组织账户'} />} />
           <Route path="/app/memory" element={user && hasPermission(user, 'memory:read') ? <ContextPanel key={user.id+'memory'} user={user} kind="memory"/> : <Alert type="error" message="没有记忆读取权限"/>} />
           <Route path="/app/knowledge" element={user && hasPermission(user, 'knowledge:read') ? <ContextPanel key={user.id+'knowledge'} user={user} kind="knowledge"/> : <Alert type="error" message="没有知识库读取权限"/>} />
           <Route path="/app/models" element={user && hasPermission(user, 'personal-model:read') ? <ModelProvidersPanel key={user.id} user={user} /> : <Alert type="error" showIcon message={user ? '没有个人模型读取权限' : '请先登录组织账户'} />} />

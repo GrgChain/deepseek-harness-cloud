@@ -176,8 +176,8 @@ func TestMigrationsOnIsolatedPostgres(t *testing.T) {
 	if err := conn.QueryRow(ctx, "SELECT count(*) FROM information_schema.tables WHERE table_schema='public'").Scan(&count); err != nil {
 		t.Fatal(err)
 	}
-	if count != 73 {
-		t.Fatalf("expected 73 public tables/views including migration ledger, got %d", count)
+	if count != 75 {
+		t.Fatalf("expected 75 public tables/views including migration ledger, got %d", count)
 	}
 	if _, err := conn.Exec(ctx, "INSERT INTO organizations(id,name,status) VALUES ('00000000-0000-4000-8000-000000000001','Test','ACTIVE') ON CONFLICT DO NOTHING"); err != nil {
 		t.Fatal(err)

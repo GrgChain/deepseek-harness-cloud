@@ -16,7 +16,7 @@
 .connector-catalog-caption{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:24px 0 12px;flex-shrink:0}
 .connector-catalog-caption h3{font-size:14px;font-weight:600}
 .connector-catalog-caption>span{font-size:12px;color:var(--muted)}
-.connector-catalog-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-content:start;gap:12px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px;margin:-4px;scrollbar-gutter:stable}
+.connector-catalog-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));align-content:start;gap:12px;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:4px;margin:-4px;scrollbar-gutter:stable}
 .connector-preset{min-width:0}
 .connector-preset-select{display:flex;flex-direction:column;gap:14px;width:100%;height:100%;padding:18px;border:1px solid var(--line);border-radius:10px;background:var(--color-surface);color:var(--color-foreground);font:inherit;text-align:left;cursor:pointer;transition:border-color .15s,box-shadow .15s,background-color .15s}
 .connector-preset-select:hover{border-color:var(--color-primary);box-shadow:0 2px 8px rgb(15 23 42 / 5%)}
@@ -24,6 +24,8 @@
 .connector-preset-select:focus-visible{outline:2px solid var(--color-primary);outline-offset:2px}
 .connector-preset-heading{display:flex;align-items:center;gap:12px;min-width:0}
 .connector-preset-icon{display:flex;align-items:center;justify-content:center;width:40px;height:40px;flex:0 0 40px;border-radius:10px}
+.connector-brand-icon{background:#fff;border:1px solid var(--line)}
+.connector-brand-icon img{display:block;width:28px;height:28px;object-fit:contain}
 .connector-preset-title{display:flex;flex-direction:column;gap:3px;min-width:0}
 .connector-preset-title strong{font-size:15px;font-weight:600;line-height:1.4;overflow-wrap:anywhere}
 .connector-preset-title>span{font-size:12px;line-height:1.4;color:var(--muted)}

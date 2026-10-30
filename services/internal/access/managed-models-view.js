@@ -3,34 +3,42 @@ if (state.managedCatalog) {
  const classes = ModelsSection_module_css_default;
  const english = t('title') === 'Models';
  const copy = english ? {
-  managed:'Models are managed in the console.', manage:'Manage model providers', apply:'Open workspace details',
+  managed:'Models are managed in the console.', search:'Search models',
   hint:'After saving a provider, apply it from workspace details.', empty:'No models are available. Check your provider in the console.',
-  refresh:'Refresh models', current:'Default', failed:'Some providers are unavailable. Try refreshing.'
+  noMatches:'No matching models.', current:'Default', count:'models', failed:'Some providers are unavailable. Try reopening model settings.'
  } : {
-  managed:'模型由控制台统一管理。', manage:'管理模型提供商', apply:'打开实例详情',
+  managed:'模型由控制台统一管理。', search:'搜索模型',
   hint:'保存提供商后，请到实例详情应用更新。', empty:'暂无可用模型，请在控制台检查模型提供商。',
-  refresh:'刷新目录', current:'当前默认', failed:'部分提供商暂不可用，请刷新重试。'
+  noMatches:'没有匹配的模型。', current:'当前默认', count:'个模型', failed:'部分提供商暂不可用，请重新打开模型设置重试。'
  };
  const catalog = state.managedCatalog;
+ const query = managedModelQuery.trim().toLocaleLowerCase();
+ const groups = catalog.groups.map(group=>({...group,models:group.models.filter(model=>`${group.name} ${group.id} ${model.name || ''} ${model.id}`.toLocaleLowerCase().includes(query))})).filter(group=>group.models.length);
  return jsxs('section', {className:classes.section, 'data-hc-managed-models':'', 'aria-label':t('title'), children:[
   jsx('style',{children:`
-   [data-hc-managed-models] a,[data-hc-managed-models] button{min-height:44px;height:auto;white-space:normal;overflow-wrap:anywhere;padding:10px 16px;box-sizing:border-box}
-   [data-hc-managed-models] li{min-width:0;overflow-wrap:anywhere}
-   [data-hc-managed-models]{gap:10px}
-   [data-shortcut-modal="settings"]:has([data-hc-managed-models]){height:min(560px,calc(100vh - 2 * max(24px,var(--dsh-frame-overlay-top,24px))))}
-   [data-hc-managed-models] [data-hc-managed-models-lead]{max-width:58ch}
-   [data-hc-managed-models] [data-hc-managed-models-directory]{margin:2px 0 0;gap:8px}
-   [data-hc-managed-models] [data-hc-managed-models-provider]{gap:8px;padding:12px 16px;border-radius:var(--dsw-radius-md)}
-   [data-hc-managed-models] [data-hc-managed-models-provider-name]{font-size:13px;font-weight:500;line-height:20px}
-   [data-hc-managed-models] [data-hc-managed-models-models]{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 20px;margin:0}
-   [data-hc-managed-models] [data-hc-managed-models-entry]{display:inline-flex;align-items:center;gap:8px}
-   [data-hc-managed-models] [data-hc-managed-models-current]{border:0;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);padding:2px 8px;font-size:11px;line-height:16px}
-   [data-hc-managed-models] [data-hc-managed-models-hint]{margin-top:2px}
-   [data-hc-managed-models-actions]{display:grid;grid-template-columns:max-content max-content max-content;align-items:center;gap:8px;margin-top:4px}
-   [data-hc-managed-models-actions]>:first-child{grid-column:auto}
-   [data-hc-managed-models-actions]>a,[data-hc-managed-models-actions]>button{margin:0;justify-self:start;text-align:center}
+   [data-hc-managed-models]{width:100%;max-width:760px;gap:14px;container:hc-model-directory/inline-size;color:var(--dsw-alias-label-primary)}
+   [data-hc-managed-models] h2{margin:0;font-size:18px;font-weight:600;line-height:26px}
+   [data-hc-managed-models] [data-hc-managed-models-lead]{margin:0;color:var(--dsw-alias-label-tertiary);font-size:13px;line-height:20px}
+   [data-hc-managed-models-search]{position:relative;display:flex;align-items:center;color:var(--dsw-alias-label-tertiary)}
+   [data-hc-managed-models-search]>svg{position:absolute;left:12px;pointer-events:none}
+   [data-hc-managed-models-search]>input{box-sizing:border-box;width:100%;height:36px;min-width:0;padding:0 34px 0 36px;border:.5px solid var(--dsw-alias-border-l4);border-radius:var(--dsw-radius-md);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:13px;outline:none}
+   [data-hc-managed-models-search]>input::placeholder{color:var(--dsw-alias-label-tertiary)}
+   [data-hc-managed-models-search]>input:focus-visible{border-color:var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));box-shadow:0 0 0 2px color-mix(in srgb,var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary)) 18%,transparent)}
+   [data-hc-managed-models] [data-hc-managed-models-directory]{display:flex;flex-direction:column;gap:14px;margin:0;padding:0;list-style:none}
+   [data-hc-managed-models-provider]{display:flex;flex-direction:column;gap:10px;min-width:0}
+   [data-hc-managed-models-provider]+[data-hc-managed-models-provider]{border-top:.5px solid var(--dsw-alias-border-l2);padding-top:14px}
+   [data-hc-managed-models-provider-heading]{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:36px}
+   [data-hc-managed-models-provider-name]{margin:0;font-size:14px;font-weight:400;line-height:22px;overflow-wrap:anywhere}
+   [data-hc-managed-models-count]{flex:none;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
+   [data-hc-managed-models] [data-hc-managed-models-models]{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0;padding:0;list-style:none}
+   [data-hc-managed-models-entry]{box-sizing:border-box;display:flex;flex-direction:column;gap:6px;min-width:0;min-height:60px;padding:12px 14px;border:.5px solid var(--dsw-alias-settings-card-stroke);border-radius:var(--dsw-radius-xl);background:var(--dsw-alias-settings-card-fill)}
+   [data-hc-managed-models-model-heading]{display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:0}
+   [data-hc-managed-models-model-name]{min-width:0;overflow-wrap:anywhere;font-size:14px;font-weight:500;line-height:20px}
+   [data-hc-managed-models-current]{flex:none;border:0;border-radius:999px;background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-secondary);padding:2px 8px;font-size:11px;line-height:16px}
+   [data-hc-managed-models] [data-hc-managed-models-hint],[data-hc-managed-models] [data-hc-managed-models-empty]{margin:0;color:var(--dsw-alias-label-tertiary);font-size:12px;line-height:18px}
+   @container hc-model-directory (width<=520px){[data-hc-managed-models] [data-hc-managed-models-models]{grid-template-columns:minmax(0,1fr)}}
    @media(max-width:600px){
-    [data-shortcut-modal="settings"]:has([data-hc-managed-models]){height:min(520px,calc(100dvh - 32px));flex-direction:column}
+    [data-shortcut-modal="settings"]:has([data-hc-managed-models]){height:min(720px,calc(100dvh - 32px));flex-direction:column}
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>nav{width:100%;padding:18px 16px 0;gap:12px}
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>nav>div:first-child{padding:0 40px 0 0}
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>nav>div:last-child{flex-direction:row;overflow-x:auto;flex-shrink:0;padding-bottom:4px}
@@ -39,27 +47,29 @@ if (state.managedCatalog) {
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>div>div:first-child{height:16px;padding:0}
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>div>div:first-child>button{position:absolute;top:12px;right:10px;width:44px;height:44px}
     [data-shortcut-modal="settings"]:has([data-hc-managed-models])>div>div:last-child{padding:0 16px 20px}
-    [data-hc-managed-models-actions]{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
-    [data-hc-managed-models-actions]>:first-child{grid-column:1/-1}
-    [data-hc-managed-models-actions]>a,[data-hc-managed-models-actions]>button{width:100%;justify-self:stretch}
+    [data-hc-managed-models-search]>input{height:44px}
    }`}),
   jsx('h2',{className:classes.title,children:t('title')}),
-  jsx('p',{className:classes.intro,'data-hc-managed-models-lead':'',children:copy.managed}),
-  catalog.groups.length ? jsx('ul',{className:classes.rows,'data-hc-managed-models-directory':'',children:catalog.groups.map(group=>jsxs('li',{
-   className:classes.rowCard,'data-hc-managed-models-provider':'', children:[
-    jsx('h3',{className:classes.rowName,'data-hc-managed-models-provider-name':'',children:group.name}),
-    jsx('ul',{className:classes.rows,'data-hc-managed-models-models':'',children:group.models.map(model=>jsxs('li',{
+  jsx('p',{'data-hc-managed-models-lead':'',children:copy.managed}),
+  jsxs('label',{'data-hc-managed-models-search':'',children:[
+   jsx('svg',{width:16,height:16,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':'true',children:[jsx('circle',{cx:10.5,cy:10.5,r:6.5},'circle'),jsx('path',{d:'m16 16 4.5 4.5'},'handle')]}),
+   jsx('input',{type:'search','aria-label':copy.search,placeholder:copy.search,value:managedModelQuery,onChange:event=>setManagedModelQuery(event.currentTarget.value)})
+  ]}),
+  groups.length ? jsx('ul',{'data-hc-managed-models-directory':'',children:groups.map(group=>jsxs('li',{
+   'data-hc-managed-models-provider':'', children:[
+    jsxs('div',{'data-hc-managed-models-provider-heading':'',children:[
+     jsx('h3',{'data-hc-managed-models-provider-name':'',children:group.name}),
+     jsx('span',{'data-hc-managed-models-count':'',children:`${group.models.length} ${copy.count}`})
+    ]}),
+    jsx('ul',{'data-hc-managed-models-models':'',children:group.models.map(model=>jsxs('li',{
      'data-hc-managed-models-entry':'',children:[
-     jsx('span',{children:model.name || model.id}),
-     catalog.default?.provider === group.id && catalog.default?.model === model.id ? jsx('span',{className:classes.rowTag,'data-hc-managed-models-current':'',children:copy.current}) : null
-    ]},model.id))})
-   ]},group.id))}) : jsx('p',{className:classes.notice,children:copy.empty}),
+      jsxs('div',{'data-hc-managed-models-model-heading':'',children:[
+       jsx('span',{'data-hc-managed-models-model-name':'',children:model.name || model.id}),
+       catalog.default?.provider === group.id && catalog.default?.model === model.id ? jsx('span',{'data-hc-managed-models-current':'',children:copy.current}) : null
+      ]})
+     ]},model.id))})
+   ]},group.id))}) : jsx('p',{'data-hc-managed-models-empty':'',role:'status',children:catalog.groups.length?copy.noMatches:copy.empty}),
   catalog.failures.length ? jsx('p',{role:'status',className:classes.notice,children:copy.failed}) : null,
-  jsx('p',{className:classes.intro,'data-hc-managed-models-hint':'',children:copy.hint}),
-  jsxs('div',{'data-hc-managed-models-actions':'',children:[
-   jsx('a',{className:classes.primaryButton,style:{textDecoration:'none'},href:HC_MODELS_URL,target:'_blank',rel:'noopener noreferrer',children:copy.manage}),
-   jsx('a',{className:classes.secondaryButton,style:{textDecoration:'none'},href:HC_INSTANCE_URL,target:'_blank',rel:'noopener noreferrer',children:copy.apply}),
-   jsx('button',{className:classes.secondaryButton,type:'button',onClick:()=>controller.load(),children:copy.refresh})
-  ]})
+  jsx('p',{'data-hc-managed-models-hint':'',children:copy.hint})
  ]});
 }

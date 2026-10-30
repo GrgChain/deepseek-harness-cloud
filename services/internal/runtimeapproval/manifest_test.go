@@ -57,3 +57,29 @@ func TestBoundedStorageUpgradePreservesLegacyAssetsAndRejectsDowngrade(t *testin
 		t.Fatal("storage upgrade bypassed runtime format boundary")
 	}
 }
+
+func TestPublicWebUpgradeRequiresReviewedAdapterAndPreservesRuntimeFormats(t *testing.T) {
+	old := fixtureManifest()
+	old.ExternalModels = ExternalModelAdapter
+	next := old
+	next.TemplateVersion = webapi.ID()
+	next.NetworkImage = "sha256:" + strings.Repeat("b", 64)
+	if CompatibleUpgrade(old, next) {
+		t.Fatal("unmarked network helper replacement accepted")
+	}
+	next.NetworkAdapter = NetworkAdapter
+	if !CompatibleUpgrade(old, next) || !CompatibleUpgrade(next, old) {
+		t.Fatal("reviewed public web network upgrade or rollback rejected")
+	}
+	for _, mutate := range []func(*Manifest){
+		func(m *Manifest) { m.NetworkAdapter = "unrestricted" },
+		func(m *Manifest) { m.ConfigFormat = "unsupported" },
+		func(m *Manifest) { m.StorageImage = next.NetworkImage },
+	} {
+		bad := next
+		mutate(&bad)
+		if CompatibleUpgrade(old, bad) {
+			t.Fatal("network upgrade bypassed the runtime format boundary")
+		}
+	}
+}

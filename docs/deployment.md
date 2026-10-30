@@ -33,7 +33,7 @@
 | HC_WORKER_CONFIG_FILE | Worker 必填 | 0600/0400 私有 JSON，固定 Workspace 控制身份、镜像及主机资产配置；缺失或不一致拒绝启动 |
 | workspace_engine | Worker/Access 固定配置 | 必须为 embedded；不包含外部服务地址、Token 或 HTTP 开关 |
 | HC_DB_DSN_FILE | 必填 | 各进程独立受限DB身份；API/Worker/工作空间Gateway/模型Gateway |
-| HC_REDIS_ADDR / HC_REDIS_USERNAME / HC_REDIS_PASSWORD_FILE | 必填 | 内网ACL；API/限流 |
+| HC_REDIS_ADDR / HC_REDIS_USERNAME / HC_REDIS_PASSWORD_FILE | 必填 | 内网ACL；短期缓存 |
 | HC_REDIS_TLS / HC_REDIS_KEY_PREFIX | true / hc:<env>:<org>: | TLS不能静默降级；可信同主机内网可显式false |
 | HC_DATA_KEY_FILE / HC_DATA_KEY_ID | 必填 | 32-byte当前主密钥文件及版本，不在DB备份；必要可信组件 |
 | HC_DATA_KEYRING_FILE | 轮换时必填 | schema_version=1，key_id→受控只读文件路径，支持读取旧密钥；当前项须与HC_DATA_KEY_FILE一致 |
@@ -45,6 +45,12 @@
 | HC_MAINTENANCE | false | 按接口第9节限制新命令；查询/退出/撤销/停止/删除继续 |
 
 Worker JSON 使用 `schema_version=1`，字段为 `workspace_engine`、`workspace_organization_id`、`control_user_id`、`environment`、`data_key_file`、`data_key_id`、`model_allowlist_file`、`host`。`host` 使用 `RuntimeRoot`、`AssetRoot`、`RuntimeImage`、`StorageImage`、`NetworkImage`、`Domain`、`StorageBudget`、`PublicPort`及可选`PreviousRuntimeImages`（最多4个不同的旧镜像digest，不能含当前镜像/标签）；根目录必须当前用户所有且 0700，镜像必须为本机固定 sha256 ID。启动核验内嵌工作空间服务身份、Terraform二进制摘要/版本、固定Provider及三个当前镜像和明确保留的旧镜像，readyz同样核验；已接受任务和Worker就绪不依赖Redis。额外必填 `terraform`，包含绝对路径 `binary`、`root`、`cli_config` 和 `binary_sha256`；使用 `make workspace-init` 生成受控本机配置。`make worker-init` 从已导入本地模板及既有私有文件生成配置，不批准模板、不调整配额、不覆盖既有文件。PublicPort 未设置/0 为 HTTPS 默认 443，本地同站入口使用 42013；原生 Host、Origin、Cookie authority 与 public_url 都包含一致的非默认端口。
+
+DSH 运行镜像基于固定 digest 的 Ubuntu 24.04 LTS，预装 Node.js 24.21.0（含 npm/npx）、Python 3.12（`python`/`python3`、pip、venv），以及 `curl`、`wget`、`unzip` 和 `xz-utils`。Node 二进制和 npm 从固定版本的 Node 官方镜像复制，最终运行系统为 Ubuntu；DSH npm 包版本保持锁定。安装脚本可下载并解压 ZIP、tar.xz 包，HTTPS 使用系统 CA；Python 项目依赖在可写工作盘的虚拟环境中安装。通过 `make runtime-build runtime-test` 构建并验证系统版本、Node/Python、虚拟环境及下载解压；下载测试使用容器内本地服务，在普通用户、只读根文件系统下运行。镜像变更须按本文的兼容运行镜像升级流程发布；仅重建镜像标签或重启旧实例不会改变其固定 digest，已有实例须通过显式配置应用切换到已批准的新模板。
+
+使用模型网关的DSH若安装脚本返回`fetch failed`，同时检查网络helper：旧schema2出口仅允许模型网关，换用Node下载仍会失败。新版`public-web-v1`保留宿主机/私网隔离，并允许公网HTTP/HTTPS及DNS；manifest由实际helper源码和镜像核验后记录`network_adapter`。发布前使用`HC_NETWORK_GATEWAY_POLICY_FILE=/private/gateway-policy.json make network-test`验证模型网关、官方WeStock下载、私网及错误端口拒绝，再按兼容升级流程切换helper和模板，不能只重建运行镜像。
+
+运行镜像的`HOME=/data/dsh`，`PATH`包含`/data/dsh/.local/bin`及固定pnpm所在目录。CLI安装器默认写入持久用户目录，避免写入只读系统home；安装后无需临时导出PATH。普通启停保留已安装工具。WeStock使用技能包自带的官方安装脚本，保留其固定版本和SHA256校验，不在基础镜像中复制未经校验的下载二进制。
 
 个人 Skill 库由 Portal 与平台 API 提供，执行迁移 46 并更新 API 角色对 `personal_skills`、`skill_import_previews`、`skill_replacements` 的权限。技能内容使用平台数据密钥加密；DB 备份及恢复须保留对应 keyring。链接导入需要 API 主机能够访问公开 HTTPS 文件来源，下载器自行校验 DNS/IP 与重定向，不使用代理；无需新增 Worker 配置、DSH 插件、镜像或容器挂载。更新平台服务时保持数据库迁移版本一致。
 
@@ -202,7 +208,7 @@ UUID占位符必须替换为已核实资产。默认预览没有写入恢复/回
 
 执行前保存加密数据库备份和当前受控配置，协调API/Worker维护并停止实例；把Worker主镜像改为目标digest，将原当前版及其他已有实例的digest保留在PreviousRuntimeImages，重启Worker后再加`--apply`。命令同时核验运行Worker返回的主镜像、保留镜像列表、helper、域名/端口及Workspace/Terraform/Docker/存储检查，防止仅编辑配置文件而未实际部署；全部非删除实例的固定镜像必须仍受支持。该元数据切换不分配计算资源，可用计算不足仍由创建/启动预检拒绝。数据库短事务拒绝状态不一致、未停止实例、ACCEPTED/RUNNING/UNCERTAIN操作、未释放计算和存储维护；同事务切换两个批准标志、递增defaults版本并追加RUNTIME_ROLLBACK，审计失败全部撤回。精确重放要求已存在相同来源/目标/操作者/原因的成功审计，不增加默认版本或重复审计。
 
-回滚后完成登录、预检和两代实例启停/进入/原数据检查，再退出维护；API和Gateway重启或限流连接恢复有120秒保护期，就绪HTTP成功不足以证明昂贵操作已经可接受。演练返回已保留的新版同样走显式from/to和原因码的受控命令。该流程只切换未来创建的运行默认值；控制面二进制、数据库降级、破坏性格式变更和独立故障域恢复仍须各自部署/恢复验收。
+回滚后完成登录、预检和两代实例启停/进入/原数据检查，再退出维护；API和Gateway依赖就绪后即可接受请求，无启动或重连冷却窗口。演练返回已保留的新版同样走显式from/to和原因码的受控命令。该流程只切换未来创建的运行默认值；控制面二进制、数据库降级、破坏性格式变更和独立故障域恢复仍须各自部署/恢复验收。
 
 运行profile为普通浏览器任务设置默认输出上限4096 tokens、关闭默认思考、每步最多1次上游重试及30秒流空闲超时；模型catalog和provider采用相同默认上限。该值是单次模型调用的默认值，不是任务总费用预算。模型连接校验仍使用独立的每请求128 tokens和每轮最多2次限制。测试插件只用于显式隔离契约，禁止注入正式profile。
 
@@ -255,7 +261,7 @@ HTTP 管理请求体上限 64KiB；模型 api_key 只接受可见ASCII、长度 
 
 幂等作用域 `(org_id, actor_id, action, target_id, key)`；CREATE 的 target_id 固定为组织 ID。请求先严格解码、拒绝重复 JSON 键/未知字段，按字段名递归排序、紧凑 UTF-8 JSON、整数无浮点、字符串不裁剪再 SHA-256；包括确认名称和显式版本，省略字段保持省略。首次解析默认项另存快照，不加入哈希；因此默认项变更后的 `{}` 重放仍返回原操作。
 
-### 8.4 健康、模型和限流
+### 8.4 健康、模型和请求流量
 
 | 项目 | 默认值 | 持久与失败行为 |
 | --- | --- | --- |
@@ -263,19 +269,17 @@ HTTP 管理请求体上限 64KiB；模型 api_key 只接受可见ASCII、长度 
 | 模型校验 | 总计 30 秒、最多 2 次请求、每次输出上限 128 tokens | 仅合成文本与无副作用工具 schema；非瞬态错误不重试 |
 | 模型校验有效期 | 5 分钟 | 版本绑定；到期 UNKNOWN，可授权诊断 |
 | 自动模型探测 | 按配置版本合并，每 4 分钟最多一次 | 每组织每日最多 1000 次上游请求，PostgreSQL 按配置头→validation→预算锁序预留次数；拿锁后复核lease，失败不退款 |
-| 创建/启动请求流量 | 每用户 10 次/分钟 | Redis 原子固定窗口，含重放；业务配额独立 |
-| 模型校验流量 | 每管理员 5 次/分钟 | 同时一项/配置版本；持久每日次数仍约束 |
-| 访问票据流量 | 每用户 30 次/分钟 | 无法确认限流时拒绝新交接 |
+| 创建/启动请求流量 | 不设频率限制 | 授权、幂等、业务配额独立校验 |
+| 模型校验流量 | 不设频率限制 | 同时一项/配置版本；持久每日次数仍约束 |
+| 访问票据流量 | 不设频率限制 | 核对当前授权、运行路由和一次性挑战绑定 |
 | 脱敏元数据缓存 | 15 秒；单值 ≤64KiB；合计最多 10000 项 | 不缓存授权决定、秘密或含 can_enter 的跨用户响应 |
-| Redis | 256MiB、noeviction；命令超时 200ms、无命令自动重试 | Lua 原子计数与首次设置 TTL，窗口 60 秒、键 TTL 120 秒 |
+| Redis | 256MiB、noeviction；命令超时 200ms、无命令自动重试 | 只保存可重建短期缓存，不参与请求限流 |
 
 模型健康在配置版本上共享探测结果，但实例还必须确认实际注入版本；创建时仅复用有效校验不重复计费。持续上游错误立即使相应模型健康 UNHEALTHY。预算用尽停止自动探测并告警，不阻止用户自有已运行的对话，也不宣称控制全部 DSH 使用费用。这里限制的是平台探测，不增加计费产品。
 
-Redis首次启动、run_id变化或连接重建后的限流状态不可确认时，新建/启动/计费探测/票据入口冷却120秒；持久预算仍检查。停机/删除/撤销与已接受任务不受冷却阻止。多个API副本各自保守冷却，不能用Redis重启清空计数后立即放宽流量。
+API、OIDC、Gateway和模型推理入口均不设置请求频率限制；API/Gateway启动及Redis重连不设置冷却窗口。预检直接检查Redis当前健康，依赖就绪即可使用；持久预算、资源容量、权限和幂等仍独立检查。
 
-每个进程的限流器保留单条Redis连接，禁用客户端正常空闲回收；安静窗口不应人为启动新的恢复等待。真正断连仍触发原120秒保护，依赖不可用继续拒绝高成本入口。进程readyz成功与限流恢复窗口结束分别核验。
-
-匿名浏览器挑战创建同样限流：受信入口解析的来源IP每分钟30次、组织每分钟300次，Redis不可用/冷却时拒绝，挑战仅针对已登记运行路由。短期身份/访问数据每5分钟、每批最多500条按[数据清理规则](data-model.md#9-保留清理与数据库权限)处理，禁止无限累积。来源IP只信任固定反向代理链，客户端转发头不参与限流键。
+匿名浏览器挑战创建不设置请求限流，挑战仅针对已登记运行路由，并保持同源和浏览器绑定检查。短期身份/访问数据每5分钟、每批最多500条按[数据清理规则](data-model.md#9-保留清理与数据库权限)处理，禁止无限累积。来源IP只信任固定反向代理链。
 
 ### 8.5 会话与数据保留
 
@@ -471,12 +475,16 @@ Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置�
 
 Owner可在“插件”页管理内置可选插件和第三方DSH组合包，在“设置 → Agent 预设”保存新任务默认模式。更改作用于同实例全部会话并随原数据盘保留；停止、重启不清空配置。保留原生信任提示、兼容性检查、脚本批准及失败回滚，普通npm库不能作为DSH组合包安装。配置写入边界与第三方代码权限见[安全设计](security.md#6-容器工具与数据)。
 
+数据资产列表删除需应用迁移 57，并授予 API 角色 `storage_assets.owner_removed_at` 列的 UPDATE 权限。仅允许具有 `instances:release-storage` 权限的资产所有者移除状态为 `DELETED` 的记录；此操作只隐藏列表记录，保留资产、备份和审计关联，不触发物理回收。
+
+数据库迁移后须使用同一版本重新编译并重启 API、Worker、访问网关和模型网关。API、Worker 与访问网关的就绪检查会严格核对迁移版本；只更新 API 会使旧 Worker 和访问网关报告依赖不可用，导致工作台入口检查失败。更新后同时检查各服务就绪状态，并在平台配置页面核对工作台入口。
+
 ### 发布与已有实例升级
 
 1. 按[运维命令接口](#7-运维命令接口)中的受控运行批准流程，备份数据库和私有配置，验证新不可变镜像与manifest，保留已有实例依赖的旧镜像及批准记录。
 2. 发布新的批准版本后，未来创建使用新默认版本；已有实例继续使用各自冻结版本，不会因默认值变化自动升级。
 3. 已有实例通过正常停止、配置升级（configure）、启动（start）应用新批准镜像，核对原资产绑定并保留原数据盘；禁止直接覆写冻结快照、修改运行容器文件或删除`/data/dsh`作为修复手段。
-4. 就绪后从控制台重新进入，确认插件页可管理、Agent预设可加载、平台模型目录正常；复验范围与命令见[专项验收](testing.md#工作空间插件与-agent-预设验收)。API/Gateway重启或限流连接恢复后的120秒保护期沿用原规则。
+4. 就绪后从控制台重新进入，确认插件页可管理、Agent预设可加载、平台模型目录正常；复验范围与命令见[专项验收](testing.md#工作空间插件与-agent-预设验收)。API/Gateway依赖就绪即可使用，无启动冷却窗口。
 
 前一插件管理版本（模板`9031d3f9-7cc7-48cb-871e-abea3e640400`、镜像`sha256:4762b2fa97ac3c5b29c090e429aa1b78014e24686ee5bc8924fd747fccf9f6d7`）仅作为保留的历史批准，未包含本次完整设置服务修复。
 
@@ -520,6 +528,6 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，5种OAuth服务仍有默认固定地址，用户也可填写个人公网HTTPS；其他目录服务须绑定兼容服务或从自定义入口添加。私网/HTTP例外只对精确批准URL生效。
 
-执行迁移49～51及API角色授权，再更新平台API原生进程；不修改DSH。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[实网报告](connectors-oauth-availability-2026-10-26.md)。
+执行迁移49～51及API角色授权，再更新平台API原生进程；不修改DSH。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[实网报告](connectors-reference.md#oauth-连接器可用性检查)。
 
-固定服务、OAuth、独立Docker合成服务、故障排查与复验命令统一见[部署与复验](../deploy/connectors/README.md)。首次启动API沿用既有限流器120秒安全恢复窗口，恢复后再执行真实登录；不要通过重启DSH处理。功能及待交付边界见[实施说明](connectors-implementation.md)。
+固定服务、OAuth、独立Docker合成服务、故障排查与复验命令统一见[部署与复验](../deploy/connectors/README.md)。API依赖就绪后即可执行真实登录，无启动冷却窗口；不要通过重启DSH处理。功能及待交付边界见[实施说明](connectors-implementation.md)。

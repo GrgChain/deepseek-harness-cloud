@@ -10,10 +10,13 @@ import (
 type BusinessHandler interface {
 	ServeAuthenticated(http.ResponseWriter, *http.Request, identity.Principal)
 }
-type BusinessMux struct{ Configuration, Resources, Access, Commands, Management, Skills, Context, Connectors BusinessHandler }
+type BusinessMux struct{ Configuration, Resources, Access, Commands, Management, Skills, Context, Connectors, Extensions BusinessHandler }
 
 func (m BusinessMux) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 	handler := m.Configuration
+	if strings.HasPrefix(r.URL.Path, "/v1/workspace-extensions/") {
+		handler = m.Extensions
+	}
 	if r.URL.Path == "/v1/connectors" || strings.HasPrefix(r.URL.Path, "/v1/connectors/") {
 		handler = m.Connectors
 	}
@@ -30,6 +33,8 @@ func (m BusinessMux) ServeAuthenticated(w http.ResponseWriter, r *http.Request, 
 		handler = m.Resources
 	}
 	if strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && strings.HasSuffix(r.URL.Path, ":release") && r.Method == http.MethodPost {
+		handler = m.Commands
+	} else if strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && r.Method == http.MethodDelete {
 		handler = m.Commands
 	} else if strings.HasPrefix(r.URL.Path, "/v1/instances/") && strings.HasSuffix(r.URL.Path, ":access") {
 		handler = m.Access

@@ -31,6 +31,8 @@ type Endpoint struct {
 	AllowPrivateHTTP bool   `json:"allow_private_http"`
 	DataUse          string `json:"data_use"`
 	ProxyKeyFile     string `json:"proxy_key_file,omitempty"`
+	ServiceKeyFile   string `json:"service_key_file,omitempty"`
+	CustomService    bool   `json:"custom_service,omitempty"`
 }
 type Policy struct {
 	Endpoints []Endpoint `json:"endpoints"`

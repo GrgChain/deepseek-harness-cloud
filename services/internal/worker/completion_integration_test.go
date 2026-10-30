@@ -127,6 +127,25 @@ func TestTerminalPublicationIsAtomicFencedAndRetainsOriginalStorage(t *testing.T
 		}
 		return claimed[0]
 	}
+	// A stopped update is applied on the next successful start. Failed starts
+	// leave the update pending; later ordinary restarts preserve user selections.
+	stoppedConfig, failedStart, successfulStart := webapi.ID(), webapi.ID(), webapi.ID()
+	must(`INSERT INTO operations(id,instance_id,actor_id,type,status,stage,intent,trace_id,updated_at) VALUES($1,$2,$3,'CONFIGURE','SUCCEEDED','COMPLETE','{"target_desired_state":"STOPPED"}','fixture',clock_timestamp()-interval '2 hours'),($4,$2,$3,'START','FAILED','COMPLETE','{}','fixture',clock_timestamp()-interval '1 hour')`, stoppedConfig, instance, owner, failedStart)
+	checkStoppedSync := func(want bool) {
+		t.Helper()
+		tx, err := pool.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(context.Background())
+		got, err := needsStoppedModelSync(ctx, tx, instance, webapi.ID())
+		if err != nil || got != want {
+			t.Fatalf("stopped model sync = %v, error %v, want %v", got, err, want)
+		}
+	}
+	checkStoppedSync(true)
+	must(`INSERT INTO operations(id,instance_id,actor_id,type,status,stage,intent,trace_id,updated_at) VALUES($1,$2,$3,'START','SUCCEEDED','COMPLETE','{}','fixture',clock_timestamp()-interval '30 minutes')`, successfulStart, instance, owner)
+	checkStoppedSync(false)
 	stopped := accept("STOP", "STOPPED", 1)
 	for resource, amount := range map[string]int64{"INSTANCE": 1, "RUNNING": 1, "CPU": 2000, "MEMORY": 4 << 30, "STORAGE": 10 << 30, "CONCURRENT": 1} {
 		must(`INSERT INTO quota_reservations(id,org_id,owner_id,instance_id,operation_id,resource_type,amount,status) VALUES($1,$2,$3,$4,$5,$6,$7,'USED')`, webapi.ID(), org, owner, instance, stopped.ID, resource, amount)

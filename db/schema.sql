@@ -2108,3 +2108,57 @@ CREATE TABLE mcp_oauth_transactions (
  FOREIGN KEY(org_id,owner_id,connector_id) REFERENCES mcp_connectors(org_id,owner_id,id)
 );
 CREATE INDEX mcp_oauth_expiry ON mcp_oauth_transactions(expires_at);
+
+-- Immutable, encrypted copies of the skills selected when a workspace is created.
+CREATE TABLE workspace_skill_snapshots (
+ instance_id uuid PRIMARY KEY REFERENCES instances(id) ON DELETE CASCADE,
+ org_id uuid NOT NULL REFERENCES organizations(id),
+ owner_id uuid NOT NULL REFERENCES users(id),
+ key_id text NOT NULL,
+ nonce bytea NOT NULL CHECK (octet_length(nonce)=12),
+ ciphertext bytea NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
+REVOKE ALL ON workspace_skill_snapshots FROM PUBLIC;
+
+CREATE TABLE workspace_extensions (
+ instance_id uuid PRIMARY KEY,
+ org_id uuid NOT NULL,
+ owner_id uuid NOT NULL,
+ auth_generation bigint NOT NULL CHECK(auth_generation>0),
+ configuration jsonb NOT NULL CHECK(jsonb_typeof(configuration)='object'),
+ applied_at timestamptz,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ FOREIGN KEY(org_id,owner_id,instance_id) REFERENCES instances(org_id,owner_id,id)
+);
+REVOKE ALL ON workspace_extensions FROM PUBLIC;
+
+-- Runtime authority has a workspace lifetime, never a forged Portal session.
+CREATE FUNCTION public.hc_extensions_lock_authority(requested_org uuid,requested_owner uuid,requested_instance uuid,requested_generation bigint)
+RETURNS text LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE selected_role text;
+BEGIN
+ SELECT m.role INTO selected_role FROM public.memberships m
+ JOIN public.users u ON u.id=m.user_id JOIN public.organizations o ON o.id=m.org_id
+ WHERE m.org_id=requested_org AND m.user_id=requested_owner AND m.status='ACTIVE'
+ AND u.status='ACTIVE' AND o.status='ACTIVE' AND m.auth_generation=requested_generation FOR UPDATE OF m;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ PERFORM i.id FROM public.instances i JOIN public.workspace_extensions e ON e.instance_id=i.id
+ WHERE i.id=requested_instance AND i.org_id=requested_org AND i.owner_id=requested_owner
+ AND e.auth_generation=requested_generation AND i.deleted_at IS NULL
+ AND i.desired_state='RUNNING' AND i.observed_state='RUNNING' FOR UPDATE OF i;
+ IF NOT FOUND THEN RETURN NULL; END IF;
+ RETURN selected_role;
+END;
+$$;
+REVOKE ALL ON FUNCTION public.hc_extensions_lock_authority(uuid,uuid,uuid,bigint) FROM PUBLIC;
+
+ALTER TABLE workspace_extensions ADD COLUMN applied_generation uuid;
+
+ALTER TABLE personal_skills DROP CONSTRAINT personal_skills_file_count_check;
+ALTER TABLE personal_skills DROP CONSTRAINT personal_skills_size_bytes_check;
+ALTER TABLE personal_skills ALTER COLUMN size_bytes TYPE bigint;
+ALTER TABLE personal_skills ADD CONSTRAINT personal_skills_file_count_check CHECK (file_count > 0);
+ALTER TABLE personal_skills ADD CONSTRAINT personal_skills_size_bytes_check CHECK (size_bytes > 0);
+
+ALTER TABLE storage_assets ADD COLUMN owner_removed_at timestamptz;

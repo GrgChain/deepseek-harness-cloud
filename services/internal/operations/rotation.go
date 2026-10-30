@@ -31,6 +31,7 @@ func NewRotator(pool *pgxpool.Pool, cipher *security.SecretCipher, environment, 
 type encryptedTable struct{ table, id, org, record, key, nonce, cipher, purpose string }
 
 var encryptedTables = []encryptedTable{
+	{"workspace_skill_snapshots", "instance_id", "org_id::text", "instance_id::text", "key_id", "nonce", "ciphertext", "workspace-skills"},
 	{"mcp_oauth_transactions", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "connector-oauth"},
 	{"mcp_connectors", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "connector-credential"},
 	{"secrets", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "model-key"},

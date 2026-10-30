@@ -99,3 +99,16 @@ func TestApprovalInspectsActualArchiveImageAndControlOwner(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalBindsPublicWebPolicyToInspectedNetworkHelper(t *testing.T) {
+	f, c, sources, image := verificationFixture()
+	sources["network-helper.py"] = []byte("PUBLIC_WEB_PORTS = \"80,443\"\n")
+	if _, err := Verify(context.Background(), f, c, f.user.ID, "/private/runtime", sources, image); err == nil {
+		t.Fatal("uninspected network helper policy accepted")
+	}
+	image.Files["network-helper.py"] = SHA(sources["network-helper.py"])
+	m, err := Verify(context.Background(), f, c, f.user.ID, "/private/runtime", sources, image)
+	if err != nil || m.NetworkAdapter != NetworkAdapter {
+		t.Fatal("verified public web policy missing from approval", err)
+	}
+}

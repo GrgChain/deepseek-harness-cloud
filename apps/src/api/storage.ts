@@ -42,6 +42,10 @@ export class StorageClient {
   if(!response.ok){const problem=await response.json().catch(()=>({}));const messages:Record<string,string>={STORAGE_PROTECTED:'数据受法律保留保护，暂不能释放',STORAGE_RELEASE_BLOCKED:'当前数据暂不能释放，请刷新查看',CONFIRMATION_MISMATCH:'工作空间名称不匹配'};if(messages[problem.code])throw new Error(messages[problem.code]);throw new APIError(response.status,problem.code??'DEPENDENCY_UNAVAILABLE');}
   const result=await response.json();if(response.status!==202||result.asset_id!==id||typeof result.request_id!=='string'||!['ACCEPTED','RUNNING','UNCERTAIN','SUCCEEDED'].includes(result.status))throw new Error('释放结果待确认，请刷新查看');return result;
  }
+ async remove(user:CurrentUser,id:string){
+  const response=await this.fetcher(`/v1/storage-assets/${encodeURIComponent(id)}`,{method:'DELETE',credentials:'same-origin',cache:'no-store',headers:{'X-CSRF-Token':user.csrf_token},signal:AbortSignal.timeout(10_000)});
+  if(!response.ok){const problem=await response.json().catch(()=>({}));if(problem.code==='STORAGE_REMOVE_BLOCKED')throw new Error('仅已回收的数据资产可以删除');throw new APIError(response.status,problem.code??'DEPENDENCY_UNAVAILABLE');}
+ }
  async assets(user:CurrentUser,filters:{page:number;limit:number;status:string;q:string},signal?:AbortSignal){
   const query=new URLSearchParams({page:String(filters.page),limit:String(filters.limit)});if(filters.status)query.set('status',filters.status);if(filters.q)query.set('q',filters.q);
   const result=await this.read<Page<StorageAsset>>('/v1/storage-assets?'+query,signal);

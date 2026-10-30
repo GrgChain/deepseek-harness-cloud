@@ -494,6 +494,35 @@ paths:
                   description: hc-mcp-v1 or mcpServers remote entries; never executes commands.
                 confirmed:
                   type: boolean
+  /v1/context/knowledge/parse:
+    post:
+      operationId: parseKnowledgeDocument
+      x-api-id: API-120
+      tags: [Context]
+      summary: Extract editable document text with the configured Docling service
+      description: Requires knowledge:manage and CSRF. One file up to 16 MiB is sent to the configured parser; extracted text is not saved until the separate preview and apply operations.
+      parameters:
+      - $ref: '#/components/parameters/Csrf'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+      responses:
+        '200':
+          description: Parsed Markdown, at most 256 KiB in UTF-8
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [content]
+                properties:
+                  content: { type: string }
+        default: { $ref: '#/components/responses/Error' }
   /v1/context/{kind}:
     parameters:
     - $ref: '#/components/parameters/ContextKind'
@@ -727,6 +756,30 @@ paths:
         default:
           $ref: '#/components/responses/Error'
   /v1/storage-assets/{id}:
+    delete:
+      operationId: removeReclaimedStorageAsset
+      tags: [Storage]
+      summary: Remove a reclaimed asset from the owner's list
+      description: Requires instances:release-storage and exact owner/organization. Only a DELETED asset can be removed. The backing record and backup history are retained; repeated requests succeed.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      - $ref: '#/components/parameters/Csrf'
+      - $ref: '#/components/parameters/Origin'
+      responses:
+        '200':
+          description: Removed from the owner's list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted]
+                properties:
+                  deleted: {type: boolean, enum: [true]}
+        default:
+          $ref: '#/components/responses/Error'
     get:
       operationId: getStorageAsset
       x-api-id: API-078
@@ -895,6 +948,90 @@ paths:
         default:
           $ref: '#/components/responses/Error'
       x-delivery-scope: initial-release
+  /v1/workspace-extensions/plugins:
+    get:
+      operationId: listWorkspacePluginOptions
+      x-api-id: API-118
+      tags: [Instances]
+      summary: List pinned plugins available during creation
+      description: Requires instances:read. Returns verified bundled choices and unavailable choices with reasons. Reading never installs plugins. Worker rechecks the selected immutable image.
+      responses:
+        '200':
+          description: Curated creation options
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkspacePluginOption'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/workspace-extensions/{id}:
+    get:
+      operationId: listWorkspaceExtensions
+      x-api-id: API-119
+      tags: [Instances]
+      summary: Read selected workspace extensions and runtime status
+      description: Owner-private; requires instances:read. Source names are omitted after their read permission is removed. AVAILABLE requires current runtime acknowledgement, source version and authorization. No credentials or external content are returned.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Frozen selections with current availability
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/WorkspaceExtensionStatus'
+        default:
+          $ref: '#/components/responses/Error'
+  /v1/workspace-extensions/{id}/skills:
+    get:
+      operationId: listWorkspaceSelectedSkills
+      tags: [Instances]
+      summary: Read skills selected when the workspace was created
+      description: Owner-private; requires instances:read and skills:read. Returns frozen names and versions, not skill contents or later changes in the workspace.
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema: {type: string, format: uuid}
+      responses:
+        '200':
+          description: Skills selected at creation
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: false
+                      required: [id, name, version]
+                      properties:
+                        id: {type: string, format: uuid}
+                        name: {type: string}
+                        version: {type: integer, format: int64}
+        default:
+          $ref: '#/components/responses/Error'
   /v1/instances:
     get:
       operationId: listInstances
@@ -941,7 +1078,10 @@ paths:
       description: Accept an empty JSON object for one-click creation. Resolve name, fixed organization/backend/template/spec/model
         from authorized server defaults once, persist the snapshot and quota reservation with instance/operation/outbox, and
         return 202. Replays return the original snapshot even after defaults change. initial release rejects any backend other
-        than docker and autostart=false.
+        than docker and autostart=false. Optional skills, connectors, memory, knowledge and plugins are validated and
+        snapshotted atomically in this same acceptance transaction and included in the idempotency intent. External
+        credentials never enter the request or runtime profile. Compatible bundled plugins use exact approved versions;
+        extension availability is reported separately by API-119 after current runtime generation acknowledgement.
       parameters:
       - $ref: '#/components/parameters/IdempotencyKey'
       - $ref: '#/components/parameters/Csrf'
@@ -3323,8 +3463,10 @@ paths:
               properties:
                 name:
                   type: string
-                  pattern: ^[a-z0-9]+(?:-[a-z0-9]+)*$
+                  pattern: ^[\p{Script=Han}a-z0-9]+(?:-[\p{Script=Han}a-z0-9]+)*$
+                  minLength: 1
                   maxLength: 64
+                  description: Supports Chinese Han characters; length counts Unicode characters. Hyphens cannot repeat or appear at either end.
                 description:
                   type: string
                   minLength: 1
@@ -3609,8 +3751,8 @@ paths:
       summary: Create a versioned UTF-8 text file in a skill bundle
       description: Requires current skills:manage, exact Portal Origin and CSRF. Creates a new safe relative path, including
         script subdirectories; never overwrites an existing or case-insensitive duplicate path. Content is at most 1
-        MiB UTF-8 bytes and may be empty. Bundle version, 128-file and 12-MiB bundle limits, path conflicts and personal
-        quota are checked atomically. Other files and source metadata are preserved. File content is never executed.
+        MiB UTF-8 bytes and may be empty. Bundle version and path conflicts are checked atomically.
+        Other files and source metadata are preserved. File content is never executed.
       parameters:
       - $ref: '#/components/parameters/ResourceId'
       - $ref: '#/components/parameters/Csrf'
@@ -3745,7 +3887,6 @@ paths:
                 content_base64:
                   type: string
                   format: byte
-                  maxLength: 6990508
       responses:
         '200':
           description: Success
@@ -3840,8 +3981,7 @@ paths:
       description: Owner-private Portal library. Requires skills:read for reads/exports, skills:manage for mutations;
         rechecks current session and permission in transaction. Mutations require exact Portal Origin and CSRF; no
         DSH container changes. GitHub repository URLs scan the default branch; tree URLs scope discovery to
-        the selected directory; blob URLs use raw files. GitHub archives are limited to 32 MiB and 30000
-        entries. Extracted skills retain the 128-file, 1-MiB-per-file, 12-MiB-expanded and 5-MiB-package limits.
+        the selected directory; blob URLs use raw files. File count and package sizes are limited by available resources.
       parameters:
       - $ref: '#/components/parameters/Csrf'
       - $ref: '#/components/parameters/Origin'
@@ -4670,6 +4810,9 @@ components:
         kind: { type: string, enum: [memory, knowledge] }
         backend: { type: string, enum: [openviking, mem0, graphiti, milvus, weaviate, qdrant] }
         endpoint_id: { type: string }
+        embedding: { $ref: '#/components/schemas/ContextEmbedding' }
+        embedding_key_configured: { type: boolean, description: Indicates a saved embedding credential without returning it. }
+        service_url: { type: string, format: uri, description: Connection-specific Milvus, Weaviate or Qdrant REST address. The address and native credential are encrypted together; credentials are never returned. }
         name: { type: string }
         version: { type: integer, format: int64 }
         enabled: { type: boolean }
@@ -4678,6 +4821,17 @@ components:
         verified_at: { type: string, format: date-time, nullable: true }
         updated_at: { type: string, format: date-time }
         integration: { type: string, enum: [NOT_CONNECTED], deprecated: true, description: Reserved compatibility field; workbench operations do not depend on DSH integration. }
+    ContextEmbedding:
+      type: object
+      additionalProperties: false
+      required: [provider, model, dimensions]
+      description: Required when creating knowledge connections. New connections use openai_compatible with an explicit API base, model and dimensions for a self-hosted or cloud service. Local is retained only for existing connections. Provider, model, API base and dimensions are fixed after creation to prevent mixed vector spaces; changing models requires a new knowledge connection and reimport. Omit on edit to retain.
+      properties:
+        provider: { type: string, enum: [local, openai_compatible] }
+        model: { type: string, minLength: 1, maxLength: 256, description: Local mode currently supports BAAI/bge-small-zh-v1.5; API mode uses the specified service model. }
+        dimensions: { type: integer, minimum: 1, maximum: 32768, description: Must match actual returned vectors; local BGE requires 512. }
+        api_base: { type: string, maxLength: 1000, description: HTTP(S) API base for an external embedding service; the embeddings path is appended. }
+        api_key: { type: string, maxLength: 4096, writeOnly: true, description: Encrypted API credential. Empty on edit retains the saved key. May be empty for services without authentication. }
     ContextList:
       type: object
       required: [items, endpoints, bindings, integration]
@@ -4694,6 +4848,7 @@ components:
               name: { type: string }
               backend: { type: string }
               data_use: { type: string }
+              custom_service: { type: boolean, description: Whether this vector database companion accepts per-connection native addresses and credentials. }
         bindings:
           type: array
           items:
@@ -4711,7 +4866,9 @@ components:
       properties:
         name: { type: string, maxLength: 100 }
         endpoint_id: { type: string, maxLength: 64 }
-        credential: { type: string, maxLength: 4096, writeOnly: true }
+        embedding: { $ref: '#/components/schemas/ContextEmbedding' }
+        service_url: { type: string, format: uri, maxLength: 1000, description: Native Milvus, Weaviate or Qdrant HTTP(S) origin without credentials or paths. Fixed after creation; omit on edit to retain. }
+        credential: { type: string, maxLength: 4096, writeOnly: true, description: Native Milvus token or username:password, or Weaviate/Qdrant API key for a custom service; may be empty for unauthenticated servers. Empty on edit retains the saved credential. Other backends use the approved companion credential. }
         enabled: { type: boolean }
         expected_version: { type: integer, format: int64 }
         confirmed_name: { type: string }
@@ -4733,6 +4890,10 @@ components:
         idempotency_key: { type: string, maxLength: 64, pattern: '^[a-z0-9][a-z0-9_-]{0,63}$' }
         scope: { type: string, description: personal or workspace UUID scope, default: personal }
         query: { type: string, maxLength: 4000 }
+        search_mode: { type: string, enum: [semantic, exact, keyword, hybrid], description: Knowledge search mode; keyword uses Chinese-tokenized full-text search, exact retains legacy literal matching, hybrid fuses keyword and semantic rankings. Omit for semantic search. }
+        min_similarity: { type: number, minimum: -1, maximum: 1, description: Optional minimum cosine similarity for semantic results; keyword matches in hybrid search are retained. }
+        page: { type: integer, minimum: 1, maximum: 1000000, description: Knowledge document list page; use with page_size. }
+        page_size: { type: integer, minimum: 1, maximum: 100, description: Knowledge document list page size. }
         limit: { type: integer, minimum: 1, maximum: 20, default: 5 }
         record_id: { type: string, maxLength: 128 }
         record_version: { type: integer, format: int64 }
@@ -5216,7 +5377,7 @@ components:
       additionalProperties: false
       description: An empty object uses personal default, then organization default. Explicit model must be an owned connection
         or the organization model. Invalid selection/default blocks acceptance; no silent fallback. Template overrides
-        still equal approved defaults. spec_id selects an enabled approved CPU/memory/storage tuple; absent uses the organization default. Binding is frozen once per idempotency receipt. Portal selects a provider account and resolves its default model; DSH may switch among eligible models in that account. An optional name is part of the same idempotency digest.
+        still equal approved defaults. spec_id selects an enabled approved CPU/memory/storage tuple; absent uses the organization default. Binding is frozen once per idempotency receipt. Portal selects a provider account and resolves its default model; DSH may switch among eligible models in that account. An optional name and selected skill versions are part of the same idempotency digest. Skills require skills:read, must belong to the caller, and are copied with all files into the workspace before startup. Later edits/deletions in the library do not change the frozen copy.
       properties:
         organization_id:
           type: string
@@ -5253,6 +5414,177 @@ components:
           type: integer
           format: int64
           minimum: 1
+        skills:
+          type: array
+          description: Optional personal skills. Selected copies enable both model and user invocation in this workspace without changing the personal library. Each ID must be unique and at the specified current version. Omitting this field creates without personal skills.
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, version]
+            properties:
+              id:
+                type: string
+                format: uuid
+              version:
+                type: integer
+                format: int64
+                minimum: 1
+        connectors:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/WorkspaceConnectorSelection'
+          description: Requires instances:configure and connectors:read/manage/invoke. Only
+            frozen enabled tools can be called. Source and catalog versions must match.
+        memory:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/WorkspaceContextSelection'
+          description: Requires instances:configure and memory:read/manage. References authorized
+            external content without copying it.
+        knowledge:
+          type: array
+          maxItems: 50
+          items:
+            $ref: '#/components/schemas/WorkspaceContextSelection'
+          description: Requires instances:configure and knowledge:read/manage. References
+            authorized external content without copying it.
+        plugins:
+          type: array
+          maxItems: 12
+          items:
+            type: object
+            additionalProperties: false
+            required:
+            - id
+            - version
+            properties:
+              id:
+                type: string
+              version:
+                type: string
+          description: Requires instances:configure. Exact available versions from API-118
+            only; no arbitrary packages or version exemptions. Currently compatible bundled
+            plugins without extra service dependencies are eligible.
+    WorkspaceConnectorSelection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - version
+      - catalog_version
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        catalog_version:
+          type: integer
+          format: int64
+          minimum: 1
+    WorkspaceContextSelection:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - version
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 2
+          uniqueItems: true
+          description: Omitted scopes use personal and the newly created workspace. No
+            other workspace can be selected.
+          items:
+            type: string
+            enum:
+            - personal
+            - workspace
+    WorkspacePluginOption:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - name
+      - package
+      - version
+      - available
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        package:
+          type: string
+        version:
+          type: string
+        available:
+          type: boolean
+        reason:
+          type: string
+    WorkspaceExtensionStatus:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - id
+      - name
+      - status
+      properties:
+        kind:
+          type: string
+          enum:
+          - connector
+          - memory
+          - knowledge
+          - plugin
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: integer
+          format: int64
+          minimum: 1
+        catalog_version:
+          type: integer
+          format: int64
+          minimum: 1
+        package:
+          type: string
+        package_version:
+          type: string
+        scopes:
+          type: array
+          items:
+            type: string
+        tools:
+          type: array
+          items:
+            type: string
+        status:
+          type: string
+          enum:
+          - CONFIGURING
+          - AVAILABLE
+          - STOPPED
+          - FAILED
+          - AUTH_REQUIRED
+          - UNAVAILABLE
+        reason:
+          type: string
     AcceptedOperation:
       type: object
       additionalProperties: false
@@ -8063,7 +8395,9 @@ components:
           format: uuid
         name:
           type: string
+          minLength: 1
           maxLength: 64
+          description: Chinese Han characters, lowercase ASCII letters, digits, and single internal hyphens; length counts Unicode characters.
         description:
           type: string
           maxLength: 2000
@@ -8077,11 +8411,9 @@ components:
         file_count:
           type: integer
           minimum: 1
-          maximum: 128
         size_bytes:
           type: integer
           minimum: 1
-          maximum: 12582912
         source_url:
           type: string
         synced_at:

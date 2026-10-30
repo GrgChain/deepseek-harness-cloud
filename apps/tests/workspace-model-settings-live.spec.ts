@@ -35,16 +35,19 @@ test('remote workspace model settings shows its managed directory without local 
  await expect(workspace.getByText(/加载提供商目录失败|settings are unavailable/)).toHaveCount(0);
  await expect(workspace.getByText('平台模型网关',{exact:true}).first()).toBeVisible();
  if(process.env.HC_CATALOG_TRANSPORT_FAILURE==='true')expect(failures).toBe(2);
- await expect(workspace.getByRole('link',{name:'管理模型提供商',exact:true})).toHaveAttribute('href','https://portal.harness.localhost:42013/app/models');
- await expect(workspace.getByRole('button',{name:'刷新目录',exact:true})).toBeVisible();
- await workspace.getByRole('button',{name:'刷新目录',exact:true}).click();
- await expect(workspace.getByText('模型由控制台统一管理。',{exact:true})).toBeVisible();
+ for(const name of ['管理模型提供商','打开实例详情'])await expect(workspace.getByRole('link',{name,exact:true})).toHaveCount(0);
+ await expect(workspace.getByRole('button',{name:'刷新目录',exact:true})).toHaveCount(0);
  expect(await workspace.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  const section=workspace.locator('[data-hc-managed-models]');
  expect((await section.boundingBox())!.width).toBeGreaterThan(250);
- for(const action of await section.locator('a,button').all()){
-  expect(await action.evaluate(element=>element.scrollHeight<=element.clientHeight && element.scrollWidth<=element.clientWidth)).toBe(true);
- }
+ await expect(section.locator('a,button')).toHaveCount(0);
+ const entries=section.locator('[data-hc-managed-models-entry]');const count=await entries.count();expect(count).toBeGreaterThan(0);
+ const search=section.getByRole('searchbox',{name:'搜索模型',exact:true});const firstName=await entries.first().locator('[data-hc-managed-models-model-name]').innerText();
+ await search.fill(firstName);await expect(entries).toHaveCount(1);
+ await search.fill('不存在的模型-qa');await expect(section.getByRole('status')).toHaveText('没有匹配的模型。');await expect(entries).toHaveCount(0);
+ await search.clear();await expect(entries).toHaveCount(count);
+ for(const entry of await entries.all())expect(await entry.evaluate(element=>element.scrollWidth<=element.clientWidth)).toBe(true);
+ const cards=section.locator('[data-hc-managed-models-models]').first();const columns=await cards.evaluate(element=>getComputedStyle(element).gridTemplateColumns.split(' ').length);expect(columns).toBe(testInfo.project.name==='mobile'?1:2);
  await workspace.screenshot({path:testInfo.outputPath('model-settings.png'),fullPage:true,animations:'disabled'});
  await context.unrouteAll({behavior:'wait'});await workspace.close();await page.goto('/login');await page.getByRole('button',{name:'退出登录',exact:true}).click();
 });

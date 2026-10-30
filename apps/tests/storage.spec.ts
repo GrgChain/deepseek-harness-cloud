@@ -51,6 +51,36 @@ async function setup(page:Page,permissions=user.permissions){
  await page.route('**/v1/storage-assets/'+base.id,r=>r.fulfill({json:base}));
  await page.route('**/v1/storage-assets/'+base.id+'/backups?*',r=>r.fulfill({json:{items:[base.latest_backup,goodBackup],total:2,next_cursor:null}}));
 }
+test('only reclaimed assets can be removed after confirmation',async({page})=>{
+ await setup(page,['instances:read','instances:release-storage']);
+ const reclaimed={...base,status:'DELETED',legal_hold:false};let removed=false;let attempts=0;
+ await page.route('**/v1/storage-assets?*',r=>r.fulfill({json:{items:removed?[second]:[reclaimed,second],total:removed?1:2,next_cursor:null}}));
+ await page.route('**/v1/storage-assets/'+base.id,async r=>{if(r.request().method()==='DELETE'){attempts++;expect(await r.request().headerValue('x-csrf-token')).toBe(user.csrf_token);removed=true;await r.fulfill({json:{deleted:true}});}else await r.fulfill({json:reclaimed});});
+ await page.goto('/app/storage');
+ const record=page.getByRole('article',{name:'数据资产 测试'});
+ await expect(page.getByRole('button',{name:'删除运行数据的数据资产'})).toHaveCount(0);
+ await record.getByRole('button',{name:'删除测试的数据资产'}).click();
+ const dialog=page.getByRole('dialog',{name:'删除数据资产'});
+ await expect(dialog).toContainText('已有备份不受影响');
+ await dialog.getByRole('button',{name:/^取\s*消$/}).click();expect(attempts).toBe(0);
+ await record.getByRole('button',{name:'删除测试的数据资产'}).click();
+ await dialog.getByRole('button',{name:/^删\s*除$/}).click();
+ await expect(dialog).not.toBeVisible();await expect(page.getByText('数据资产已删除')).toBeVisible();await expect(record).toHaveCount(0);expect(attempts).toBe(1);
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});
+test('reclaimed asset removal requires permission',async({page})=>{
+ await setup(page);await page.route('**/v1/storage-assets?*',r=>r.fulfill({json:{items:[{...base,status:'DELETED'}],total:1}}));
+ await page.goto('/app/storage');await expect(page.getByRole('button',{name:'删除测试的数据资产'})).toHaveCount(0);
+});
+test('reclaimed asset removal shows an error and keeps the record',async({page})=>{
+ await setup(page,['instances:read','instances:release-storage']);
+ await page.route('**/v1/storage-assets?*',r=>r.fulfill({json:{items:[{...base,status:'DELETED'}],total:1}}));
+ await page.route('**/v1/storage-assets/'+base.id,r=>r.request().method()==='DELETE'?r.fulfill({status:409,json:{code:'STORAGE_REMOVE_BLOCKED'}}):r.fulfill({json:base}));
+ await page.goto('/app/storage');await page.getByRole('button',{name:'删除测试的数据资产'}).click();
+ const dialog=page.getByRole('dialog',{name:'删除数据资产'});await dialog.getByRole('button',{name:/^删\s*除$/}).click();
+ await expect(dialog.getByText('仅已回收的数据资产可以删除')).toBeVisible();await dialog.getByRole('button',{name:/^取\s*消$/}).click();
+ await expect(page.getByRole('article',{name:'数据资产 测试'})).toBeVisible();
+});
 test('storage shows retained assets and actual use separately with responsive detail and maintenance guidance',async({page},info)=>{
  await setup(page);const writes:string[]=[];page.on('request',r=>{if(r.url().includes('/v1/storage-assets')&&r.method()!=='GET')writes.push(r.method());});
  await page.goto('/app/storage');await expect(page.getByRole('heading',{name:'数据资产',exact:true})).toBeVisible();
@@ -132,6 +162,28 @@ test('asset name opens the directory tree and browsing stays read-only',async({p
  expect(writes).toEqual([]);
  await page.getByRole('button',{name:'返回工作数据'}).click();
  await expect(page).toHaveURL('/app/storage');
+});
+test('first directory load does not display cancellation errors and populates the tree',async({page})=>{
+ await setup(page);
+ await page.addInitScript(()=>{const events:string[]=[];(window as typeof window&{storageAlerts:string[]}).storageAlerts=events;new MutationObserver(records=>{for(const record of records)for(const node of record.addedNodes){if(node instanceof Element){if(node.matches('[role=alert]'))events.push(node.textContent??'');node.querySelectorAll('[role=alert]').forEach(el=>events.push(el.textContent??''));}}}).observe(document,{subtree:true,childList:true});});
+ await page.route('**/v1/storage-assets/'+base.id+'/files?*',async route=>{
+  await new Promise(resolve=>setTimeout(resolve,250));
+  const query=new URL(route.request().url()).searchParams;
+  await route.fulfill({json:{root:query.get('root'),path:query.get('path')??'',entries:[{name:'first-folder',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'}]}}).catch(()=>{});
+ });
+ await page.goto('/app/storage');await page.getByRole('button',{name:'浏览 测试 数据目录'}).click();
+ await expect(page.locator('.storage-file-tree').getByText('first-folder',{exact:true})).toBeVisible();
+ await expect(page.getByRole('button',{name:'进入文件夹 first-folder'})).toBeVisible();
+ const alerts=await page.evaluate(()=>(window as typeof window&{storageAlerts:string[]}).storageAlerts);
+ expect(alerts.filter(text=>/cancel(?:led)?error|aborterror/i.test(text))).toEqual([]);
+});
+test('directory tree retains retry for real read failures',async({page})=>{
+ await setup(page);let fail=true;
+ await page.route('**/v1/storage-assets/'+base.id+'/files?*',route=>fail?route.fulfill({status:503,json:{code:'DEPENDENCY_UNAVAILABLE'}}):route.fulfill({json:{root:'workspace',path:'',entries:[{name:'retry-folder',type:'DIRECTORY',size_bytes:0,modified_at:'2026-10-15T00:00:00Z'}]}}));
+ await page.goto('/app/storage');await page.getByRole('button',{name:'浏览 测试 数据目录'}).click();
+ const tree=page.locator('.storage-file-tree');await expect(tree.getByRole('alert')).toBeVisible();
+ fail=false;await tree.getByRole('button',{name:/重\s*试/}).click();
+ await expect(tree.getByText('retry-folder',{exact:true})).toBeVisible();await expect(tree.getByRole('alert')).toHaveCount(0);
 });
 test('directory tree has no horizontal overflow when names fit',async({page})=>{
  await setup(page);

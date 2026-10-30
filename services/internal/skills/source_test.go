@@ -28,6 +28,7 @@ func TestSourceDownloadTransport(t *testing.T) {
 					http.NotFound(w, r)
 				case scenario == "oversize":
 					w.Header().Set("Content-Length", fmt.Sprint(MaxUpload+1))
+					_, _ = w.Write([]byte(strings.Repeat("x", MaxUpload+1)))
 				case scenario == "oversize-chunked":
 					w.(http.Flusher).Flush()
 					_, _ = w.Write([]byte(strings.Repeat("x", MaxUpload+1)))
@@ -90,6 +91,10 @@ func TestSourceDownloadTransport(t *testing.T) {
 				}
 				if scenario == "redirect" && (final != "https://example.com/final.md" || resolutions != 2 || dials != 2) {
 					t.Fatal("redirect did not independently resolve and pin its target", final, resolutions, dials)
+				}
+			} else if scenario == "oversize" || scenario == "oversize-chunked" {
+				if err != nil || len(body) != MaxUpload+1 {
+					t.Fatal("large download rejected", err)
 				}
 			} else if err == nil || len(body) != 0 || final != "" {
 				t.Fatal("unsafe or unavailable download succeeded")

@@ -203,7 +203,7 @@ func (c modelControl) ensureKey(ctx context.Context, key, alias string) error {
 	if err != nil || found {
 		return err
 	}
-	_, err = c.request(ctx, "POST", "/key/generate", map[string]any{"key": key, "models": []string{alias}, "allowed_routes": []string{"/v1/messages", "/v1/models"}, "key_type": "default", "send_invite_email": false, "rpm_limit": 60}, nil)
+	_, err = c.request(ctx, "POST", "/key/generate", map[string]any{"key": key, "models": []string{alias}, "allowed_routes": []string{"/v1/messages", "/v1/models"}, "key_type": "default", "send_invite_email": false, "rpm_limit": 0}, nil)
 	return err
 }
 func (c modelControl) revoke(ctx context.Context, id, key, _ string) error {

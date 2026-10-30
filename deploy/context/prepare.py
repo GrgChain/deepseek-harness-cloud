@@ -48,7 +48,7 @@ if not policy.exists():
         json.dump({"endpoints": [{"id": "local-" + backend, "name": "本机测试 · " + backend,
                   "backend": backend, "url": "http://127.0.0.1:18580/" + backend,
                   "allow_private_http": True, "proxy_key_file": str(private / "proxy-key"),
-                  "data_use": "数据保存在独立本机测试卷；使用本机中文 Embedding，无外部模型调用费用。"}
+                  "data_use": ("原文保存在平台独立接入服务，向量写入所选数据库；Embedding服务和费用按连接配置。" if backend in ("qdrant", "weaviate", "milvus") else "数据保存在独立本机测试卷；使用本机中文 Embedding，无外部模型调用费用。")}
                  for backend in ("qdrant", "weaviate", "milvus", "mem0")]}, stream, ensure_ascii=False, indent=2)
 print("Private Docker test inputs prepared in .local/context (no values printed).")
 
@@ -61,3 +61,12 @@ if args.enable_model_memory:
     if policy.is_symlink() or policy.stat().st_mode & 0o077: raise SystemExit("Endpoint policy must be private")
     policy.write_text(json.dumps(approved,ensure_ascii=False,indent=2))
     print("Approved local OpenViking/Graphiti test endpoints enabled.")
+
+# The platform authenticates to the companion separately from database credentials.
+approved = json.loads(policy.read_text())
+for endpoint in approved["endpoints"]:
+    if endpoint["backend"] in ("milvus", "weaviate", "qdrant") and endpoint["id"] == "local-" + endpoint["backend"]:
+        endpoint.setdefault("service_key_file", str(private / "test-key"))
+if policy.is_symlink() or policy.stat().st_mode & 0o077:
+    raise SystemExit("Endpoint policy must be private")
+policy.write_text(json.dumps(approved, ensure_ascii=False, indent=2))

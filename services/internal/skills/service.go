@@ -263,16 +263,6 @@ func (s *Service) ReadFile(ctx context.Context, p identity.Principal, id, filena
 	}
 	return out, tx.Commit(ctx)
 }
-func checkLimit(ctx context.Context, tx pgx.Tx, p identity.Principal, countDelta, sizeDelta int) error {
-	var count, size int
-	if err := tx.QueryRow(ctx, `SELECT count(*),COALESCE(sum(size_bytes),0) FROM personal_skills WHERE org_id=$1 AND owner_id=$2`, p.OrganizationID, p.UserID).Scan(&count, &size); err != nil {
-		return err
-	}
-	if count+countDelta > 200 || size+sizeDelta > 64<<20 {
-		return webapi.Fail(409, "SKILL_LIMIT", "个人技能库最多 200 项，总内容不超过 64 MiB")
-	}
-	return nil
-}
 func (s *Service) put(ctx context.Context, tx pgx.Tx, p identity.Principal, current *Skill, b Bundle, source, digest string, synced *time.Time) (Skill, error) {
 	meta, err := validateBundle(b)
 	if err != nil {
@@ -312,9 +302,6 @@ func (s *Service) Create(ctx context.Context, p identity.Principal, name, descri
 	}
 	if existing != nil {
 		return Skill{}, webapi.Fail(409, "SKILL_EXISTS", "已存在同名 Skill，请换一个名称")
-	}
-	if err = checkLimit(ctx, tx, p, 1, bundleSize(b)); err != nil {
-		return Skill{}, err
 	}
 	v, err := s.put(ctx, tx, p, nil, b, "", "", nil)
 	if err == nil {
@@ -384,9 +371,6 @@ func (s *Service) edit(ctx context.Context, p identity.Principal, id string, ver
 	}
 	if meta.Name != current.Name {
 		return current, invalid("编辑不能更改 Skill 名称，请通过导入创建副本")
-	}
-	if err = checkLimit(ctx, tx, p, 0, bundleSize(b)-current.Size); err != nil {
-		return current, err
 	}
 	v, err := s.put(ctx, tx, p, &current, b, current.SourceURL, current.SourceDigest, current.SyncedAt)
 	if err == nil {
@@ -615,14 +599,6 @@ func (s *Service) Apply(ctx context.Context, p identity.Principal, token, mode, 
 		if current != nil && mode == "skip" {
 			result["skipped"] = append(result["skipped"], meta.Name)
 			continue
-		}
-		delta, count := bundleSize(b), 1
-		if current != nil {
-			delta -= current.Size
-			count = 0
-		}
-		if err = checkLimit(ctx, tx, p, count, delta); err != nil {
-			return nil, err
 		}
 		if current != nil {
 			_, err = tx.Exec(ctx, `INSERT INTO skill_replacements(skill_id,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4) ON CONFLICT(skill_id) DO UPDATE SET key_id=excluded.key_id,nonce=excluded.nonce,ciphertext=excluded.ciphertext,created_at=clock_timestamp()`, current.ID, current.envelope.KeyID, current.envelope.Nonce, current.envelope.Ciphertext)

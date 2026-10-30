@@ -5,6 +5,7 @@ import uuid
 
 import httpx
 from fastembed import TextEmbedding
+import document_chunks
 
 
 MODEL = "BAAI/bge-small-zh-v1.5"
@@ -25,13 +26,24 @@ def embed(texts, query=False):
 
 
 class Vectors:
-    def __init__(self, backend, namespace):
+    def __init__(self, backend, namespace, service=None, embedding_config=None):
+        from embedding_provider import EmbeddingProvider
+        self.embedder = EmbeddingProvider(embedding_config)
         self.backend, self.namespace = backend, namespace
         self.collection = ("Hc" if backend == "weaviate" else "hc_") + namespace
-        self.url = os.environ[backend.upper() + "_URL"]
-        key = os.environ["HC_CONTEXT_TEST_KEY"]
+        self.url = service.url if service else os.environ[backend.upper() + "_URL"]
+        key = service.token if service else os.environ["HC_CONTEXT_TEST_KEY"]
         headers = {"api-key": key} if backend == "qdrant" else {"Authorization": "Bearer " + key}
-        self.http = httpx.Client(base_url=self.url, headers=headers, timeout=12, trust_env=False)
+        transport = None
+        if service:
+            from milvus_service import MilvusTransport, service_url
+            if backend not in ("milvus", "weaviate", "qdrant"):
+                raise ValueError("Custom service backend not supported")
+            service_url(self.url)
+            transport = MilvusTransport()
+            if not key:
+                headers = {}
+        self.http = httpx.Client(base_url=self.url, headers=headers, timeout=12, trust_env=False, transport=transport, follow_redirects=False)
 
     def request(self, method, path, data=None):
         response = self.http.request(method, path, json=data)
@@ -48,9 +60,9 @@ class Vectors:
         if self.backend == "qdrant":
             version = self.request("GET", "/")["version"]
             if self.http.get("/collections/" + c).status_code == 404:
-                self.request("PUT", "/collections/" + c, {"vectors": {"size": DIMENSIONS, "distance": "Cosine"}})
+                self.request("PUT", "/collections/" + c, {"vectors": {"size": self.embedder.dimensions, "distance": "Cosine"}})
             info = self.request("GET", "/collections/" + c)["result"]
-            if info["config"]["params"]["vectors"]["size"] != DIMENSIONS:
+            if info["config"]["params"]["vectors"]["size"] != self.embedder.dimensions:
                 raise RuntimeError("embedding dimension mismatch")
         elif self.backend == "weaviate":
             version = self.request("GET", "/v1/meta")["version"]
@@ -67,23 +79,29 @@ class Vectors:
             else:
                 response.raise_for_status()
         else:
-            version = "2.5.6"  # pinned deployment; REST health does not advertise a version
+            version = "REST-v2"  # the native REST endpoint does not advertise its server version
             collections = self.request("POST", "/v2/vectordb/collections/list", {})["data"]
             if c not in collections:
                 self.request("POST", "/v2/vectordb/collections/create", {
-                    "collectionName": c, "dimension": DIMENSIONS, "metricType": "COSINE",
+                    "collectionName": c, "dimension": self.embedder.dimensions, "metricType": "COSINE",
                     "primaryFieldName": "id", "idType": "VarChar",
                     "autoId": False, "vectorFieldName": "vector",
                     "params": {"max_length": "64", "enableDynamicField": True},
                 })
-        # Actual local model initialization is part of verification.
-        if len(embed(["服务验证"])[0]) != DIMENSIONS:
-            raise RuntimeError("embedding dimension mismatch")
+            info = self.request("POST", "/v2/vectordb/collections/describe", {"collectionName": c})["data"]
+            field = next((f for f in info["fields"] if f["name"] == "vector"), None)
+            params = field.get("params", {}) if field else {}
+            if isinstance(params, list):
+                params = {p["key"]: p["value"] for p in params}
+            if int(params.get("dim", 0)) != self.embedder.dimensions:
+                raise RuntimeError("embedding dimension mismatch")
+        # Verification exercises the configured provider before any document write.
+        self.embedder.embed(["服务验证"])
         return version
 
     def put(self, record, chunks):
         c = self.collection
-        vectors = embed(chunks)
+        vectors = self.embedder.embed([document_chunks.embedding_text(record.get("title", ""), chunk) for chunk in chunks])
         rows = []
         for i, vector in enumerate(vectors):
             identity = str(uuid.uuid5(uuid.NAMESPACE_URL, self.namespace + record["id"] + str(record["version"]) + ":" + str(i)))
@@ -104,7 +122,7 @@ class Vectors:
             self.request("POST", "/v2/vectordb/entities/upsert", {"collectionName": c, "data": rows})
 
     def search(self, query, scope, limit):
-        vector = embed([query], query=True)[0]
+        vector = self.embedder.embed([query], query=True)[0]
         c = self.collection
         if self.backend == "qdrant":
             result = self.request("POST", "/collections/" + c + "/points/query", {
@@ -142,3 +160,4 @@ class Vectors:
 
     def close(self):
         self.http.close()
+        self.embedder.close()
