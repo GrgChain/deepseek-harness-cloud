@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 GO ?= go
 NPM ?= npm
+RUFF ?= ruff
 COMPOSE := docker compose -f deploy/local/compose.yaml
 GO_ENV := GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build
 RUN_ENV = HC_DB_DSN_FILE=$(CURDIR)/.local/$(ROLE)-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password
@@ -106,19 +107,44 @@ portal-preview:
 	cd apps && $(NPM) run preview
 
 test:
-	python3 -m unittest discover -s services/internal/worker -p '*_test.py'
+	python3 -m unittest discover -s infrastructure/storage/worker-assets -p '*_test.py'
 	$(GO_ENV) $(GO) test -race ./...
 	cd apps && $(NPM) test
 	cd infrastructure/runtime && node --test tests/*.test.mjs
+	node --test infrastructure/runtime/workspace-assets/*.test.mjs
 	python3 -m unittest discover -s infrastructure/storage -p 'test_*.py'
 	python3 -m unittest discover -s infrastructure/network -p 'test_*.py'
+	python3 -m unittest discover -s infrastructure/model-gateway -p 'test_*.py'
+	$(MAKE) plugin-mem0-test
 
 test-integration:
 	test -n "$$HC_TEST_DB_DSN$$HC_TEST_DB_DSN_FILE"
-	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" $(GO) test -race -count=1 -v ./db ./services/cmd/hcctl ./services/internal/devlocal ./services/internal/identity ./services/internal/settings ./services/internal/skills ./services/internal/contextservice ./services/internal/connectors ./services/internal/instances ./services/internal/access ./services/internal/admission ./services/internal/runtimeapproval ./services/internal/operations ./services/internal/worker
+	$(GO_ENV) HC_TEST_DB_DSN_FILE="$(if $(HC_TEST_DB_DSN_FILE),$(abspath $(HC_TEST_DB_DSN_FILE)),)" \
+		$(GO) test -race -count=1 -v ./db ./services/cmd/hcctl \
+		./services/internal/devlocal ./services/internal/identity ./services/internal/settings \
+		./services/internal/skills ./services/internal/contextservice ./services/internal/connectors \
+		./services/internal/plugins ./services/internal/instances ./services/internal/access \
+		./services/internal/admission ./services/internal/runtimeapproval \
+		./services/internal/operations ./services/internal/worker
 
-check:
-	set -e; formatting=$$(gofmt -l db services); test -z "$$formatting"
+.PHONY: format format-check
+format:
+	rg --files -g '*.go' -0 db services apps infrastructure | xargs -0 gofmt -w
+	$(RUFF) format deploy infrastructure
+	cd apps && $(NPM) run format
+
+format-check:
+	@set -e; \
+	formatting=$$(rg --files -g '*.go' -0 db services apps infrastructure | xargs -0 gofmt -l); \
+	if test -n "$$formatting"; then \
+		printf '%s\n' "$$formatting"; \
+		exit 1; \
+	fi
+	$(RUFF) format --check deploy infrastructure
+	cd apps && $(NPM) run format:check
+
+check: format-check
+	$(RUFF) check deploy infrastructure
 	$(GO_ENV) $(GO) vet ./...
 	cd apps && $(NPM) run typecheck
 
@@ -162,14 +188,37 @@ model-gateway-init:
 	python3 infrastructure/model-gateway/setup-local.py
 
 run-model-gateway:
+	python3 infrastructure/model-gateway/gateway_network.py
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/model_gateway-dsn HC_MODEL_GATEWAY_CONFIG_FILE=$(CURDIR)/.local/model-gateway/config.json $(GO) run ./services/cmd/model-gateway
 
-.PHONY: context-init context-up context-test context-embedding-up context-embedding-test context-docling-up
+.PHONY: context-init context-up context-test context-mem0-up context-mem0-test context-embedding-up context-embedding-test context-docling-up
+.PHONY: context-unit-test
+context-unit-test:
+	docker run --rm --network none --read-only --tmpfs /tmp \
+		--env CONTEXT_DB=/tmp/context-test.db \
+		--mount type=bind,src=$(CURDIR)/deploy/context/bridge,dst=/app,readonly \
+		--workdir /app --entrypoint python hc-context-bridge:dev \
+		-B -m unittest discover -s . -p 'test_*.py'
+
 context-init:
 	python3 deploy/context/prepare.py
 
 context-up: context-init
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile knowledge --profile memory up -d --build
+
+context-mem0-up: context-init
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile mem0 up -d --build --wait --wait-timeout 180 qdrant mem0
+	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile mem0 up -d --no-recreate --wait --wait-timeout 180 bridge
+
+context-mem0-test:
+	HC_CONTEXT_TEST_BACKENDS=mem0 HC_CONTEXT_TEST_MEM0_REST=true python3 deploy/context/test_services.py ExternalServices.test_native_write_recall_isolation_update_and_delete Mem0RESTService
+
+.PHONY: plugin-mem0-package plugin-mem0-test
+plugin-mem0-package:
+	node infrastructure/plugins/pack-mem0.mjs
+
+plugin-mem0-test:
+	cd infrastructure/plugins/mem0 && npm test && npm run check
 
 context-docling-up: context-init
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile docling up -d docling

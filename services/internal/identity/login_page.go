@@ -1,21 +1,16 @@
 package identity
 
 import (
-	_ "embed"
 	"html/template"
 	"net/http"
+
+	"github.com/jonluo94/deepseek-harness-cloud/apps/auth-assets"
 )
 
-//go:embed login.html
-var loginHTML string
+var loginCSS = authassets.CSS
+var loginJS = authassets.Login
 
-//go:embed login.css
-var loginCSS string
-
-//go:embed login.js
-var loginJS string
-
-var loginTemplate = template.Must(template.New("login").Parse(loginHTML))
+var loginTemplate = template.Must(template.New("login").Parse(authassets.HTML))
 
 func (s *AuthorizationServer) loginPage(w http.ResponseWriter, status int, request, csrf, message, email string) {
 	// Chromium derives a form POST's Origin from the document's referrer

@@ -2162,3 +2162,139 @@ ALTER TABLE personal_skills ADD CONSTRAINT personal_skills_file_count_check CHEC
 ALTER TABLE personal_skills ADD CONSTRAINT personal_skills_size_bytes_check CHECK (size_bytes > 0);
 
 ALTER TABLE storage_assets ADD COLUMN owner_removed_at timestamptz;
+
+INSERT INTO permissions(id,assignable,dependencies) VALUES
+ ('plugins:manage',true,'{instances:read}');
+
+WITH granted AS (
+ INSERT INTO role_permissions(role_id,permission_id)
+ SELECT id,'plugins:manage' FROM roles WHERE builtin AND code IN ('ADMIN','MEMBER')
+ ON CONFLICT DO NOTHING RETURNING role_id
+), changed AS (
+ UPDATE roles r SET version=version+1,updated_at=clock_timestamp()
+ WHERE EXISTS(SELECT 1 FROM granted g WHERE g.role_id=r.id)
+ RETURNING r.id,r.org_id
+)
+INSERT INTO audit_events(id,org_id,resource_id,action,outcome,trace_id,details)
+ SELECT gen_random_uuid(),org_id,id,'PLUGIN_DEFAULT_PERMISSION_GRANTED','SUCCEEDED',
+ gen_random_uuid()::text,jsonb_build_object('migration',58) FROM changed;
+
+CREATE TABLE personal_plugins (
+ id uuid PRIMARY KEY,
+ org_id uuid NOT NULL REFERENCES organizations(id),
+ owner_id uuid NOT NULL REFERENCES users(id),
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 214),
+ package_name text NOT NULL CHECK(length(package_name) BETWEEN 1 AND 214),
+ package_version text NOT NULL CHECK(length(package_version) BETWEEN 1 AND 128),
+ author text NOT NULL,
+ category text NOT NULL CHECK(category IN ('会话与记忆','开发工具','集成扩展')),
+ summary text NOT NULL,
+ description text NOT NULL,
+ keywords text[] NOT NULL DEFAULT '{}',
+ repository text NOT NULL DEFAULT '',
+ documentation text NOT NULL DEFAULT '',
+ compatibility text NOT NULL,
+ checked_at date NOT NULL,
+ created_at timestamptz NOT NULL DEFAULT clock_timestamp(),
+ UNIQUE(org_id,owner_id,package_name)
+);
+CREATE INDEX personal_plugins_owner ON personal_plugins(org_id,owner_id,created_at DESC,id);
+REVOKE ALL ON personal_plugins FROM PUBLIC;
+
+CREATE OR REPLACE FUNCTION public.hc_seed_roles() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,public AS $$
+DECLARE admin_id uuid:=gen_random_uuid(); member_id uuid:=gen_random_uuid();
+BEGIN
+ INSERT INTO public.roles(id,org_id,code,name,builtin) VALUES
+ (admin_id,NEW.id,'ADMIN','管理员',true),(member_id,NEW.id,'MEMBER','成员',true);
+ INSERT INTO public.role_permissions SELECT admin_id,id FROM public.permissions;
+ INSERT INTO public.role_permissions SELECT member_id,id FROM public.permissions
+ WHERE id LIKE 'instances:%' OR id LIKE 'personal-model:%' OR id LIKE 'skills:%'
+ OR id LIKE 'memory:%' OR id LIKE 'knowledge:%' OR id LIKE 'connectors:%'
+ OR id IN ('configuration:read','audit:read','plugins:manage');
+ RETURN NEW;
+END;
+$$;
+
+ALTER TABLE personal_plugins
+ ADD COLUMN addition_method text NOT NULL DEFAULT 'online' CHECK(addition_method IN ('online','offline')),
+ ADD COLUMN archive_filename text NOT NULL DEFAULT '',
+ ADD COLUMN archive_sha256 text NOT NULL DEFAULT '',
+ ADD COLUMN archive_key_id text,
+ ADD COLUMN archive_nonce bytea,
+ ADD COLUMN archive_ciphertext bytea,
+ ADD CONSTRAINT personal_plugins_archive CHECK (
+  (addition_method='online' AND archive_filename='' AND archive_sha256=''
+   AND archive_key_id IS NULL AND archive_nonce IS NULL AND archive_ciphertext IS NULL)
+  OR (addition_method='offline' AND length(archive_filename) BETWEEN 1 AND 255
+   AND archive_sha256 ~ '^[a-f0-9]{64}$' AND archive_key_id IS NOT NULL AND length(archive_key_id) BETWEEN 1 AND 100
+   AND archive_nonce IS NOT NULL AND octet_length(archive_nonce)=12
+   AND archive_ciphertext IS NOT NULL AND octet_length(archive_ciphertext) BETWEEN 17 AND 5242896));
+
+CREATE TABLE plugin_catalog_defaults (
+ id uuid PRIMARY KEY,
+ package_name text NOT NULL UNIQUE CHECK(length(package_name) BETWEEN 1 AND 214),
+ name text NOT NULL CHECK(length(name) BETWEEN 1 AND 214),
+ package_version text NOT NULL CHECK(length(package_version) BETWEEN 1 AND 128),
+ author text NOT NULL,
+ category text NOT NULL CHECK(category IN ('会话与记忆','开发工具','集成扩展')),
+ summary text NOT NULL,
+ description text NOT NULL,
+ keywords text[] NOT NULL DEFAULT '{}',
+ repository text NOT NULL DEFAULT '',
+ documentation text NOT NULL DEFAULT '',
+ compatibility text NOT NULL,
+ checked_at date NOT NULL,
+ source_note text NOT NULL DEFAULT '',
+ revision bigint NOT NULL DEFAULT 1 CHECK(revision>0),
+ sort_order integer NOT NULL CHECK(sort_order>=0)
+);
+REVOKE ALL ON plugin_catalog_defaults FROM PUBLIC;
+
+-- Initial catalog metadata is preserved from the previous built-in directory.
+-- These notes describe its sources; they do not claim runtime verification.
+INSERT INTO plugin_catalog_defaults(id,package_name,name,package_version,author,category,summary,description,keywords,repository,documentation,compatibility,checked_at,source_note,sort_order) VALUES
+ ('6e2bccdc-1ae1-4f04-8ddf-6bab763d2631','@openviking/dsh-memory-plugin','OpenViking 记忆','0.5.29',
+  'OpenViking / volcengine','会话与记忆',
+  '将 OpenViking 的记忆和上下文能力接入 DSH。',
+  '由 OpenViking 项目提供的 DSH 组合包。使用前需按项目文档准备 OpenViking 服务及相关配置；具体连接能力和授权范围以该版本文档为准。',
+  ARRAY['记忆','上下文','memory','OpenViking'],
+  'https://github.com/volcengine/OpenViking',
+  'https://github.com/volcengine/OpenViking/tree/main/examples/dsh-memory-plugin',
+  '未声明 DSH 版本范围；Node.js 要求 ^22.19.0 或 >=24。',
+  '2026-10-27','包信息及 DSH bundle 声明',0),
+ ('6e2bccdc-1ae1-4f04-8ddf-6bab763d2632','@linxin666/dsh-ssh','DSH SSH','0.4.11',
+  'zhu1090093659 / linxin666','开发工具',
+  '在 DSH Web 中使用 SSH 终端、SFTP 和远程主机工具。',
+  '为 DSH Web 提供远程 SSH 操作，包括主机配置、持久连接、终端、文件传输和端口转发。使用时需要自行配置主机与认证，并满足运行环境的网络策略。',
+  ARRAY['SSH','SFTP','远程','终端'],
+  'https://github.com/zhu1090093659/dsh-web','https://github.com/zhu1090093659/dsh-web#readme',
+  '包声明 DSH >=0.2.1-rc.3；Node.js ^22.19.0 或 >=24.0.0。',
+  '2026-10-27','包信息及 DSH bundle 声明',1),
+ ('6e2bccdc-1ae1-4f04-8ddf-6bab763d2633','dshmarket','DSH Market','1.71.1',
+  'dsh-market','集成扩展',
+  '社区维护的 DSH 插件发现与浏览工具。',
+  '该第三方组合包在 DSH 中提供社区目录的浏览和搜索。它由独立社区维护，目录收录规则及所需的 DSH 版本请查看项目文档。',
+  ARRAY['市场','目录','marketplace','发现'],
+  'https://github.com/dsh-market/dsh-market','https://github.com/dsh-market/dsh-market#readme',
+  '未声明 DSH 版本范围，需由 DSH 检查依赖兼容性。',
+  '2026-10-27','包信息及 DSH bundle 声明',2);
+
+ALTER TABLE personal_plugins
+ ADD COLUMN source_note text NOT NULL DEFAULT '',
+ ADD COLUMN revision bigint NOT NULL DEFAULT 1 CHECK(revision>0),
+ ADD COLUMN default_id uuid REFERENCES plugin_catalog_defaults(id);
+CREATE UNIQUE INDEX personal_plugins_default ON personal_plugins(org_id,owner_id,default_id) WHERE default_id IS NOT NULL;
+
+-- Migration 61: locally maintained Mem0 DSH plugin.
+-- Locally maintained, downloadable OSS REST bundle; no npm publication implied.
+INSERT INTO plugin_catalog_defaults(id,package_name,name,package_version,author,category,summary,description,keywords,repository,documentation,compatibility,checked_at,source_note,sort_order) VALUES
+ ('6e2bccdc-1ae1-4f04-8ddf-6bab763d2634','@harness-cloud/dsh-mem0-memory','Mem0 记忆','0.1.0',
+  'Harness Cloud','会话与记忆',
+  '通过 Mem0 保存明确记忆、自动召回，并可开启对话消息保存。',
+  '本项目维护的 DSH 插件，通过 Mem0 OSS REST 服务保存和检索记忆。提供记忆检索、确认后保存和状态工具；自动保存对话需显式开启，默认仅处理用户消息。使用前在 DSH 中配置服务地址、API Key 和独立用户标识。',
+  ARRAY['记忆','上下文','memory','Mem0','自动召回','本地维护','离线'],
+  '','',
+  '适配 DSH 0.2.1-alpha.2；Node.js >=24。需要可访问的 Mem0 OSS REST 服务。',
+  '2026-11-03','本项目维护的离线组合包；源码和 README 位于 infrastructure/plugins/mem0。非 Mem0 官方插件，未发布到 npm。',3)
+ON CONFLICT (package_name) DO NOTHING;

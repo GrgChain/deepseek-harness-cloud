@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jonluo94/deepseek-harness-cloud/db"
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/storage/worker-assets"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/devlocal"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
@@ -236,7 +237,7 @@ func TestDurableExecutorRunsEmbeddedLifecycleAndRetainsData(t *testing.T) {
 					return
 				}
 			}
-			script := "import os,subprocess,shutil; p='/host-dev/hc-cloud/'+os.environ['ASSET']\nif os.path.islink(p):\n d=os.readlink(p); subprocess.run(['losetup','-d',d],check=True); os.unlink(p)\na='/assets/'+os.environ['ASSET']\nif os.path.isdir(a): shutil.rmtree(a)"
+			script := workerassets.TestCleanup
 			if _, err := dockerCommand(cleanup, nil, "run", "--rm", "--network", "none", "--privileged", "--env", "ASSET="+plan.AssetID, "--mount", "type=bind,src="+options.AssetRoot+",dst=/assets", "--mount", "type=bind,src=/dev,dst=/host-dev", "--entrypoint", "python3", options.StorageImage, "-c", script); err != nil {
 				t.Error("owned executor fixture asset cleanup failed")
 				return

@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jonluo94/deepseek-harness-cloud/db"
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/storage/worker-assets"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/devlocal"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
@@ -205,7 +206,7 @@ func TestRealOfflineStorageBackupRestoreAndProtectedReclamation(t *testing.T) {
 	must(`DROP TRIGGER storage_publish_failure ON audit_events`)
 	// Simulate the private staging file left by a process crash. The same bound
 	// intent must remove that partial copy and resume without replacing preimage.
-	partial := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--mount", "type=bind,src="+o.Host.AssetRoot+",dst=/assets", "--entrypoint", "python3", o.Host.StorageImage, "-c", `import os;fd=os.open('/assets/`+target.AssetID+`/restore-`+proof.SHA256+`.img',os.O_CREAT|os.O_EXCL|os.O_RDWR,0o600);os.ftruncate(fd,1048576);os.close(fd)`)
+	partial := exec.CommandContext(ctx, "docker", "run", "--rm", "--network", "none", "--env", "ASSET="+target.AssetID, "--env", "DIGEST="+proof.SHA256, "--mount", "type=bind,src="+o.Host.AssetRoot+",dst=/assets", "--entrypoint", "python3", o.Host.StorageImage, "-c", workerassets.TestPartialRestore)
 	if partial.Run() != nil {
 		t.Fatal("interrupted fixture staging setup failed")
 	}

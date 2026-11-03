@@ -1,0 +1,5 @@
+- insert:
+    - id: mem0-memory-runtime
+      name: '@harness-cloud/dsh-mem0-memory'
+      disabled: true
+      config: {}

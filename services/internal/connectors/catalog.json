@@ -12,9 +12,7 @@
       "doc_url": "https://developer.cloud.tencent.com/mcp/server/11803",
       "guide_url": "https://docs.qq.com/open/auth/mcp.html",
       "setup_hint": "已预填官方 MCP 地址，填写本人的 Token 或 API Key 后保存并验证；认证由平台按官方方式发送。",
-      "requirements": [
-        "腾讯文档 MCP Token（专用 Authorization 头）"
-      ],
+      "requirements": ["腾讯文档 MCP Token（专用 Authorization 头）"],
       "color": "#0052d9",
       "default_url": "https://docs.qq.com/openapi/mcp"
     },
@@ -28,10 +26,7 @@
       "doc_url": "https://qclaw.qq.com/docs/206424375046045696",
       "guide_url": "https://qclaw.qq.com/docs/206424375046045696",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "IMA API Key",
-        "Client ID"
-      ],
+      "requirements": ["IMA API Key", "Client ID"],
       "color": "#07c160"
     },
     {
@@ -44,9 +39,7 @@
       "doc_url": "https://meeting.tencent.com/ai-skill.html",
       "guide_url": "https://meeting.tencent.com/ai-skill.html",
       "setup_hint": "已预填官方 MCP 地址，填写本人的 Token 或 API Key 后保存并验证；认证由平台按官方方式发送。",
-      "requirements": [
-        "腾讯会议 Token（专用认证头）"
-      ],
+      "requirements": ["腾讯会议 Token（专用认证头）"],
       "color": "#006eff",
       "default_url": "https://mcp.meeting.tencent.com/mcp/wemeet-open/v1"
     },
@@ -60,9 +53,7 @@
       "doc_url": "https://news.qq.com/exchange?scene=appkey",
       "guide_url": "https://qclaw.qq.com/docs/207612064014921728/",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "腾讯新闻 API Key"
-      ],
+      "requirements": ["腾讯新闻 API Key"],
       "color": "#1485ee"
     },
     {
@@ -75,9 +66,7 @@
       "doc_url": "https://weread.qq.com/r/weread-skills",
       "guide_url": "https://weread.qq.com/r/weread-skills",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "微信读书 API Key"
-      ],
+      "requirements": ["微信读书 API Key"],
       "color": "#1aad19"
     },
     {
@@ -90,10 +79,7 @@
       "doc_url": "https://qclaw.qq.com/docs/211858629271314432",
       "guide_url": "https://lexiangla.com/mcp",
       "setup_hint": "已预填官方 MCP 地址，填写企业标识 company_from 与访问令牌后保存并验证。",
-      "requirements": [
-        "企业标识 company_from",
-        "访问令牌"
-      ],
+      "requirements": ["企业标识 company_from", "访问令牌"],
       "color": "#00c1de",
       "default_url": "https://mcp.lexiang-app.com/mcp"
     },
@@ -107,9 +93,7 @@
       "doc_url": "https://www.weiyun.com/act/openclaw",
       "guide_url": "https://www.weiyun.com/act/openclaw",
       "setup_hint": "已预填官方 MCP 地址，填写本人的 Token 或 API Key 后保存并验证；认证由平台按官方方式发送。",
-      "requirements": [
-        "微云 MCP Token（WyHeader 认证头）"
-      ],
+      "requirements": ["微云 MCP Token（WyHeader 认证头）"],
       "color": "#00a4ff",
       "default_url": "https://www.weiyun.com/api/v3/mcpserver"
     },
@@ -123,11 +107,7 @@
       "doc_url": "https://mail.qq.com/",
       "guide_url": "https://mail.qq.com/",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "邮箱地址",
-        "IMAP / SMTP 地址及端口",
-        "邮箱授权码"
-      ],
+      "requirements": ["邮箱地址", "IMAP / SMTP 地址及端口", "邮箱授权码"],
       "color": "#12b7f5"
     },
     {
@@ -140,9 +120,7 @@
       "doc_url": "https://y.qq.com/n/ryqq_v2/qqmusic_skills",
       "guide_url": "https://y.qq.com/n/ryqq_v2/qqmusic_skills",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "QQ 音乐 API Key"
-      ],
+      "requirements": ["QQ 音乐 API Key"],
       "color": "#31c27c"
     },
     {
@@ -155,9 +133,7 @@
       "doc_url": "https://flyai.open.fliggy.com/#playground",
       "guide_url": "https://qclaw.qq.com/docs/208142370404184064.html",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "飞猪 AI 开放平台 API Key"
-      ],
+      "requirements": ["飞猪 AI 开放平台 API Key"],
       "color": "#ffc700"
     },
     {
@@ -170,9 +146,7 @@
       "doc_url": "https://lbs.baidu.com/apiconsole/agentplan",
       "guide_url": "https://lbsyun.baidu.com/products/agentplan",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "百度地图 Agent Plan Token"
-      ],
+      "requirements": ["百度地图 Agent Plan Token"],
       "color": "#3385ff"
     },
     {
@@ -185,9 +159,7 @@
       "doc_url": "http://t.ctrip.cn/28J6RhL",
       "guide_url": "https://qclaw.qq.com/docs/208231741261246464.html",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "携程问道 Token"
-      ],
+      "requirements": ["携程问道 Token"],
       "color": "#2577e3"
     },
     {
@@ -200,9 +172,7 @@
       "doc_url": "https://developer.meituan.com/hotel-travel-skill",
       "guide_url": "https://developer.meituan.com/hotel-travel-skill",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "美团个人开发者 Token"
-      ],
+      "requirements": ["美团个人开发者 Token"],
       "color": "#ffc300"
     },
     {
@@ -215,9 +185,7 @@
       "doc_url": "https://mcp.didichuxing.com/api",
       "guide_url": "https://mcp.didichuxing.com/api",
       "setup_hint": "已预填官方 MCP 地址，填写本人的 Token 或 API Key 后保存并验证；认证由平台按官方方式发送。",
-      "requirements": [
-        "滴滴 MCP Key（地址参数认证）"
-      ],
+      "requirements": ["滴滴 MCP Key（地址参数认证）"],
       "color": "#ff6400",
       "default_url": "https://mcp.didichuxing.com/mcp-servers"
     },
@@ -231,9 +199,7 @@
       "doc_url": "https://open.chineselaw.com/profile",
       "guide_url": "https://open.chineselaw.com/llms.txt",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "元典 API Key"
-      ],
+      "requirements": ["元典 API Key"],
       "color": "#1a56db"
     },
     {
@@ -280,10 +246,7 @@
       "doc_url": "https://qclaw.qq.com/docs/207508177113886720",
       "guide_url": "https://qclaw.qq.com/docs/207508177113886720",
       "setup_hint": "厂商使用旧 HTTP+SSE 协议，请先部署兼容的 HTTP MCP 适配服务，再填写其地址和认证信息。",
-      "requirements": [
-        "有道 MCP API Key",
-        "兼容旧 HTTP+SSE 的适配服务"
-      ],
+      "requirements": ["有道 MCP API Key", "兼容旧 HTTP+SSE 的适配服务"],
       "color": "#00c853"
     },
     {
@@ -347,11 +310,7 @@
       "doc_url": "https://github.com/larksuite/cli",
       "guide_url": "https://open.feishu.cn/document/mcp_open_tools/feishu-cli/set-up-lark-cli-for-ai-agents-in-openclaw_hermes.md",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "官方 lark-cli",
-        "App ID 与 App Secret",
-        "所需用户授权"
-      ],
+      "requirements": ["官方 lark-cli", "App ID 与 App Secret", "所需用户授权"],
       "color": "#3370ff"
     },
     {
@@ -364,10 +323,7 @@
       "doc_url": "https://github.com/WecomTeam/wecom-cli",
       "guide_url": "https://open.work.weixin.qq.com/help2/pc/21676",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "官方 wecom-cli",
-        "Bot ID 与 Secret"
-      ],
+      "requirements": ["官方 wecom-cli", "Bot ID 与 Secret"],
       "color": "#2f7bf6"
     },
     {
@@ -380,11 +336,7 @@
       "doc_url": "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli",
       "guide_url": "https://github.com/DingTalk-Real-AI/dingtalk-workspace-cli#getting-started",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "官方 dws CLI",
-        "钉钉用户授权",
-        "可选的 AppKey 与 AppSecret"
-      ],
+      "requirements": ["官方 dws CLI", "钉钉用户授权", "可选的 AppKey 与 AppSecret"],
       "color": "#3296fa"
     },
     {
@@ -397,10 +349,7 @@
       "doc_url": "https://github.com/Tencent/AgentlyMail",
       "guide_url": "https://help.agent.qq.com/detail/0/1092",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "官方 Agent Mail CLI",
-        "独立邮箱设备码授权"
-      ],
+      "requirements": ["官方 Agent Mail CLI", "独立邮箱设备码授权"],
       "color": "#0052d9"
     },
     {
@@ -413,11 +362,7 @@
       "doc_url": "https://obsidian.md/cli",
       "guide_url": "https://obsidian.md/zh/cli",
       "setup_hint": "需在运行 Obsidian 的主机独立部署 MCP 网关，并启用官方 CLI。",
-      "requirements": [
-        "运行中的 Obsidian 及官方 CLI",
-        "库名",
-        "可选的 CLI 路径"
-      ],
+      "requirements": ["运行中的 Obsidian 及官方 CLI", "库名", "可选的 CLI 路径"],
       "color": "#6c31e3"
     },
     {
@@ -430,10 +375,7 @@
       "doc_url": "https://www.yuque.com/yuque/yuque-open-api/api",
       "guide_url": "https://www.yuque.com/yuque/yuque-open-api/api",
       "setup_hint": "请先将本地 stdio 服务封装为独立的 HTTP MCP 服务，再填写服务地址和认证信息。",
-      "requirements": [
-        "官方 yuque-mcp 进程",
-        "语雀个人令牌"
-      ],
+      "requirements": ["官方 yuque-mcp 进程", "语雀个人令牌"],
       "color": "#22ab28"
     },
     {
@@ -446,11 +388,7 @@
       "doc_url": "https://github.com/Tencent/WeKnora",
       "guide_url": "https://github.com/Tencent/WeKnora/blob/main/docs/api/README.md",
       "setup_hint": "填写已部署的兼容 MCP 网关地址和认证信息；也可自行部署网关后接入。",
-      "requirements": [
-        "WeKnora 服务地址",
-        "按部署设置的 API Key 与 Tenant ID",
-        "可选的知识库 ID"
-      ],
+      "requirements": ["WeKnora 服务地址", "按部署设置的 API Key 与 Tenant ID", "可选的知识库 ID"],
       "color": "#0052d9"
     },
     {
@@ -463,9 +401,7 @@
       "doc_url": "https://docs.dify.ai/",
       "guide_url": "https://docs.dify.ai/",
       "setup_hint": "填写已发布应用或工作流的 MCP 地址；按该服务的认证方式配置。",
-      "requirements": [
-        "已发布应用或工作流的 MCP 地址"
-      ],
+      "requirements": ["已发布应用或工作流的 MCP 地址"],
       "color": "#1c64f2"
     },
     {
@@ -496,10 +432,7 @@
       "doc_url": "https://gitee.com/oschina/mcp-gitee",
       "guide_url": "https://gitee.com/oschina/mcp-gitee/blob/master/README_CN.md",
       "setup_hint": "已预填 Gitee 官方 MCP 地址。填写个人访问令牌后保存并验证，再选择需要启用的工具。",
-      "requirements": [
-        "Gitee 个人访问令牌",
-        "令牌须具备目标仓库及所需操作的权限"
-      ],
+      "requirements": ["Gitee 个人访问令牌", "令牌须具备目标仓库及所需操作的权限"],
       "color": "#c71d23"
     },
     {
@@ -530,10 +463,7 @@
       "doc_url": "https://help.aliyun.com/zh/yunxiao/developer-reference/cloud-effect-mcp-tool-instructions",
       "guide_url": "https://github.com/aliyun/alibabacloud-devops-mcp-server/blob/master/docs/hosted-mcp-guide.zh-CN.md",
       "setup_hint": "已预填云效官方托管 MCP 地址，填写云效个人访问令牌。专有 Region 站用户请改为本组织域名下的 /ai/mcp 地址；平台使用标准 Bearer 认证。",
-      "requirements": [
-        "云效个人访问令牌",
-        "按需授予代码管理、项目协作或流水线等 API 权限"
-      ],
+      "requirements": ["云效个人访问令牌", "按需授予代码管理、项目协作或流水线等 API 权限"],
       "color": "#ff6a00"
     },
     {
@@ -544,9 +474,7 @@
       "default_url": "https://mcp.context7.com/mcp",
       "doc_url": "https://context7.com/docs/resources/all-clients",
       "setup_hint": "已预填 Context7 官方 MCP 地址。填写 Context7 API Key，平台通过标准 Bearer 认证查询库文档和示例。",
-      "requirements": [
-        "Context7 API Key（在 Context7 控制台获取）"
-      ],
+      "requirements": ["Context7 API Key（在 Context7 控制台获取）"],
       "color": "#15803d",
       "category": "development",
       "mode": "remote",
@@ -560,9 +488,7 @@
       "default_url": "https://mcp.linear.app/mcp",
       "doc_url": "https://linear.app/docs/mcp",
       "setup_hint": "通过 OAuth 登录 Linear 并授权工作空间。授权返回后验证连接，再选择需要启用的任务和项目工具。",
-      "requirements": [
-        "本人 Linear 账号及目标工作空间权限"
-      ],
+      "requirements": ["本人 Linear 账号及目标工作空间权限"],
       "color": "#5e6ad2",
       "category": "development",
       "mode": "remote",
@@ -576,9 +502,7 @@
       "default_url": "https://mcp.sentry.dev/mcp",
       "doc_url": "https://mcp.sentry.dev/",
       "setup_hint": "通过 OAuth 登录 Sentry 并授权组织。可将服务地址改为官方文档中的组织或项目专属路径，限制工具访问范围。",
-      "requirements": [
-        "本人 Sentry 账号及目标组织、项目访问权限"
-      ],
+      "requirements": ["本人 Sentry 账号及目标组织、项目访问权限"],
       "color": "#6b467e",
       "category": "development",
       "mode": "remote",

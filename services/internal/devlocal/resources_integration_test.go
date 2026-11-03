@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jonluo94/deepseek-harness-cloud/db"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
@@ -27,17 +28,40 @@ func TestResourceInitializationOnIsolatedPostgres(t *testing.T) {
 	if err != nil {
 		t.Fatal("invalid database configuration")
 	}
-	u.Path = "/hc_test_bootstrap"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	u.Path = "/postgres"
+	admin, err := pgx.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatal("database administrator unavailable")
+	}
+	database := "hc_test_bootstrap_" + strings.ReplaceAll(webapi.ID(), "-", "")
+	if _, err = admin.Exec(ctx, "CREATE DATABASE "+pgx.Identifier{database}.Sanitize()); err != nil {
+		_ = admin.Close(ctx)
+		t.Fatal(err)
+	}
+	var pool *pgxpool.Pool
+	defer func() {
+		if pool != nil {
+			pool.Close()
+		}
+		cleanup, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		if _, err := admin.Exec(cleanup, "DROP DATABASE "+pgx.Identifier{database}.Sanitize()); err != nil {
+			t.Error("cannot remove isolated database", err)
+		}
+		if err := admin.Close(cleanup); err != nil {
+			t.Error("cannot close database administrator", err)
+		}
+	}()
+	u.Path = "/" + database
 	if err = db.Apply(ctx, u.String()); err != nil {
 		t.Fatal(err)
 	}
-	pool, err := pgxpool.New(ctx, u.String())
+	pool, err = pgxpool.New(ctx, u.String())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer pool.Close()
 	must := func(sql string, args ...any) {
 		t.Helper()
 		if _, err := pool.Exec(ctx, sql, args...); err != nil {

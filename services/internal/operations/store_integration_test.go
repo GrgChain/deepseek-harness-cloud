@@ -116,15 +116,21 @@ func TestRotationAndBoundedCleanupOnRestrictedPostgres(t *testing.T) {
 	connector := webapi.ID()
 	e = encrypt(connector, "connector-credential")
 	must(`INSERT INTO mcp_connectors(id,org_id,owner_id,name,endpoint_id,protocol_version,auth_type,key_id,nonce,ciphertext) VALUES($1,$2,$3,'rotation-mcp','fixture','2026-07-28','bearer',$4,$5,$6)`, connector, org, user, e.KeyID, e.Nonce, e.Ciphertext)
+	plugin := webapi.ID()
+	pluginRecord := user + "/" + plugin
+	e = encrypt(pluginRecord, "plugin-archive")
+	must(`INSERT INTO personal_plugins(id,org_id,owner_id,name,package_name,package_version,author,category,summary,description,compatibility,checked_at,addition_method,archive_filename,archive_sha256,archive_key_id,archive_nonce,archive_ciphertext) VALUES($1,$2,$3,'rotation-plugin','rotation-plugin','1.0.0','fixture','开发工具','fixture','fixture','fixture',CURRENT_DATE,'offline','rotation-plugin.tgz',$4,$5,$6,$7)`, plugin, org, user, strings.Repeat("a", 64), e.KeyID, e.Nonce, e.Ciphertext)
+	// Online entries have no ciphertext and must not be selected for rotation.
+	must(`INSERT INTO personal_plugins(id,org_id,owner_id,name,package_name,package_version,author,category,summary,description,compatibility,checked_at) VALUES($1,$2,$3,'online-plugin','online-plugin','1.0.0','fixture','开发工具','fixture','fixture','fixture',CURRENT_DATE)`, webapi.ID(), org, user)
 	rotator := NewRotator(pool, ring, "test", org, "integration-operator")
 	counts, err := rotator.Count(ctx, "old")
-	if err != nil || counts != 13 {
+	if err != nil || counts != 14 {
 		t.Fatalf("rotation preview: %d %v", counts, err)
 	}
 	if changed, err := rotator.Batch(ctx, "old", 1); err != nil || changed != 1 {
 		t.Fatalf("bounded batch: %d %v", changed, err)
 	}
-	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 12 {
+	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 13 {
 		t.Fatalf("resume: %d %v", changed, err)
 	}
 	if changed, err := rotator.Batch(ctx, "old", 500); err != nil || changed != 0 {
@@ -156,6 +162,22 @@ func TestRotationAndBoundedCleanupOnRestrictedPostgres(t *testing.T) {
 		t.Fatal("pending password reset was stranded by key rotation", err)
 	}
 	clear(plain)
+	if err := pool.QueryRow(ctx, `SELECT archive_key_id,archive_nonce,archive_ciphertext FROM personal_plugins WHERE id=$1`, plugin).Scan(&e.KeyID, &e.Nonce, &e.Ciphertext); err != nil {
+		t.Fatal(err)
+	}
+	pluginAAD := security.Context{Environment: "test", OrganizationID: org, RecordID: pluginRecord, Purpose: "plugin-archive"}
+	plain, err = newOnly.Decrypt(e, pluginAAD)
+	matches := string(plain) == "private rotation fixture"
+	clear(plain)
+	if err != nil || !matches {
+		t.Fatal("offline plugin archive was stranded by key rotation", err)
+	}
+	pluginAAD.RecordID = webapi.ID() + "/" + plugin
+	plain, err = newOnly.Decrypt(e, pluginAAD)
+	clear(plain)
+	if err == nil {
+		t.Fatal("rotated plugin archive lost its owner binding")
+	}
 	for _, record := range []struct{ table, idColumn, id, purpose string }{
 		{"personal_skills", "id", skill, "skill-bundle"},
 		{"skill_replacements", "skill_id", skill, "skill-bundle"},

@@ -20,6 +20,9 @@ type Selection struct {
 	Version        int64    `json:"version"`
 	CatalogVersion int64    `json:"catalog_version,omitempty"`
 	Scopes         []string `json:"scopes,omitempty"`
+	Permissions    []string `json:"permissions,omitempty"`
+	SessionMemory  bool     `json:"session_memory,omitempty"`
+	SessionScope   string   `json:"session_scope,omitempty"`
 }
 type PluginSelection struct {
 	ID      string `json:"id"`
@@ -38,6 +41,9 @@ type Item struct {
 	Version        int64    `json:"version,omitempty"`
 	CatalogVersion int64    `json:"catalog_version,omitempty"`
 	Scopes         []string `json:"scopes,omitempty"`
+	Permissions    []string `json:"permissions,omitempty"`
+	SessionMemory  bool     `json:"session_memory,omitempty"`
+	SessionScope   string   `json:"session_scope,omitempty"`
 	Tools          []string `json:"tools,omitempty"`
 	Package        string   `json:"package,omitempty"`
 	PackageVersion string   `json:"package_version,omitempty"`
@@ -64,7 +70,7 @@ var Catalog = []Plugin{
 	{"ralph-bundle", "Ralph 循环任务", "@deepseek-ai/dsh-experimental-ralph-bundle", "0.2.1-alpha.2", true, ""},
 	{"inspector-profile", "会话检查器", "@deepseek-ai/dsh-experimental-inspector-profile", "0.2.1-alpha.2", true, ""},
 	{"badge-skill-bundle", "DSH 徽章技能", "@deepseek-ai/dsh-experimental-badge-skill-bundle", "0.2.1-alpha.2", true, ""},
-	{"openviking-memory", "OpenViking 记忆", "@openviking/dsh-memory-plugin", "0.5.29", false, "尚未验证当前运行版本兼容性及服务配置"},
+	{"openviking-memory", "OpenViking 记忆", "@openviking/dsh-memory-plugin", "0.5.31", false, "选择 OpenViking 记忆连接后开启完整会话同步，无需单独添加插件"},
 	{"dsh-ssh", "DSH SSH", "@linxin666/dsh-ssh", "0.4.11", false, "要求 DSH >=0.2.1-rc.3，与当前版本不兼容"},
 	{"dshmarket", "DSH Market", "dshmarket", "1.71.1", false, "尚未验证当前运行版本兼容性"},
 }
@@ -74,6 +80,9 @@ func (in Input) Empty() bool {
 	return len(in.Connectors)+len(in.Memory)+len(in.Knowledge)+len(in.Plugins) == 0
 }
 func (in Input) Valid() bool {
+	if len(in.Memory) > 1 {
+		return false
+	}
 	for _, group := range [][]Selection{in.Connectors, in.Memory, in.Knowledge} {
 		if len(group) > 50 {
 			return false
@@ -104,7 +113,7 @@ func (in Input) Valid() bool {
 		seen[v.ID] = true
 	}
 	for _, v := range in.Connectors {
-		if v.CatalogVersion < 1 || len(v.Scopes) > 0 {
+		if v.CatalogVersion < 1 || len(v.Scopes) > 0 || v.Permissions != nil || v.SessionMemory || v.SessionScope != "" {
 			return false
 		}
 	}
@@ -115,7 +124,61 @@ func (in Input) Valid() bool {
 			}
 		}
 	}
+	sessionCount := 0
+	for _, v := range in.Memory {
+		if v.Permissions != nil {
+			return false
+		}
+		if v.SessionMemory {
+			sessionCount++
+			if v.SessionScope != "" && v.SessionScope != "personal" && v.SessionScope != "workspace" {
+				return false
+			}
+			if v.SessionScope != "" && len(v.Scopes) > 0 {
+				found := false
+				for _, scope := range v.Scopes {
+					found = found || scope == v.SessionScope
+				}
+				if !found {
+					return false
+				}
+			}
+		} else if v.SessionScope != "" {
+			return false
+		}
+	}
+	if sessionCount > 1 {
+		return false
+	}
+	for _, v := range in.Knowledge {
+		if v.SessionMemory || v.SessionScope != "" || len(v.Permissions) > 3 || v.Permissions != nil && len(v.Permissions) == 0 {
+			return false
+		}
+		seen := map[string]bool{}
+		for _, permission := range v.Permissions {
+			if permission != "read" && permission != "write" && permission != "delete" || seen[permission] {
+				return false
+			}
+			seen[permission] = true
+		}
+	}
 	return true
+}
+
+// KnowledgeAllowed keeps existing snapshots read-only unless explicitly granted.
+func (item Item) KnowledgeAllowed(permission string) bool {
+	if item.Kind != "knowledge" {
+		return false
+	}
+	if len(item.Permissions) == 0 {
+		return permission == "read"
+	}
+	for _, allowed := range item.Permissions {
+		if allowed == permission {
+			return true
+		}
+	}
+	return false
 }
 
 func Save(ctx context.Context, tx pgx.Tx, p identity.Principal, instance string, in Input) error {
@@ -190,18 +253,24 @@ func Save(ctx context.Context, tx pgx.Tx, p identity.Principal, instance string,
 				}
 			} else {
 				err = tx.QueryRow(ctx, `SELECT name,version,enabled,status FROM context_connections WHERE org_id=$1 AND owner_id=$2 AND id=$3 AND kind=$4 FOR SHARE`, p.OrganizationID, p.UserID, selection.ID, kind).Scan(&item.Name, &version, &enabled, &status)
-				item.Scopes = selection.Scopes
-				if len(item.Scopes) == 0 {
-					item.Scopes = []string{"personal", "workspace"}
-				}
-				scopes := make([]string, 0, len(item.Scopes))
-				for _, scope := range item.Scopes {
-					if scope == "workspace" {
-						scope = "workspace:" + instance
+				if err == nil && selection.SessionMemory {
+					var backend string
+					if err = tx.QueryRow(ctx, `SELECT backend FROM context_connections WHERE id=$1`, selection.ID).Scan(&backend); err != nil {
+						return err
 					}
-					scopes = append(scopes, scope)
+					if backend != "openviking" {
+						return invalid("会话同步需要选择 OpenViking 连接")
+					}
+					item.SessionMemory, item.SessionScope = true, "personal"
 				}
-				item.Scopes = scopes
+				// Both memory and knowledge have one shared corpus per connection.
+				item.Scopes = []string{"personal"}
+				if kind == "knowledge" {
+					item.Permissions = selection.Permissions
+					if len(item.Permissions) == 0 {
+						item.Permissions = []string{"read"}
+					}
+				}
 			}
 			if errors.Is(err, pgx.ErrNoRows) {
 				return webapi.Fail(404, "NOT_FOUND", "所选扩展不存在或无权使用")

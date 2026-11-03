@@ -28,9 +28,11 @@ func verifyStorageBackup(path string, key []byte, a AssetState, expected Archive
 	}
 	return nil
 }
+
 func (s *StorageService) Backup(ctx context.Context, id, output string, key []byte) (ArchiveProof, error) {
 	return s.backup(ctx, id, output, key, "")
 }
+
 func (s *StorageService) backup(ctx context.Context, id, output string, key []byte, setID string) (ArchiveProof, error) {
 	var proof ArchiveProof
 	if !s.valid() || !uuid.MatchString(id) || len(key) != 32 || !filepath.IsAbs(output) || privateDirectory(filepath.Dir(output)) != nil || setID != "" && !uuid.MatchString(setID) {
@@ -193,4 +195,86 @@ func (s *StorageService) SetStorageHold(ctx context.Context, id, confirm, reason
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *StorageService) writeBackup(ctx context.Context, a AssetState, output string, key []byte) (ArchiveProof, error) {
+	if len(key) != 32 || !filepath.IsAbs(output) || privateDirectory(filepath.Dir(output)) != nil {
+		return ArchiveProof{}, ErrInput
+	}
+	if _, err := os.Lstat(output); !errors.Is(err, os.ErrNotExist) {
+		return ArchiveProof{}, ErrInput
+	}
+	file, err := os.CreateTemp(filepath.Dir(output), ".hc-asset-backup-*")
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	defer file.Close()
+	defer os.Remove(file.Name())
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	done := make(chan error, 1)
+	go func() { err := s.host.ArchiveAsset(ctx, a.Plan, writer); _ = writer.CloseWithError(err); done <- err }()
+	m := BackupManifest{SchemaVersion: 1, Kind: "storage", OrganizationID: a.OrganizationID, CreatedAt: time.Now().UTC(), InstanceID: a.InstanceID, AssetID: a.ID, OwnerID: a.OwnerID, Capacity: a.Capacity, TemplateVersion: a.Plan.Snapshot.TemplateVersion, ImageDigest: a.Plan.Snapshot.ImageDigest}
+	proof, err := SealArchive(file, reader, key, m)
+	if err != nil {
+		cancel()
+		_ = reader.CloseWithError(err)
+	}
+	hostErr := <-done
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	if hostErr != nil {
+		return ArchiveProof{}, hostErr
+	}
+	if err = file.Sync(); err != nil {
+		return ArchiveProof{}, err
+	}
+	if err = file.Close(); err != nil {
+		return ArchiveProof{}, err
+	}
+	if err = os.Link(file.Name(), output); err != nil {
+		return ArchiveProof{}, err
+	}
+	return proof, syncDirectory(filepath.Dir(output))
+}
+
+func (s *StorageService) performBackup(ctx context.Context, id, output string, key []byte, job string) (ArchiveProof, error) {
+	if !s.valid() || !uuid.MatchString(id) {
+		return ArchiveProof{}, ErrInput
+	}
+	a, err := s.read(ctx, s.pool, id)
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	unlock, err := s.guards(ctx, a)
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	defer unlock()
+	tx, states, err := s.lock(ctx, id)
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	defer tx.Rollback(context.Background())
+	a = states[id]
+	if err = CheckBackup(a); err != nil {
+		return ArchiveProof{}, err
+	}
+	proof, err := s.writeBackup(ctx, a, output, key)
+	if err != nil {
+		return ArchiveProof{}, err
+	}
+	if err = verifyStorageBackup(output, key, a, proof); err != nil {
+		return proof, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE storage_backups SET status='SUCCEEDED',completed_at=clock_timestamp(),verified_at=clock_timestamp(),backup_sha256=$2 WHERE id=$1 AND status='RUNNING'`, job, proof.SHA256); err != nil {
+		return proof, err
+	}
+	if err = s.audit(ctx, tx, a, "STORAGE_BACKUP", map[string]any{"source_asset_id": a.ID, "backup_id": job, "backup_sha256": proof.SHA256}); err != nil {
+		return proof, err
+	}
+	return proof, tx.Commit(ctx)
 }

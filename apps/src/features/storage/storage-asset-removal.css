@@ -1,0 +1,101 @@
+.storage-asset-removal.ant-modal {
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+}
+.storage-asset-removal .ant-modal-content {
+  padding: 24px;
+}
+.storage-asset-removal-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-right: 24px;
+  font-size: 18px;
+  line-height: 28px;
+}
+.storage-asset-removal-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  color: var(--color-danger);
+  background: var(--color-background);
+}
+.storage-asset-removal-description {
+  margin-top: 20px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+.storage-asset-removal-details {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--color-background);
+}
+.storage-asset-removal-details > div + div {
+  margin-top: 14px;
+}
+.storage-asset-removal-details dt {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.storage-asset-removal-details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.storage-asset-removal-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.storage-asset-removal-details code {
+  font-size: 12px;
+  line-height: 1.7;
+}
+.storage-asset-removal-backup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+.storage-asset-removal-backup svg {
+  color: var(--color-success);
+}
+.storage-asset-removal .ant-alert {
+  margin-top: 16px;
+}
+.storage-asset-removal .ant-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.storage-asset-removal .ant-modal-footer .ant-btn + .ant-btn {
+  margin-inline-start: 0;
+}
+.storage-asset-removal .ant-modal-footer .ant-btn {
+  min-width: 88px;
+  min-height: 44px;
+}
+.storage-asset-removal .ant-modal-close {
+  top: 16px;
+  inset-inline-end: 16px;
+  width: 44px;
+  height: 44px;
+}
+@media (max-width: 480px) {
+  .storage-asset-removal .ant-modal-content {
+    padding: 20px;
+  }
+  .storage-asset-removal .ant-modal-footer .ant-btn {
+    flex: 1;
+  }
+}

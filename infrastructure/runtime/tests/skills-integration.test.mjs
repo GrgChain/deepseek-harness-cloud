@@ -6,9 +6,15 @@ import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 
 const exec = promisify(execFile);
-test('installed workspace skills reach the native user catalog and model loader', { skip: !process.env.HC_RUNTIME_IMAGE, timeout: 45000 }, async () => {
-  const installer = await readFile(new URL('../../../services/internal/worker/install_skills.mjs', import.meta.url), 'utf8');
-  const script = `
+test(
+  'installed workspace skills reach the native user catalog and model loader',
+  { skip: !process.env.HC_RUNTIME_IMAGE, timeout: 45000 },
+  async () => {
+    const installer = await readFile(
+      new URL('../workspace-assets/install_skills.mjs', import.meta.url),
+      'utf8',
+    );
+    const script = `
     import assert from 'node:assert/strict';
     import fs from 'node:fs/promises';
     import { Context } from '@deepseek-ai/cordis';
@@ -56,11 +62,46 @@ test('installed workspace skills reach the native user catalog and model loader'
       console.log(JSON.stringify({ user_catalog: true, model_loader: true, resources: true }));
     } finally { for (const fiber of mounted.reverse()) await fiber.dispose(); }
   `;
-  const name = 'hc-skill-native-test-' + randomUUID();
-  try {
-    const { stdout } = await exec('docker', ['run', '--rm', '--name', name, '--read-only', '--network', 'none', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges:true', '--pids-limit', '64', '--memory', '512m', '--cpus', '1', '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000', '--entrypoint', 'node', process.env.HC_RUNTIME_IMAGE, '--input-type=module', '-e', script], { timeout: 40000, maxBuffer: 8192 });
-    assert.deepEqual(JSON.parse(stdout.trim()), { user_catalog: true, model_loader: true, resources: true });
-  } finally {
-    await exec('docker', ['rm', '-f', name], { timeout: 5000 }).catch(() => {});
-  }
-});
+    const name = 'hc-skill-native-test-' + randomUUID();
+    try {
+      const { stdout } = await exec(
+        'docker',
+        [
+          'run',
+          '--rm',
+          '--name',
+          name,
+          '--read-only',
+          '--network',
+          'none',
+          '--cap-drop',
+          'ALL',
+          '--security-opt',
+          'no-new-privileges:true',
+          '--pids-limit',
+          '64',
+          '--memory',
+          '512m',
+          '--cpus',
+          '1',
+          '--tmpfs',
+          '/tmp:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000',
+          '--entrypoint',
+          'node',
+          process.env.HC_RUNTIME_IMAGE,
+          '--input-type=module',
+          '-e',
+          script,
+        ],
+        { timeout: 40000, maxBuffer: 8192 },
+      );
+      assert.deepEqual(JSON.parse(stdout.trim()), {
+        user_catalog: true,
+        model_loader: true,
+        resources: true,
+      });
+    } finally {
+      await exec('docker', ['rm', '-f', name], { timeout: 5000 }).catch(() => {});
+    }
+  },
+);

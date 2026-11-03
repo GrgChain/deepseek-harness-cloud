@@ -134,6 +134,230 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 	}
 
 	owner, other := login("owner"), login("admin")
+	t.Run("manual memory backends forward bounded search conditions", func(t *testing.T) {
+		for _, backend := range []string{"mem0", "graphiti"} {
+			t.Run(backend, func(t *testing.T) {
+				keyFile := filepath.Join(t.TempDir(), "bridge-key")
+				if err := os.WriteFile(keyFile, []byte("memory-search-secret-32-characters-long"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				var received Action
+				var namespace, sessionNamespace, resolvedScope string
+				var calls int
+				responseBody, responseStatus := `{"items":[]}`, http.StatusOK
+				remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					var input struct {
+						Namespace        string `json:"namespace"`
+						SessionNamespace string `json:"session_namespace"`
+						Scope            string `json:"scope"`
+						Action
+					}
+					if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+						t.Error(err)
+					}
+					calls++
+					received, namespace, sessionNamespace, resolvedScope = input.Action, input.Namespace, input.SessionNamespace, input.Scope
+					if r.URL.Path == "/v1/verify" {
+						fmt.Fprintf(w, `{"contract":"hc-context-v1","backend":%q,"ready":true,"capabilities":{"search":true}}`, backend)
+					} else {
+						w.WriteHeader(responseStatus)
+						io.WriteString(w, responseBody)
+					}
+				}))
+				defer remote.Close()
+				service := NewService(app, cipher, "test", false, "")
+				service.policy = func() (Policy, error) {
+					return Policy{[]Endpoint{{ID: "search-" + backend, Name: backend, Backend: backend, URL: remote.URL, AllowPrivateHTTP: true, DataUse: "memory", ProxyKeyFile: keyFile}}}, nil
+				}
+				connection, err := service.Save(ctx, owner, "memory", "", Input{Name: backend + " search", EndpointID: "search-" + backend, Credential: "test-memory-credential"}, "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err = service.Call(ctx, owner, "memory", connection.ID, "verify", Action{ExpectedVersion: connection.Version}, ""); err != nil {
+					t.Fatal(err)
+				}
+				for index, minimum := range []float64{-1, 0, 0.75, 1} {
+					limit := []int{1, 5, 10, 20}[index]
+					if _, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么", Limit: limit, MinSimilarity: &minimum}, ""); err != nil {
+						t.Fatal("memory search conditions rejected", minimum, limit, err)
+					}
+					if received.MinSimilarity == nil || *received.MinSimilarity != minimum || received.Limit != limit || received.MemorySource != "" || len(namespace) != 64 || sessionNamespace != "" || resolvedScope != "personal" {
+						t.Fatal("memory search conditions were not forwarded safely", received, resolvedScope)
+					}
+				}
+				if _, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么"}, ""); err != nil || received.Limit != 5 || received.MinSimilarity != nil {
+					t.Fatal("memory search defaults changed", received, err)
+				}
+				before := calls
+				for _, source := range []string{"manual", "automatic"} {
+					if _, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么", MemorySource: source}, ""); !problemIs(err, "CONTEXT_INVALID") {
+						t.Fatal("unsupported native source accepted", source, err)
+					}
+				}
+				if calls != before {
+					t.Fatal("unsupported source reached remote memory service")
+				}
+				entries := make([]map[string]any, 40)
+				for index := range entries {
+					entries[index] = map[string]any{"id": fmt.Sprintf("large-memory-%d", index), "content": strings.Repeat("x", 128<<10)}
+				}
+				large, err := json.Marshal(map[string]any{"schema": "hc-memory-v1", "backend": backend, "exported_at": "2026-11-03T00:00:00Z", "entries": entries, "sha256": "test-transport-checksum"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				responseBody = string(large)
+				for _, action := range []string{"preview", "export"} {
+					input := Action{ExpectedVersion: connection.Version}
+					if action == "preview" {
+						input.Package = large
+					}
+					result, err := service.Call(ctx, owner, "memory", connection.ID, action, input, "")
+					if err != nil || !bytes.Equal(result, large) {
+						t.Fatal("manual memory archive retained a legacy request/response size cap", action, len(result), err)
+					}
+				}
+				responseBody, responseStatus = `{}`, http.StatusConflict
+				if _, err := service.Call(ctx, owner, "memory", connection.ID, "export", Action{ExpectedVersion: connection.Version}, ""); !problemIs(err, "VERSION_CONFLICT") {
+					t.Fatal("incomplete memory archive was not rejected", err)
+				}
+				responseStatus = http.StatusRequestEntityTooLarge
+				if _, err := service.Call(ctx, owner, "memory", connection.ID, "preview", Action{ExpectedVersion: connection.Version, Package: large}, ""); !problemIs(err, "PAYLOAD_TOO_LARGE") {
+					t.Fatal("oversize memory archive guard was not preserved", err)
+				}
+			})
+		}
+	})
+	t.Run("memory viewer reads the plugin tenant with fixed owner scope", func(t *testing.T) {
+		keyFile := filepath.Join(t.TempDir(), "bridge-key")
+		if err := os.WriteFile(keyFile, []byte("viking-bridge-secret-32-characters-long"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var namespace, resolvedScope, sessionNamespace, lastPath string
+		var searchOptions Action
+		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			lastPath = r.URL.Path
+			var input struct {
+				Namespace        string `json:"namespace"`
+				Scope            string `json:"scope"`
+				SessionNamespace string `json:"session_namespace"`
+				Action
+			}
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Error(err)
+			}
+			namespace, resolvedScope = input.Namespace, input.Scope
+			sessionNamespace = input.SessionNamespace
+			searchOptions = input.Action
+			if r.URL.Path == "/v1/verify" {
+				io.WriteString(w, `{"contract":"hc-context-v1","backend":"openviking","ready":true,"capabilities":{"search":true}}`)
+			} else {
+				io.WriteString(w, `{"items":[]}`)
+			}
+		}))
+		defer remote.Close()
+		service := NewService(app, cipher, "test", false, "")
+		service.policy = func() (Policy, error) {
+			return Policy{[]Endpoint{{ID: "viking-viewer", Name: "OpenViking", Backend: "openviking", URL: remote.URL, AllowPrivateHTTP: true, DataUse: "memory", ProxyKeyFile: keyFile, ServiceKeyFile: keyFile}}}, nil
+		}
+		connection, err := service.Save(ctx, owner, "memory", "", Input{Name: "DSH memory", EndpointID: "viking-viewer", ServiceURL: "https://viking.example", Credential: "admin-key"}, "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = service.Call(ctx, owner, "memory", connection.ID, "verify", Action{ExpectedVersion: connection.Version}, ""); err != nil {
+			t.Fatal(err)
+		}
+		manualNamespace := namespace
+		if sessionNamespace != "" {
+			t.Fatal("verification unnecessarily exposed the native corpus")
+		}
+		pluginDigest := sha256.Sum256([]byte(owner.OrganizationID + ":" + owner.UserID + ":" + connection.ID + ":dsh-session:personal"))
+		for _, action := range []string{"session-list", "session-get"} {
+			if _, err = service.Call(ctx, owner, "memory", connection.ID, action, Action{ExpectedVersion: connection.Version, Scope: "workspace:" + webapi.ID(), RecordID: "viking://user/owner/memories/profile.md"}, ""); err != nil {
+				t.Fatal(err)
+			}
+			if namespace != hex.EncodeToString(pluginDigest[:]) || namespace == manualNamespace || resolvedScope != "personal" {
+				t.Fatal("viewer used a different corpus than the plugin")
+			}
+			if _, err = service.Call(ctx, other, "memory", connection.ID, action, Action{ExpectedVersion: connection.Version}, ""); !problemIs(err, "NOT_FOUND") {
+				t.Fatal("another owner accessed session memory", err)
+			}
+		}
+		if _, err = service.Call(ctx, owner, "memory", connection.ID, "session-list", Action{ExpectedVersion: connection.Version, SessionRequest: &SessionRequest{Method: "GET", Path: "/health"}}, ""); !problemIs(err, "CONTEXT_INVALID") {
+			t.Fatal("public viewer accepted native proxy input", err)
+		}
+		for _, action := range []string{"search", "export", "preview", "apply"} {
+			input := Action{ExpectedVersion: connection.Version, Scope: "workspace:" + webapi.ID()}
+			if action == "search" {
+				input.Query = "项目约定"
+				minimum := 0.75
+				input.MemorySource, input.MinSimilarity, input.Limit = "automatic", &minimum, 20
+			}
+			if action == "apply" {
+				input.Confirmed, input.IdempotencyKey, input.Token = true, "archive-apply-test", "archive-preview"
+			}
+			if _, err = service.Call(ctx, owner, "memory", connection.ID, action, input, ""); err != nil {
+				t.Fatal(err)
+			}
+			if namespace != manualNamespace || sessionNamespace != hex.EncodeToString(pluginDigest[:]) || resolvedScope != "personal" {
+				t.Fatal("memory operation did not address both server-resolved corpora")
+			}
+			if action == "search" && (searchOptions.MemorySource != "automatic" || searchOptions.MinSimilarity == nil || *searchOptions.MinSimilarity != 0.75 || searchOptions.Limit != 20) {
+				t.Fatal("OpenViking search conditions were not forwarded")
+			}
+			if _, err = service.Call(ctx, other, "memory", connection.ID, action, input, ""); !problemIs(err, "NOT_FOUND") {
+				t.Fatal("another owner accessed a complete memory archive", err)
+			}
+		}
+		// The existing runtime tool follows every search hit with generic get.
+		// Native URIs may exceed the old 128-byte manual record-ID limit.
+		uri := "viking://user/owner/memories/preferences/" + strings.Repeat("long-name-", 14) + ".md"
+		if _, err = service.Call(ctx, owner, "memory", connection.ID, "get", Action{ExpectedVersion: connection.Version, RecordID: uri}, ""); err != nil {
+			t.Fatal("generic reader could not open an automatic search result", err)
+		}
+		if lastPath != "/v1/session-get" || namespace != hex.EncodeToString(pluginDigest[:]) || sessionNamespace != "" {
+			t.Fatal("generic reader did not use the constrained native reader")
+		}
+		if _, err = service.Call(ctx, other, "memory", connection.ID, "get", Action{ExpectedVersion: connection.Version, RecordID: uri}, ""); !problemIs(err, "NOT_FOUND") {
+			t.Fatal("generic reader leaked another owner's native search result", err)
+		}
+	})
+	t.Run("custom Graphiti connection routes credentials through its approved bridge", func(t *testing.T) {
+		const bridgeKey = "graphiti-bridge-secret-32-characters-long"
+		keyFile := filepath.Join(t.TempDir(), "service-key")
+		if err := os.WriteFile(keyFile, []byte(bridgeKey), 0600); err != nil {
+			t.Fatal(err)
+		}
+		var target milvusService
+		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			var req struct {
+				Service milvusService `json:"service"`
+			}
+			if json.NewDecoder(r.Body).Decode(&req) != nil || r.Header.Get("Authorization") != "Bearer "+bridgeKey {
+				t.Error("invalid bridge request")
+			}
+			target = req.Service
+			io.WriteString(w, `{"contract":"hc-context-v1","backend":"graphiti","ready":true,"capabilities":{"search":true}}`)
+		}))
+		defer remote.Close()
+		custom := NewService(app, cipher, "test", false, "")
+		custom.policy = func() (Policy, error) {
+			return Policy{[]Endpoint{{ID: "graphiti-bridge", Name: "Graphiti", Backend: "graphiti", URL: remote.URL, AllowPrivateHTTP: true, DataUse: "graph", ProxyKeyFile: keyFile, ServiceKeyFile: keyFile}}}, nil
+		}
+		input := Input{Name: "Graphiti", EndpointID: "graphiti-bridge", ServiceURL: "bolt+s://neo4j.example:7687", Credential: "neo4j:secret"}
+		v, err := custom.Save(ctx, owner, "memory", "", input, "")
+		if err != nil || v.ServiceURL != input.ServiceURL {
+			t.Fatalf("save: %v", err)
+		}
+		if _, err = custom.Call(ctx, owner, "memory", v.ID, "verify", Action{ExpectedVersion: v.Version}, ""); err != nil || target.URL != input.ServiceURL || target.Token != input.Credential {
+			t.Fatalf("verify: %v target=%+v", err, target)
+		}
+		input.ExpectedVersion = v.Version
+		input.ServiceURL = ""
+		input.Credential = "bad-credential"
+		if _, err = custom.Save(ctx, owner, "memory", v.ID, input, ""); !problemIs(err, "CONTEXT_INVALID") {
+			t.Fatalf("invalid credential accepted: %v", err)
+		}
+	})
 	t.Run("custom Milvus connections retain and isolate their own targets and encrypted tokens", func(t *testing.T) {
 		const bridgeKey = "platform-bridge-secret-32-characters-long"
 		keyFile := filepath.Join(t.TempDir(), "service-key")
@@ -142,15 +366,19 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		}
 		var target milvusService
 		var embedding *EmbeddingConfig
+		var resolvedScope, namespace string
 		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			var req struct {
 				Service   milvusService    `json:"service"`
 				Embedding *EmbeddingConfig `json:"embedding"`
+				Scope     string           `json:"scope"`
+				Namespace string           `json:"namespace"`
 			}
 			if json.NewDecoder(r.Body).Decode(&req) != nil || r.Header.Get("Authorization") != "Bearer "+bridgeKey {
 				t.Error("native token used as companion credential")
 			}
 			target = req.Service
+			resolvedScope, namespace = req.Scope, req.Namespace
 			embedding = req.Embedding
 			io.WriteString(w, `{"contract":"hc-context-v1","backend":"milvus","ready":true,"capabilities":{"search":true}}`)
 		}))
@@ -170,6 +398,19 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		if err != nil || first.ServiceURL != "https://first.example:19530" {
 			t.Fatal("target not saved", err)
 		}
+		sharedNamespace := ""
+		for _, requestedScope := range []string{"", "personal", "workspace:" + webapi.ID(), "workspace:" + webapi.ID()} {
+			if _, err := custom.Call(ctx, owner, "knowledge", first.ID, "verify", Action{ExpectedVersion: first.Version, Scope: requestedScope}, ""); err != nil {
+				t.Fatal("shared knowledge scope rejected", err)
+			}
+			if resolvedScope != "personal" || namespace == "" || sharedNamespace != "" && namespace != sharedNamespace {
+				t.Fatal("knowledge split by workspace", resolvedScope, namespace)
+			}
+			sharedNamespace = namespace
+			if _, err := custom.Call(ctx, owner, "knowledge", first.ID, "search", Action{ExpectedVersion: first.Version, Scope: requestedScope, Query: "shared document"}, ""); err != nil || resolvedScope != "personal" || namespace != sharedNamespace {
+				t.Fatal("knowledge retrieval split by workspace", err)
+			}
+		}
 		selfHosted := EmbeddingConfig{Provider: "openai_compatible", Model: "self-hosted-model", APIBase: "http://embedding.internal:11434/v1", Dimensions: 384}
 		second, err := custom.Save(ctx, owner, "knowledge", "", Input{Name: "另一 Milvus", EndpointID: "milvus-bridge", ServiceURL: "http://second.internal:19530", Embedding: &selfHosted}, "")
 		if err != nil {
@@ -178,6 +419,9 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		for _, item := range []Connection{first, second} {
 			if _, err := custom.Call(ctx, owner, "knowledge", item.ID, "verify", Action{ExpectedVersion: item.Version}, ""); err != nil || target.URL != item.ServiceURL {
 				t.Fatal("target leaked across connections", err)
+			}
+			if item.ID != first.ID && namespace == sharedNamespace {
+				t.Fatal("different knowledge connections shared a corpus")
 			}
 			if item.ID == first.ID && target.Token != "root:secret" || item.ID == second.ID && target.Token != "" {
 				t.Fatal("wrong native token")
@@ -316,6 +560,7 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	var calls atomic.Int32
+	var memoryScope, memoryNamespace string
 	fail := false
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -332,6 +577,7 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		if len(req["namespace"].(string)) != 64 {
 			t.Error("unscoped external call")
 		}
+		memoryScope, memoryNamespace = req["scope"].(string), req["namespace"].(string)
 		calls.Add(1)
 		if fail {
 			w.WriteHeader(503)
@@ -371,6 +617,19 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 	}
 	if _, err = s.Call(ctx, owner, "memory", v.ID, "verify", Action{ExpectedVersion: v.Version}, ""); err != nil {
 		t.Fatal(err)
+	}
+	sharedMemoryNamespace := memoryNamespace
+	for _, requestedScope := range []string{"", "personal", "workspace:" + webapi.ID(), "workspace:" + webapi.ID()} {
+		if _, err := s.Call(ctx, owner, "memory", v.ID, "search", Action{ExpectedVersion: v.Version, Scope: requestedScope, Query: "shared memory"}, ""); err != nil || memoryScope != "personal" || memoryNamespace != sharedMemoryNamespace {
+			t.Fatal("memory split by workspace", err, memoryScope, memoryNamespace)
+		}
+	}
+	separate, err := s.Save(ctx, owner, "memory", "", Input{Name: "Separate memory", EndpointID: "test", Credential: "remote-secret-value"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Call(ctx, owner, "memory", separate.ID, "verify", Action{ExpectedVersion: separate.Version}, ""); err != nil || memoryNamespace == sharedMemoryNamespace {
+		t.Fatal("different memory connections shared a corpus", err)
 	}
 	in := Action{ExpectedVersion: v.Version, Confirmed: true, IdempotencyKey: "first-delete", RecordID: "example"}
 	if _, err = s.Call(ctx, owner, "memory", v.ID, "delete", in, ""); err != nil {

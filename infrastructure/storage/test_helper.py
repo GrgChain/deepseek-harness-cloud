@@ -9,14 +9,28 @@ spec = importlib.util.spec_from_file_location("helper", Path(__file__).with_name
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
 
+
 class StorageContractTest(unittest.TestCase):
     def configuration(self):
-        return dict(schema_version=1, capacity_bytes=10 * 2**30, **{key: str(uuid.uuid4()) for key in ["asset_id", "instance_id", "org_id", "owner_id"]})
+        return dict(
+            schema_version=1,
+            capacity_bytes=10 * 2**30,
+            **{key: str(uuid.uuid4()) for key in ["asset_id", "instance_id", "org_id", "owner_id"]},
+        )
 
     def test_strict_identity_and_capacity(self):
         config = self.configuration()
         self.assertEqual(helper.parse(json.dumps(config)), config)
-        for patch in [{"asset_id": "../elsewhere"}, {"schema_version": True}, {"capacity_bytes": 1}, {"capacity_bytes": True}, {"capacity_bytes": 1.5 * 2**30}, {"capacity_bytes": 101 * 2**30}, {"owner_id": None}, {"path": "/uncontrolled"}]:
+        for patch in [
+            {"asset_id": "../elsewhere"},
+            {"schema_version": True},
+            {"capacity_bytes": 1},
+            {"capacity_bytes": True},
+            {"capacity_bytes": 1.5 * 2**30},
+            {"capacity_bytes": 101 * 2**30},
+            {"owner_id": None},
+            {"path": "/uncontrolled"},
+        ]:
             with self.assertRaises(ValueError):
                 helper.parse(json.dumps({**config, **patch}))
         with self.assertRaises(ValueError):
@@ -46,6 +60,7 @@ class StorageContractTest(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 helper.execute("prepare", config, base)
             self.assertEqual(retained.read_text(), "original-data")
+
 
 if __name__ == "__main__":
     unittest.main()

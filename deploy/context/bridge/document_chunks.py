@@ -67,7 +67,9 @@ def split(content, title):
             flush()
         if len(tokenizer(block)) > limit:
             flush()
-            splitter = SentenceSplitter(chunk_size=limit, chunk_overlap=min(OVERLAP, max(0, limit // 4)))
+            splitter = SentenceSplitter(
+                chunk_size=limit, chunk_overlap=min(OVERLAP, max(0, limit // 4))
+            )
             for part in splitter.split_text(block):
                 add(part, path_value)
         else:
@@ -77,7 +79,7 @@ def split(content, title):
     for token in markdown.parse(content):
         if token.level != 0 or token.map is None:
             continue
-        raw = "".join(lines[token.map[0]:token.map[1]]).strip()
+        raw = "".join(lines[token.map[0] : token.map[1]]).strip()
         if token.type == "heading_open":
             flush()
             level = int(token.tag[1:])

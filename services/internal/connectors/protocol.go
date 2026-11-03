@@ -171,7 +171,7 @@ func openSession(ctx context.Context, e Endpoint, credential, version string) (*
 	if err != nil {
 		return nil, err
 	}
-	client := mcp.NewClient(&mcp.Implementation{Name: "DSH Cloud Portal", Version: "0.1.0"}, &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{}, MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	client := mcp.NewClient(&mcp.Implementation{Name: "DSH Cloud Portal", Version: "0.2.0"}, &mcp.ClientOptions{Capabilities: &mcp.ClientCapabilities{}, MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: e.URL, HTTPClient: httpClient, MaxRetries: -1, DisableStandaloneSSE: true, MaxEventSize: maxBytes}, &mcp.ClientSessionOptions{ProtocolVersion: version})
 	if err != nil {
 		return nil, err

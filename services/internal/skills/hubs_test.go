@@ -79,7 +79,7 @@ func TestHubSearchNormalizesPublicResults(t *testing.T) {
 			}
 		})
 	}
-	for _, body := range []string{`{"skills":null}`, `{"unexpected":[]}`, `<html>down</html>`, strings.Repeat("x", (1<<20)+1)} {
+	for _, body := range []string{`{"skills":null}`, `{"unexpected":[]}`, `not-json`, strings.Repeat("x", (1<<20)+1)} {
 		client := &http.Client{Transport: hubRoundTripper(func(*http.Request) (*http.Response, error) {
 			return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body)), Header: make(http.Header)}, nil
 		})}

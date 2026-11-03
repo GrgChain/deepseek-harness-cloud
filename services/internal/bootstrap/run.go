@@ -23,6 +23,7 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/pagination"
+	"github.com/jonluo94/deepseek-harness-cloud/services/internal/plugins"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/security"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/settings"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
@@ -162,6 +163,7 @@ func Run(role string) error {
 				commandGate = creationGate
 			}
 			handler.WithBusiness(httpserver.BusinessMux{
+				Plugins:       plugins.NewHandler(plugins.NewService(pool, cipher, o.Environment, maintenance == "true"), allowRequests),
 				Extensions:    &workspaceextensions.Handler{Pool: pool, Cipher: cipher, Environment: o.Environment},
 				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL), allowRequests),
 				Context:       contextservice.NewHandler(contextservice.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONTEXT_ENDPOINTS_FILE")), allowRequests),

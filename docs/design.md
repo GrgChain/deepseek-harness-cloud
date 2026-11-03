@@ -1,6 +1,6 @@
 # DSH Cloud 系统设计
 
-版本：V0.1。状态：开发设计基线，已有运行实现。范围依据 [功能需求](requirements.md)。
+版本：V0.2。状态：开发设计基线，已有运行实现。范围依据 [功能需求](requirements.md)。
 
 REQ-13～15由用户/角色应用服务、固定权限目录、事务内授权与会话撤销实现，Portal提供用户/角色管理页面；规则见[功能需求](requirements.md#64-用户管理规则req-13)。治理使用版本和追加审计保护并发边界，登录身份由平台内置 AuthorizationServer 与数据库 Accounts 供应。接口实现、模块测试与完整真实验收的边界见[测试设计](testing.md)。
 
@@ -11,7 +11,7 @@ flowchart TD
     Browser[Portal / 独立 DSH 工作台] --> Entry[HTTPS / 可信身份入口]
     Entry --> API[API / 内置 OIDC / BFF / Owner / 资源限制]
     API --> DB[(PostgreSQL / 配置 / 实例 / 操作 / Outbox)]
-    API --> Redis[(Redis / 短期缓存 / 限流)]
+    API --> Redis[(Redis / 短期缓存)]
     DB --> Worker[Worker / Reconciler]
     Worker --> Workspace[Go 内嵌 Workspace / 版本化 Terraform 模板]
     Worker --> Storage[独立存储资产管理]
@@ -25,7 +25,7 @@ flowchart TD
     Secrets --> Worker
 ```
 
-图示逻辑职责，可合并部署，但合并进程不得扩大密钥和 Docker 管理权限。后端采用 Go + Redis + PostgreSQL；Redis 用于缓存/限流，PostgreSQL 保持持久化权威，平台自身不另引入独立消息队列或拆分多个业务微服务；持久化可靠性和独立存储生命周期不能省略。
+图示逻辑职责，可合并部署，但合并进程不得扩大密钥和 Docker 管理权限。后端采用 Go + Redis + PostgreSQL；Redis 用于可重建短期缓存，PostgreSQL 保持持久化权威，平台自身不另引入独立消息队列或拆分多个业务微服务；持久化可靠性和独立存储生命周期不能省略。
 
 REQ-16～17由本平台Go模型入口直接调用外部提供商。平台PostgreSQL维护提供商目录、每用户私有连接、密文真实Key、运行密钥摘要、版本及同步任务；不增加模型代理依赖或独立模型数据库。工作空间访问Gateway负责浏览器授权，model-gateway负责模型请求，两者账号与权限分开。
 
@@ -44,7 +44,7 @@ flowchart LR
 | --- | --- |
 | Portal | 一键创建、列表/详情、管理员配置与诊断 |
 | API/BFF | Go 可信身份、Owner、固定配置、限额、命令、审计 |
-| Redis | 脱敏短期缓存和原子限流，不作为权限/配额/操作的唯一依据 |
+| Redis | 可重建脱敏短期缓存，不作为权限/配额/操作的唯一依据 |
 | Worker/Reconciler | 存储/配置/Workspace Build、健康、超时和配额对账 |
 | Storage | 独立卷登记、归属、保留和受控回收 |
 | 访问模块 / Gateway | 固定路由、浏览器挑战/票据、服务端原生会话、HTTP/WS与撤销 |
@@ -138,7 +138,7 @@ CONFIGURE对RUNNING实例固定执行受控重启：接受事务推进access_gen
 
 存储、Workspace 编排、配置注入与访问代理保留清晰职责，可合并部署。数据回收必须独立授权，不能随计算清理自动销毁卷。
 
-接口见 [API](api.md)，安全见 [安全设计](security.md)，决策见 [ADR](decisions/README.md)，实施顺序见 [功能需求](requirements.md#9-实施顺序)。对象职责与依赖方向见 [面向对象详细设计](design.md#8-面向对象详细设计)，事务见 [数据设计](data-model.md)，开发依赖见[实施顺序](requirements.md#9-实施顺序)，当前验证范围见[测试验收](testing.md)。
+接口见 [API](api.md)，安全见 [安全设计](security.md)，后端职责见 [后端架构](backend.md)，实施顺序见 [功能需求](requirements.md#9-实施顺序)。对象职责与依赖方向见 [面向对象详细设计](design.md#8-面向对象详细设计)，事务见 [数据设计](data-model.md)，开发依赖见[实施顺序](requirements.md#9-实施顺序)，当前验证范围见[测试验收](testing.md)。
 
 ## 8 面向对象详细设计
 

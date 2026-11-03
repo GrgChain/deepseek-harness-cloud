@@ -8,5 +8,9 @@ export function useTransientNotice(duration = 4000) {
     const timer = window.setTimeout(() => setNotice(null), duration);
     return () => window.clearTimeout(timer);
   }, [notice, duration]);
-  return [notice?.message ?? null, (message: string | null, persistent = false) => setNotice(message ? { message, persistent } : null)] as const;
+  return [
+    notice?.message ?? null,
+    (message: string | null, persistent = false) =>
+      setNotice(message ? { message, persistent } : null),
+  ] as const;
 }

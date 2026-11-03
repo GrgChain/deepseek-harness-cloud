@@ -1,6 +1,6 @@
 # DSH Cloud 数据与持久化设计
 
-版本：V0.1。物理设计基线见 [PostgreSQL SQL](../db/schema.sql)，对应迁移见独立的db/migrations目录，应用启动只检查版本/校验和。全部业务事实由PostgreSQL持久化；Redis仅缓存/限流。
+版本：V0.2。物理设计基线见 [PostgreSQL SQL](../db/schema.sql)，对应迁移见独立的db/migrations目录，应用启动只检查版本/校验和。全部业务事实由PostgreSQL持久化；Redis仅缓存/限流。
 
 ## 1 关系与命名
 
@@ -256,7 +256,7 @@ storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模
 
 Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使用`connector-credential`加密上下文；一次性事务的PKCE verifier与客户端信息使用`connector-oauth`上下文。两类密文均纳入主密钥轮换，state本身不持久明文保存。OAuth客户端管理员配置来自私有策略文件，不由列表API读回。
 
-当前没有企查查五类资源聚合或远端待撤销状态的专用数据结构；第6.17.2节要求的功能应随实现增加契约与迁移，不能把本段视为已实现设计。接口语义见[连接器API](api.md#工作台连接器req-23api-100111api-115116)，现有流程见[实施说明](connectors-implementation.md)。
+当前没有企查查五类资源聚合或远端待撤销状态的专用数据结构；第6.17.2节要求的功能应随实现增加契约与迁移，不能把本段视为已实现设计。接口语义见[连接器API](api.md#工作台连接器req-23api-100111api-115116)，现有流程见[连接器后端设计](backend.md#工作台连接器mcp)。
 
 ## 委派治理权限（迁移52）
 
@@ -273,3 +273,17 @@ Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使�
 `workspace_extensions`按实例唯一保存组织/Owner复合归属、接受时`auth_generation`、非秘密`configuration`、创建时间和`applied_at`；迁移55增加`applied_generation`，与当前启用access_route代次相等才表示本轮加载已确认。JSON仅含连接ID/名称/版本、MCP目录与已授权工具、服务端解析范围及白名单插件准确包版本；外部密钥仍在原连接密文字段，技能正文仍在schema53密文快照。记忆/知识库同时写既有`context_bindings`，随创建事务整体提交。
 
 API仅SELECT/INSERT快照，Worker仅SELECT及更新应用时间/代次；既有membership列读取额外开放auth_generation用于CREATE执行前复核，不授予身份写权限。`hc_extensions_lock_authority`为固定search_path的SECURITY DEFINER函数，PUBLIC无执行权；受限Worker以匹配组织、Owner、实例和授权代次校验活动身份及RUNNING意图并加锁，返回当前角色。内部WorkspacePrincipal不接受HTTP输入，不伪造Portal会话；每次受控调用仍检查当前功能权限、连接及范围，旧快照不恢复撤销授权。
+
+
+## 本人插件目录（迁移58～60）
+
+迁移58的 `personal_plugins` 保存组织、Owner、固定包名/版本、分类和展示元数据，`(org_id,owner_id,package_name)` 唯一。`plugins:manage` 依赖 `instances:read`，内置 ADMIN/MEMBER 默认拥有；自定义角色显式分配。保存按 Owner 加锁以执行最多 100 条限制，与 `PLUGIN_ADD` 审计原子提交。运行角色 `hc_api` 保留 SELECT/INSERT，并由迁移60配套授权限定展示列 UPDATE；Worker/Gateway 不读取个人目录。
+
+迁移59只新增 `addition_method`、`archive_filename`、`archive_sha256` 和原包 `archive_key_id/archive_nonce/archive_ciphertext`。原有行默认 `online` 且归档字段为空；离线行必须具备完整 SHA-256、12 字节 nonce 和不超过 5 MiB 原包加认证标签的密文。数据库 CHECK 拒绝在线行携带归档、离线行缺少信封。原包使用 `plugin-archive` AAD，记录维度为 `owner_id/id`，纳入受信密钥轮换；列表只读非秘密元数据，附件下载按组织及本人 ID 查询后解密。
+
+
+迁移60新增 `plugin_catalog_defaults`，以固定UUID及包名唯一保存默认展示资料、来源说明、核对日期、排序及revision；默认三个第三方插件仅在此迁移初始化。`personal_plugins` 增加 `source_note`、`revision DEFAULT 1 CHECK(revision>0)` 及可空 `default_id` 外键，旧数据和归档密文保持不变。同Owner的default_id建立非空唯一索引，继续保留包名唯一约束；首次编辑默认项创建个人覆盖，从默认revision递增，后续按个人revision进行CAS更新。`default_id IS NULL` 的个人新增项计入100条限额，模板覆盖不计入。API角色仅能读取默认表、更新个人展示列，不能修改包名、Owner、default_id及归档列；默认目录由受信运维维护，变更时须递增revision。
+
+迁移61只向默认表追加 `@harness-cloud/dsh-mem0-memory@0.1.0` 的展示资料，默认目录成为三个第三方插件及一个本地维护Mem0插件，不增加凭据列或改变上述个人覆盖、归档及授权约束。目录经API从数据库读取；前端仅保存本地分发包的准确版本和下载路径，不静态补齐目录。平台随附的Mem0归档作为静态构建资源分发，不写入个人归档密文；用户离线上传的同名包仍保留本人原始字节及加密信封。
+
+独立Mem0插件在工作空间配置 `endpoint`、`apiKey`、`userId` 后启用；这些运行配置与目录元数据、平台记忆连接及其命名空间分别管理，目录收录不创建连接或自动安装。插件写入内容不会自动出现在平台连接内容列表。配置与验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)及[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。

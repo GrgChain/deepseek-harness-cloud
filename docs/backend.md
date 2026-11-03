@@ -1,6 +1,6 @@
 # DSH Cloud 后端技术架构
 
-版本：V0.1。Go API/Worker/Gateway、身份、配置、生命周期、内嵌 Workspace、原卷与受控访问已有实现。本机运行闭环及部分运维能力已验证；当前验收状态与未完成范围集中见[测试验收](testing.md)，需求见[功能需求](requirements.md)，选择理由见[ADR](decisions/README.md)。
+版本：V0.2。Go API/Worker/Gateway、身份、配置、生命周期、内嵌 Workspace、原卷与受控访问已有实现。本机运行闭环及部分运维能力已验证；当前验收状态与未完成范围集中见[测试验收](testing.md)，需求见[功能需求](requirements.md)，选择理由见[系统设计](design.md)。
 
 ## 1 架构目标
 
@@ -29,7 +29,7 @@
 
 精确 Go/驱动版本锁定在 go.mod/go.sum，本地 PG/Redis 镜像 digest 在 deploy/local/compose.yaml。运行命令见 README；运行批准绑定实际模板、镜像、helper 和协议摘要。升级需运行相应契约与回归测试。
 
-OIDC验证库和oauth2库锁精确版本；Workspace/模板/构建与Terraform执行子集的复用边界见[ADR-01](decisions/0001-coder-integration.md)。Redis可重建，失效策略见[PostgreSQL与Redis分工](#71-postgresql-与-redis-分工)。
+OIDC验证库和oauth2库锁精确版本；Workspace/模板/构建与Terraform执行子集的复用边界见[上游集成边界](workspace-upstream.md)。Redis可重建，失效策略见[PostgreSQL与Redis分工](#71-postgresql-与-redis-分工)。
 
 平台物理SQL与初始迁移已在PostgreSQL 17验证空库、并发/重复应用及结构约束。DSH/Coder源码/Provider精确版本、私有凭据通道和 Worker 外部执行已通过本地真实契约；Gateway 已通过真实 Portal/DSH 浏览器交接，命令接口已接入真实运行预检；模板完整批准与首次配置/创建/进入已有真实证据；普通浏览器模型文件任务和重启文件校验也已有独立产品证据。
 
@@ -63,7 +63,7 @@ flowchart TD
 
 API 进程不挂 Docker Socket。需要主机管理能力的 Provisioner/存储执行器属于受信 Worker 边界，运行身份、网络及挂载最小化。成员容器不能访问管理 Socket、平台数据库、主机密钥或其他用户卷。
 
-工作空间、模板版本和构建记录使用平台 PostgreSQL 的 workspace_* 表，源代码抽取范围和迁移见 ADR-01。平台管理权限不等同于受信 Worker/主机特权运维权限。访问方案无论复用还是自定义，都须封闭直连及端口共享旁路。
+工作空间、模板版本和构建记录使用平台 PostgreSQL 的 workspace_* 表，源代码抽取范围和迁移见[上游集成边界](workspace-upstream.md)。平台管理权限不等同于受信 Worker/主机特权运维权限。访问方案无论复用还是自定义，都须封闭直连及端口共享旁路。
 
 ## 4 模块划分
 
@@ -104,6 +104,7 @@ db/
 infrastructure/
   terraform/                固定模板、Provider lock、本机执行工具
   runtime/                  固定 DSH、私有启动适配与契约测试
+  plugins/                  插件源码、第三方原包、许可证及 Go 嵌入入口
   storage/                  独立硬容量存储 helper
   network/                  受控网络 helper
   local/                    本机备份定时器安装
@@ -111,6 +112,8 @@ deploy/local/               PostgreSQL/Redis Compose 与备份服务模板
 ```
 
 API、Worker、工作空间访问Gateway由 `bootstrap.Run` 装配；原生模型Gateway由独立 `cmd/model-gateway` 装配。同一工程按职责使用不同运行身份。源码目录只放实现/固定输入/测试；本机凭据、二进制、运行记录及 Terraform state 放受控私有目录，生成的 node_modules/dist/tsbuildinfo 不入源码。真实集成测试使用明确边界，不以 Mock 替代 Workspace/Terraform/Docker 验收。
+
+浏览器独立资源放在 `apps/auth-assets`、`apps/connection-assets`、`apps/dsh-adapters`；工作空间脚本放在 `infrastructure/runtime/workspace-assets`，宿主机磁盘脚本放在 `infrastructure/storage/worker-assets`，通过各目录的 `assets.go` 嵌入。磁盘入口在执行前与 `storage_loop.py` 拼接；`TYPE_CHECKING` 导入只说明依赖，不能改为依赖宿主机源码路径的运行时导入。
 
 ## 6 请求与事务流程
 
@@ -143,7 +146,7 @@ ACCEPTED/RUNNING/UNCERTAIN 都占活跃操作槽。无活跃操作且无冲突�
 
 常驻 Runner 最多 2 个用户任务和 1 个 SYSTEM STOP；60 秒租约、15 秒续租、未知结果延后 10 秒。失租取消后续动作；退出停止领取，最多等待 20 秒，随后取消执行并最多等待 10 秒。主机使用同实例 flock，存储/网络 helper 带实例标签；新租约发现遗留运行 helper 时拒绝并发修改。确定失败先撤销访问、停止已验证的本实例计算，确认不存在后才释放计算额度；数据资产保留。
 
-重试采用有界退避，区分确定拒绝、可重试故障和结果未知。Worker 退出停止领取、处理续租与未完成记录；重启先对账。详见 [ADR-06](decisions/0006-outbox-reconciliation.md)。
+重试采用有界退避，区分确定拒绝、可重试故障和结果未知。Worker 退出停止领取、处理续租与未完成记录；重启先对账。
 
 ### 7.1 PostgreSQL 与 Redis 分工
 
@@ -168,7 +171,7 @@ Redis 放内部网络，使用 ACL 和最小命令/键权限，禁止浏览器�
 
 ready 由 RUNNING 和五维健康计算；can_enter 同时依赖当前主体授权和必需健康。它们不是持久化的通用授权。进入请求实时检查 Owner、路由和认证代次；代理需持续执行撤销。
 
-平台交接协议已固定，原生凭据通道及Cookie适配按D0做固定版本契约测试；实现依据见 [ADR-05](decisions/0005-native-auth.md) 和 [ADR-07](decisions/0007-access-gateway.md)。普通浏览器只调用平台 API，不取得控制面凭据或 Docker 地址。
+平台交接协议已固定，原生凭据通道及Cookie适配按D0做固定版本契约测试；原生会话及撤销规则见[安全设计](security.md#4-路由原生会话与撤销)。普通浏览器只调用平台 API，不取得控制面凭据或 Docker 地址。
 
 ## 9 API 与观测规范
 
@@ -481,16 +484,18 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 ## 外接记忆与知识库
 
-控制面由 `services/internal/contextservice` 管理，外部适配在 `deploy/context/bridge`。迁移47保存批准连接、密文凭据、实例绑定和加密操作回执；迁移48向内置管理员和成员授予本人内容权限，自定义角色保持显式授权。API-095～099覆盖Owner范围的连接、内容与核实操作；正文、原文版本和索引由独立外部服务保存。实现与验收边界见[实施记录](context-implementation.md)。
+控制面由 `services/internal/contextservice` 管理，外部适配在 `deploy/context/bridge`。迁移47保存批准连接、密文凭据、实例绑定和加密操作回执；迁移48向内置管理员和成员授予本人内容权限，自定义角色保持显式授权。API-095～099覆盖Owner范围的连接、内容与核实操作；正文、原文版本和索引由独立外部服务保存。实现与验收边界见[上下文服务部署](../deploy/context/README.md)。
 
 
 ## 工作台连接器（MCP）
 
-`services/internal/connectors` 负责个人 HTTPS 地址与平台出口例外校验、官方Go MCP SDK客户端、Owner隔离的配置与工具快照、手动调用、JSON配置迁移。迁移49新增 `mcp_connectors`、`mcp_calls` 和三项独立权限，迁移50为个人地址及目录关联增加 `endpoint_url/catalog_id`；管理员/成员默认拥有本人权限，自定义角色显式授权。凭据使用 `connector-credential` 加密上下文并纳入密钥轮换；调用意图在出站前持久提交，数据库仅保存状态、版本和请求摘要。调用前重新发现并比较完整工具定义，复核当前权限、配置、目录、启用状态和批准目标。 细节见[实施记录](connectors-implementation.md)。
+`services/internal/connectors` 负责个人 HTTPS 地址与平台出口例外校验、官方Go MCP SDK客户端、Owner隔离的配置与工具快照、手动调用、JSON配置迁移。迁移49新增 `mcp_connectors`、`mcp_calls` 和三项独立权限，迁移50为个人地址及目录关联增加 `endpoint_url/catalog_id`；管理员/成员默认拥有本人权限，自定义角色显式授权。凭据使用 `connector-credential` 加密上下文并纳入密钥轮换；调用意图在出站前持久提交，数据库仅保存状态、版本和请求摘要。调用前重新发现并比较完整工具定义，复核当前权限、配置、目录、启用状态和批准目标。 细节见[连接器部署](../deploy/connectors/README.md)。
 
 内置目录由 `connectors/catalog.json` 编译嵌入，版本化保存38种条目的接入元数据及厂商文档链接。`LoadPolicy` 校验可选 `catalog_id` 与目录一致；19种远程服务（其中9种OAuth）默认提供固定地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
 
 连接器迁移51增加OAuth类型和一次性加密授权事务，`oauth_http.go`负责固定服务配置、授权元数据及受限出站，`oauth.go`负责动态注册、PKCE、会话绑定、回调和令牌刷新。API契约见[API-115/116](api.md#工作台连接器req-23api-100111api-115116)，参数见[部署与复验](../deploy/connectors/README.md)，数据约束见[迁移49～51](data-model.md#工作台连接器迁移4951)。企查查五类聚合及专用远端解绑尚未实现，当前删除仅擦除本地连接凭据。
+
+访问令牌剩余不足30秒时，在Owner事务锁内串行刷新并保存轮换结果；刷新无效或无可用刷新令牌时要求重新授权。OAuth出站请求限10秒、响应64KiB，继续执行DNS/IP固定、TLS校验、禁用环境代理和重定向。
 
 ## 创建扩展与受控运行（REQ-25）
 
@@ -498,9 +503,23 @@ API-005除既有`skills`外接受`connectors: [{id,version,catalog_version}]`、
 
 Worker使用批准的原镜像、隔离无网络helper写原生web profile，启用随附准确版本的官方组合并装载`cloud_extensions.mjs`，无需新镜像、监听端口或容器出口。第三方、缺依赖和需额外配置的插件当前禁选，不执行npm安装或构建脚本。CREATE复核当前配置权限及接受时授权代次；快照摘要和原盘身份保护恢复，START沿用持久目录、不覆盖用户修改。
 
-原生工具经已有每实例私有`/run/harness`挂载传送有界请求，Worker复核实例运行状态、Owner代次、功能权限、源版本、工具及范围，再复用connectors/contextservice出站。连接器每次请求DSH原生用户确认，幂等键按实例、会话和工具调用生成，原mcp_calls账本防重复；持久处理中意图用于Worker重启对账。记忆/知识库仅开放`search/get`，原文读取重新鉴权，禁止运行入口写入、自动收集会话或扩大范围。连接密钥不进入容器；临时请求/结果文件权限0600、限1MiB、拒绝符号/硬链接，数据库和日志不保存工具参数、结果及检索正文。该通道沿用既有Worker与运行用户UID一致的私有挂载约束，不将同Owner容器Shell视为独立信任主体。
+原生工具经已有每实例私有`/run/harness`挂载传送有界请求，Worker复核实例运行状态、Owner代次、功能权限、源版本、工具及范围，再复用connectors/contextservice出站。连接器每次请求DSH原生用户确认，幂等键按实例、会话和工具调用生成，原mcp_calls账本防重复；持久处理中意图用于Worker重启对账。记忆默认开放`search/get`；OpenViking 显式启用 `session_memory` 时，通过独立私有 `session` 通道接入官方 DSH 插件的自动捕获、归档及召回；知识库按连接冻结`permissions: [read,write,delete]`，未指定时只读，工具注册与Worker调用均校验对应权限。知识库提供`cloud_knowledge_submit_*`新增文档工具，先请求`preview`，展示实际标题、正文、范围及数据去向，再经DSH原生单次确认调用`apply`。预览有冲突或警告时拒绝提交；写入复用context_operations加密幂等回执，Worker角色需要SELECT/INSERT/UPDATE权限。新增操作固定`mode=skip`，不覆盖已有文档；`cloud_knowledge_delete_*`按准确文档id读取目标版本，展示标题、正文及不可恢复提示，单次确认后以该版本执行删除。写入和删除另检查当前`knowledge:manage`权限。原文读取重新鉴权，不扩大范围。完整会话采集仅限显式启用的 OpenViking 连接。连接密钥不进入容器；临时请求/结果文件权限0600、限1MiB、拒绝符号/硬链接；知识库写入的待确认意图和幂等回执沿用现有加密存储，日志不记录正文。该通道沿用既有Worker与运行用户UID一致的私有挂载约束，不将同Owner容器Shell视为独立信任主体。
 
 `run-worker`必须与API使用相同的`HC_CONTEXT_ENDPOINTS_FILE`、`HC_CONNECTOR_ENDPOINTS_FILE`及可读私有凭据文件；Makefile已传入既有变量。应用前先执行迁移54/55和对应受限角色授权，不使用生产运行角色执行DDL。
 
 
 2026-10-27：工作空间访问网关的HTTP连接池按实例、运行代次和私有IP隔离；模型提供商切换或重启后，即使Docker复用原IP，也不会复用旧代次连接。转发仍拨号到当前授权的固定IP，原生Host/Cookie保持；不自动重放RPC。Worker发布新运行路由前还使用当前原生授权读取`session/list`，选择`/data/workspace`中的已有会话，调用`workspaceFiles/list`确认目录可读；读取总预算12秒、响应各1MiB，不调用推理或修改工作文件。
+
+
+## 本人第三方插件目录
+
+`services/internal/plugins` 提供目录读取、在线 npm 信息读取、离线 npm 原包解析及保存、本人原包下载。在线解析固定 HTTPS npm registry 并在保存时重新读取准确版本；离线通过内存 gzip/tar 解析，不访问网络、不执行脚本或提取到磁盘，预览和保存分别验证。离线原包最多 5 MiB、展开 20 MiB、1000 项，`package/package.json` 最多 1 MiB；拒绝危险或重复路径、链接、特殊文件、损坏归档及缺少真实 DSH patch 的包。
+
+当前组织和 Owner 来自事务内复核的身份，写操作要求 `plugins:manage`、同源和 CSRF，读取及本人下载要求 `instances:read`。按 Owner 串行保存，同名按数据库合并目录检查并返回冲突，本人最多新增 100 条，默认模板的个人覆盖不占此额度。元数据、离线 AES-GCM 原包及审计同事务提交；密文 AAD 绑定环境、组织、Owner/插件 ID 和 `plugin-archive` 用途，并接入现有主密钥轮换。下载复核当前身份和 Owner，管理员不能跨 Owner 读取。API 只保存目录和归档，不调用 DSH 或实例安装接口。接口与错误见[API-121～125](api.md#本人插件目录api-121125)。
+
+
+迁移60将默认目录存入 `plugin_catalog_defaults`，SQL种子初始化原有三个第三方条目；迁移61追加本地维护的Mem0条目，形成四个默认插件。GET使用单条查询合并默认与当前Owner的 `personal_plugins`，按包名优先个人条目；无读取时初始化或npm请求。前端从API读取完整目录及展示资料，仅为随平台分发的Mem0包保存准确版本和静态下载路径，不以源码默认值补齐空列表或读取失败。元数据编辑使用独立 `revision` 乐观锁，修改默认条目时创建本人覆盖；重复提交旧默认ID会冲突，不能覆写已生成的个人配置。更新仅允许展示字段，不改包名、归档或归属，受限API角色只获相应列的UPDATE及默认表SELECT权限。编辑的显示版本与离线原始包版本独立，归档下载及主密钥轮换沿用原认证上下文。
+
+受信运维维护数据库默认模板时同步递增 `revision`；本人覆盖优先于默认模板，模板更新不覆盖个人资料。
+
+`@harness-cloud/dsh-mem0-memory@0.1.0`通过 `apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.1.0.tgz` 分发，未发布到公共npm。目录条目、包下载与工作空间运行分别管理；用户在DSH安装后独立配置工作空间可访问的 `endpoint`、服务 `apiKey` 和固定 `userId`，再显式启用。此插件不继承平台记忆连接的凭据或命名空间，其内容不会自动出现在平台连接管理列表；个人上传的同名离线包继续下载本人加密保存的原包。安装、默认行为及验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)和[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
