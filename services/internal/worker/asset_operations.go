@@ -3,7 +3,6 @@ package worker
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -16,15 +15,13 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/storage/worker-assets"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/instances"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 )
 
-//go:embed asset_operations.py
-var assetOperationsProgram string
-
-//go:embed storage_loop.py
-var storageLoopProgram string
+var assetOperationsProgram = workerassets.AssetOperations
+var storageLoopProgram = workerassets.StorageLoop
 var backupDigest = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var liveBrowseFailurePattern = regexp.MustCompile(`^harness-cloud: storage browse failed \[([A-Z_]{1,64})\]; read-only data retained\s*$`)
 
@@ -342,18 +339,4 @@ func (h *LocalHost) assetOperation(ctx context.Context, id, action string, reque
 
 // The immutable helper still owns parsing, initialization, markers and quota.
 // The host adapter only makes kernel-selected loop nodes available reliably.
-const storageHelperMain = `
-import importlib.util,sys
-spec=importlib.util.spec_from_file_location('storage','/opt/harness-storage/helper.py')
-storage=importlib.util.module_from_spec(spec)
-spec.loader.exec_module(storage)
-patch_storage(storage)
-try:
-    if len(sys.argv)!=2: raise ValueError('One action required')
-    data=sys.stdin.buffer.read(65537)
-    if len(data)>65536: raise ValueError('Request too large')
-    print(json.dumps(storage.execute(sys.argv[1],storage.parse(data))))
-except Exception:
-    print('harness-cloud: storage operation failed ['+storage.PHASE+']; original data retained',file=sys.stderr)
-    sys.exit(1)
-`
+var storageHelperMain = workerassets.StorageMain

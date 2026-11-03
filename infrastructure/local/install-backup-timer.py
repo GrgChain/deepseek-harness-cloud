@@ -11,7 +11,13 @@ if not re.fullmatch(r"/[A-Za-z0-9_.:/-]+", str(root)):
 private = root / ".local"
 if stat.S_IMODE(private.stat().st_mode) != 0o700 or private.is_symlink():
     raise SystemExit("Private workspace configuration required")
-required = ("migrator-dsn", "worker-config.json", "auth/data-key", "auth/backup-key", "auth/organization-id")
+required = (
+    "migrator-dsn",
+    "worker-config.json",
+    "auth/data-key",
+    "auth/backup-key",
+    "auth/organization-id",
+)
 for name in required:
     path = private / name
     mode = path.lstat().st_mode
@@ -36,7 +42,12 @@ if repository.is_symlink() or stat.S_IMODE(repository.stat().st_mode) != 0o700:
 config = private / "daily-backup.env"
 contents = "# Local stopped-environment rehearsal; values are paths and safe metadata.\n"
 contents += "".join(f"{name}={value}\n" for name, value in env.items())
-if config.exists() and (config.is_symlink() or not stat.S_ISREG(config.lstat().st_mode) or stat.S_IMODE(config.stat().st_mode) & 0o077 or config.read_text() != contents):
+if config.exists() and (
+    config.is_symlink()
+    or not stat.S_ISREG(config.lstat().st_mode)
+    or stat.S_IMODE(config.stat().st_mode) & 0o077
+    or config.read_text() != contents
+):
     raise SystemExit("Existing backup configuration differs; review before replacing")
 if not config.exists():
     fd = os.open(config, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
@@ -46,7 +57,9 @@ if not config.exists():
         os.fsync(output.fileno())
 units = pathlib.Path.home() / ".config/systemd/user"
 units.mkdir(parents=True, exist_ok=True)
-service = (root / "deploy/local/hc-local-backup.service.in").read_text().replace("@WORKSPACE@", str(root))
+service = (
+    (root / "deploy/local/hc-local-backup.service.in").read_text().replace("@WORKSPACE@", str(root))
+)
 timer = (root / "deploy/local/hc-local-backup.timer").read_text()
 for name, body in (("hc-local-backup.service", service), ("hc-local-backup.timer", timer)):
     path = units / name
@@ -57,7 +70,21 @@ for name, body in (("hc-local-backup.service", service), ("hc-local-backup.timer
         fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         with os.fdopen(fd, "w") as output:
             output.write(body)
-subprocess.run(["systemd-analyze", "--user", "verify", str(units / "hc-local-backup.service"), str(units / "hc-local-backup.timer")], check=True, stdout=subprocess.DEVNULL)
+subprocess.run(
+    [
+        "systemd-analyze",
+        "--user",
+        "verify",
+        str(units / "hc-local-backup.service"),
+        str(units / "hc-local-backup.timer"),
+    ],
+    check=True,
+    stdout=subprocess.DEVNULL,
+)
 subprocess.run(["systemctl", "--user", "daemon-reload"], check=True)
-subprocess.run(["systemctl", "--user", "enable", "--now", "hc-local-backup.timer"], check=True, stdout=subprocess.DEVNULL)
+subprocess.run(
+    ["systemctl", "--user", "enable", "--now", "hc-local-backup.timer"],
+    check=True,
+    stdout=subprocess.DEVNULL,
+)
 print("Local daily backup timer installed; running instances are never stopped automatically")

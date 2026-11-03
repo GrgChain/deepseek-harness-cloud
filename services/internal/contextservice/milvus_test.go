@@ -17,3 +17,19 @@ func TestMilvusURL(t *testing.T) {
 		t.Fatal("ignored HTTP policy")
 	}
 }
+
+func TestGraphitiURL(t *testing.T) {
+	for _, value := range []string{"bolt+s://neo4j.example.com:7687", "bolt://neo4j.internal:7687/"} {
+		if _, err := graphitiURL(value, true); err != nil {
+			t.Fatal(value, err)
+		}
+	}
+	for _, value := range []string{"https://neo4j.example", "bolt+ssc://neo4j.example", "bolt+s://u:p@neo4j.example", "bolt+s://neo4j.example/path", "bolt+s://neo4j.example?", "bolt+s://neo4j.example:abc"} {
+		if _, err := graphitiURL(value, true); err == nil {
+			t.Fatal("accepted invalid service", value)
+		}
+	}
+	if _, err := graphitiURL("bolt://neo4j.internal:7687", false); err == nil {
+		t.Fatal("ignored unencrypted transport policy")
+	}
+}

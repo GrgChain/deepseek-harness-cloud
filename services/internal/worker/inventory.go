@@ -3,12 +3,13 @@ package worker
 import (
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/storage/worker-assets"
 )
 
 // ResourceObservation contains identities and allocation metadata only. It
@@ -30,8 +31,7 @@ type ResourceObservation struct {
 	IdentityValid   bool   `json:"identity_valid"`
 }
 
-//go:embed inventory.py
-var inventoryProgram string
+var inventoryProgram = workerassets.Inventory
 
 var dockerID = regexp.MustCompile(`^[a-f0-9]{12,64}$`)
 var dockerVolumeName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,254}$`)

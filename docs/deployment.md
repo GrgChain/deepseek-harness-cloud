@@ -1,6 +1,6 @@
 # DSH Cloud 部署与运维设计
 
-版本：V0.1。已有本地 Docker 初始化、迁移、登录和常驻 Worker 命令；本机加密备份/隔离恢复已演练，正式安装包及完整恢复切换尚未完成。环境输入与数值见 [配置基线](deployment.md#8-配置与业务规则基线)，工程依赖见[实施顺序](requirements.md#9-实施顺序)，当前未完成范围见[测试验收](testing.md)。
+版本：V0.2。已有本地 Docker 初始化、迁移、登录和常驻 Worker 命令；本机加密备份/隔离恢复已演练，正式安装包及完整恢复切换尚未完成。环境输入与数值见 [配置基线](deployment.md#8-配置与业务规则基线)，工程依赖见[实施顺序](requirements.md#9-实施顺序)，当前未完成范围见[测试验收](testing.md)。
 
 ## 1 拓扑与权限
 
@@ -343,6 +343,8 @@ make run-model-gateway
 
 初始化脚本创建受限数据库账号、TLS和原生入口配置；专用Docker网桥只为DSH访问宿主入口提供稳定地址，不拉取或运行模型代理镜像。新建环境在`make dev-init auth-init infra-up migrate auth-apply`后初始化模型入口。配置API的`HC_MODEL_ALLOWLIST_FILE`与Worker的`model_allowlist_file`为相同入口/修订/IP/CA，并将Worker `model_control_key_file`指向原生入口控制凭据。生成的`.local/model-gateway/gateway-policy.json`须合并进允许列表；models可为空，提供商目录与个人模型从数据库派生。
 
+`make run-model-gateway` 启动前会核对专用网桥 `hc-model-gateway` 的标签、驱动、子网及网关 `10.51.0.1`，缺失时自动创建，并确认该网桥已持有此地址。运行期间若该网桥被外部清理，模型可能显示“连接异常”；可执行 `python3 infrastructure/model-gateway/gateway_network.py` 恢复缺失网络，等待后台重新检查连接，随后通过自动校验或页面“重试校验”核对模型能力。该命令保留已有证书、密钥和模型配置；遇到网络冲突或现有网桥地址缺失时停止并提示修复原因，不删除已有网络。启动检查不负责监控运行期间的外部网络清理。
+
 模型入口代码支持OpenAI、Claude、Gemini、通义千问、DeepSeek、Kimi及Z.AI。批准根来自`internal/modelgateway/transport.go`及数据库提供商目录的交集；修改地区或模型生成新连接版本。DSH使用schema2、provider=platform-models、protocol=anthropic-messages，运行适配器为platform-messages-v1。变更DSH源文件必须重新构建、验证并发布模板，不能覆盖已批准镜像或在缺少真实模型证据时标记运行批准。
 
 用户操作：模型提供商 → 选择批准提供商/模型 → 填写个人Key → 等待注册确认 → 主动流式工具校验 → 设置个人默认/创建时选用。注册及目录不收费；真实校验可能产生提供商费用。已有实例只在显式应用后变更模型。
@@ -352,6 +354,7 @@ make run-model-gateway
 离线协议与隔离数据库验证不调用真实提供商：
 
 ```sh
+python3 -m unittest discover -s infrastructure/model-gateway -p 'test_*.py'
 go test -race ./services/internal/modelgateway
 HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" go test -race -count=1 ./db ./services/internal/settings
 ```
@@ -362,7 +365,7 @@ HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" go test -race -count=1 ./db ./ser
 
 工作空间编排内嵌于 `internal/workspace`，由 Worker 执行受控 Terraform。Provider 中保留 coder_workspace/coder_parameter 数据源，元数据由 Worker 私有环境传入。初始部署执行 `make workspace-init`、配置 `.local/workspace/template-variables.json`、`make workspace-template`，身份沿用 OIDC 平台映射。模板发布不等于运行批准。
 
-Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置只支持 `workspace_engine=embedded`。数据库及 Workspace 元数据按 [ADR-01](decisions/0001-coder-integration.md) 成套备份恢复，恢复时保持身份、模板、构建和 Terraform state 对应关系。
+Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置只支持 `workspace_engine=embedded`。数据库及 Workspace 元数据按 [上游集成边界](workspace-upstream.md) 成套备份恢复，恢复时保持身份、模板、构建和 Terraform state 对应关系。
 
 ### 工作空间业务命名迁移
 
@@ -528,6 +531,6 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，5种OAuth服务仍有默认固定地址，用户也可填写个人公网HTTPS；其他目录服务须绑定兼容服务或从自定义入口添加。私网/HTTP例外只对精确批准URL生效。
 
-执行迁移49～51及API角色授权，再更新平台API原生进程；不修改DSH。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[实网报告](connectors-reference.md#oauth-连接器可用性检查)。
+执行迁移49～51及API角色授权，再更新平台API原生进程；不修改DSH。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[连接器实网验证边界](../deploy/connectors/README.md#实网验证边界)。
 
-固定服务、OAuth、独立Docker合成服务、故障排查与复验命令统一见[部署与复验](../deploy/connectors/README.md)。API依赖就绪后即可执行真实登录，无启动冷却窗口；不要通过重启DSH处理。功能及待交付边界见[实施说明](connectors-implementation.md)。
+固定服务、OAuth、独立Docker合成服务、故障排查与复验命令统一见[部署与复验](../deploy/connectors/README.md)。API依赖就绪后即可执行真实登录，无启动冷却窗口；不要通过重启DSH处理。功能及待交付边界见[连接器后端设计](backend.md#工作台连接器mcp)。

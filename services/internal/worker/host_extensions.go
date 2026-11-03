@@ -2,18 +2,16 @@ package worker
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/plugins"
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/runtime/workspace-assets"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 )
 
-//go:embed install_extensions.mjs
-var installExtensionsProgram string
-
-//go:embed cloud_extensions.mjs
-var cloudExtensionsProgram string
+var installExtensionsProgram = workspaceassets.InstallExtensions
+var cloudExtensionsProgram = workspaceassets.CloudExtensions
 
 func (h *LocalHost) installExtensions(ctx context.Context, p ExecutionPlan) error {
 	if p.Action != "CREATE" || len(p.extensions.Items) == 0 {
@@ -30,11 +28,20 @@ func (h *LocalHost) installExtensions(ctx context.Context, p ExecutionPlan) erro
 	if container != nil {
 		return validateContainer(*container, p, h.options.RuntimeRoot, true)
 	}
+	var sessionPlugin []byte
+	for _, item := range p.extensions.Items {
+		if item.SessionMemory {
+			sessionPlugin = pluginassets.OpenVikingPlugin
+			break
+		}
+	}
 	input, err := json.Marshal(struct {
 		storageRequest
-		Extensions workspaceextensions.Snapshot `json:"extensions"`
-		Program    string                       `json:"program"`
-	}{identity, p.extensions, cloudExtensionsProgram})
+		Extensions     workspaceextensions.Snapshot `json:"extensions"`
+		Program        string                       `json:"program"`
+		SessionProgram string                       `json:"session_program"`
+		SessionPlugin  []byte                       `json:"session_plugin,omitempty"`
+	}{identity, p.extensions, cloudExtensionsProgram, workspaceassets.OpenVikingSession, sessionPlugin})
 	if err != nil {
 		return err
 	}

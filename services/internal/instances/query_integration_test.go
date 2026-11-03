@@ -341,7 +341,7 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 			must(`INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,$4,$5,'test','Fixture','READY','test',$6,'x')`, entry.id, org, p.UserID, entry.kind, entry.backend, bytes.Repeat([]byte{0}, 12))
 		}
 		must(`INSERT INTO mcp_connectors(id,org_id,owner_id,name,endpoint_id,protocol_version,auth_type,catalog_version,status,tools,key_id,nonce,ciphertext) VALUES($1,$2,$3,'test connector','test','2026-07-28','none',1,'READY','[{"name":"echo","enabled":true}]','test',$4,'x')`, connector, org, p.UserID, bytes.Repeat([]byte{0}, 12))
-		input := CreateInput{Input: workspaceextensions.Input{Connectors: []workspaceextensions.Selection{{ID: connector, Version: 1, CatalogVersion: 1}}, Memory: []workspaceextensions.Selection{{ID: memory, Version: 1}}, Knowledge: []workspaceextensions.Selection{{ID: knowledge, Version: 1, Scopes: []string{"workspace"}}}, Plugins: []workspaceextensions.PluginSelection{{ID: "session-search", Version: "0.2.1-alpha.2"}}}}
+		input := CreateInput{Input: workspaceextensions.Input{Connectors: []workspaceextensions.Selection{{ID: connector, Version: 1, CatalogVersion: 1}}, Memory: []workspaceextensions.Selection{{ID: memory, Version: 1, Scopes: []string{"workspace"}}}, Knowledge: []workspaceextensions.Selection{{ID: knowledge, Version: 1, Scopes: []string{"workspace"}, Permissions: []string{"read", "write", "delete"}}}, Plugins: []workspaceextensions.PluginSelection{{ID: "session-search", Version: "0.2.1-alpha.2"}}}}
 		if _, e := commands.Create(ctx, other, webapi.ID(), input, ""); queryCode(e) != "NOT_FOUND" {
 			t.Fatal("foreign extension accepted", e)
 		}
@@ -371,11 +371,32 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 		}
 		snap, e := workspaceextensions.Load(ctx, tx, org, p.UserID, accepted.InstanceID)
 		_ = tx.Rollback(ctx)
-		if e != nil || len(snap.Items) != 4 || snap.Items[0].Tools[0] != "echo" || snap.Items[2].Scopes[0] != "workspace:"+accepted.InstanceID {
+		if e != nil || len(snap.Items) != 4 || snap.Items[0].Tools[0] != "echo" || len(snap.Items[1].Scopes) != 1 || snap.Items[1].Scopes[0] != "personal" || len(snap.Items[2].Scopes) != 1 || snap.Items[2].Scopes[0] != "personal" {
 			t.Fatal("incomplete frozen expansion", snap, e)
+		}
+		if !snap.Items[2].KnowledgeAllowed("read") || !snap.Items[2].KnowledgeAllowed("write") || !snap.Items[2].KnowledgeAllowed("delete") {
+			t.Fatal("knowledge permissions not frozen", snap.Items[2])
 		}
 		if e = database.QueryRow(ctx, `SELECT count(*) FROM context_bindings WHERE instance_id=$1`, accepted.InstanceID).Scan(&count); e != nil || count != 2 {
 			t.Fatal("missing context bindings", count, e)
+		}
+		viking := webapi.ID()
+		must(`INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,'memory','openviking','test','Shared session memory','READY','test',$4,'x')`, viking, org, p.UserID, bytes.Repeat([]byte{0}, 12))
+		native := input
+		native.Memory = []workspaceextensions.Selection{{ID: viking, Version: 1, SessionMemory: true}}
+		second, e := commands.Create(ctx, p, webapi.ID(), native, "")
+		if e != nil {
+			t.Fatal("shared native memory without a scope was rejected", e)
+		}
+		defer must(`UPDATE quota_reservations SET status='RELEASED' WHERE instance_id=$1`, second.InstanceID)
+		tx, e = database.Begin(ctx)
+		if e != nil {
+			t.Fatal(e)
+		}
+		nativeSnapshot, e := workspaceextensions.Load(ctx, tx, org, p.UserID, second.InstanceID)
+		_ = tx.Rollback(ctx)
+		if e != nil || len(nativeSnapshot.Items) != 4 || !nativeSnapshot.Items[1].SessionMemory || nativeSnapshot.Items[1].SessionScope != "personal" || len(nativeSnapshot.Items[1].Scopes) != 1 || nativeSnapshot.Items[1].Scopes[0] != "personal" {
+			t.Fatal("session capture was not frozen to the shared corpus", nativeSnapshot, e)
 		}
 		must(`UPDATE mcp_connectors SET deleted_at=clock_timestamp(),enabled=false WHERE id=$1`, connector)
 		replay, e := commands.Create(ctx, p, key, input, "")

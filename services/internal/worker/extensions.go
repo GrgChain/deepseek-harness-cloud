@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -37,17 +38,23 @@ func NewExtensionBroker(pool *pgxpool.Pool, root string, cipher *security.Secret
 }
 
 type extensionRequest struct {
-	ID         string         `json:"id"`
-	Generation string         `json:"generation"`
-	Kind       string         `json:"kind"`
-	SourceID   string         `json:"source_id"`
-	Tool       string         `json:"tool,omitempty"`
-	Arguments  map[string]any `json:"arguments,omitempty"`
-	Query      string         `json:"query,omitempty"`
-	Action     string         `json:"action,omitempty"`
-	RecordID   string         `json:"record_id,omitempty"`
-	Scope      string         `json:"scope,omitempty"`
-	Confirmed  bool           `json:"confirmed,omitempty"`
+	ID             string                         `json:"id"`
+	Generation     string                         `json:"generation"`
+	Kind           string                         `json:"kind"`
+	SourceID       string                         `json:"source_id"`
+	Tool           string                         `json:"tool,omitempty"`
+	Arguments      map[string]any                 `json:"arguments,omitempty"`
+	Query          string                         `json:"query,omitempty"`
+	Action         string                         `json:"action,omitempty"`
+	RecordID       string                         `json:"record_id,omitempty"`
+	Scope          string                         `json:"scope,omitempty"`
+	Confirmed      bool                           `json:"confirmed,omitempty"`
+	Title          string                         `json:"title,omitempty"`
+	Content        string                         `json:"content,omitempty"`
+	Source         string                         `json:"source,omitempty"`
+	Token          string                         `json:"token,omitempty"`
+	RecordVersion  int64                          `json:"record_version,omitempty"`
+	SessionRequest *contextservice.SessionRequest `json:"session_request,omitempty"`
 }
 
 func privateChannelRead(root *os.Root, name string) ([]byte, error) {
@@ -133,7 +140,7 @@ func (b *ExtensionBroker) process(ctx context.Context, instance string) {
 		}
 	}
 	// A persisted processing file is an interrupted intent, retried with its
-	// original key. The connector service ledger prevents a duplicate side effect.
+	// original key. Connector and context ledgers prevent duplicate side effects.
 	raw, err := privateChannelRead(root, ".hc-extension-processing.json")
 	if errors.Is(err, os.ErrNotExist) {
 		raw, err = privateChannelRead(root, ".hc-extension-request.json")
@@ -233,8 +240,39 @@ func (b *ExtensionBroker) invoke(ctx context.Context, instance string, request e
 	if request.Kind != "connector" && !slices.Contains(selected.Scopes, request.Scope) {
 		return nil, identity.ErrForbidden
 	}
-	if request.Kind != "connector" && request.Action != "" && request.Action != "search" && request.Action != "get" {
-		return nil, identity.ErrForbidden
+	if request.Kind == "knowledge" {
+		permission := "read"
+		if request.Action == "preview" || request.Action == "apply" {
+			permission = "write"
+		}
+		if request.Action == "delete_preview" || request.Action == "delete" {
+			permission = "delete"
+		}
+		if !selected.KnowledgeAllowed(permission) {
+			return nil, identity.ErrForbidden
+		}
+	}
+	if request.Kind != "connector" {
+		switch request.Action {
+		case "session":
+			if request.Kind != "memory" || !selected.SessionMemory || request.Scope != selected.SessionScope || request.SessionRequest == nil {
+				return nil, identity.ErrForbidden
+			}
+		case "", "search", "get":
+		case "preview", "apply":
+			if request.Kind != "knowledge" || request.RecordID != "" || request.Action == "apply" && !request.Confirmed {
+				return nil, identity.ErrForbidden
+			}
+			if request.Action == "preview" && (strings.TrimSpace(request.Title) == "" || strings.TrimSpace(request.Content) == "") {
+				return nil, webapi.Fail(422, "CONTEXT_INVALID", "请填写文档标题和正文")
+			}
+		case "delete_preview", "delete":
+			if request.Kind != "knowledge" || request.RecordID == "" || request.Action == "delete" && (!request.Confirmed || request.RecordVersion < 1) {
+				return nil, identity.ErrForbidden
+			}
+		default:
+			return nil, identity.ErrForbidden
+		}
 	}
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
@@ -242,12 +280,17 @@ func (b *ExtensionBroker) invoke(ctx context.Context, instance string, request e
 	var result any
 	if request.Kind == "connector" {
 		result, err = b.connectors.Invoke(ctx, p, request.SourceID, connectors.InvokeInput{ExpectedVersion: selected.Version, CatalogVersion: selected.CatalogVersion, Tool: request.Tool, Arguments: request.Arguments, IdempotencyKey: request.ID, Confirmed: true, RiskConfirmed: true, Timeout: 60}, request.ID)
+	} else if request.Action == "session" {
+		result, err = b.context.Session(ctx, p, request.SourceID, selected.Version, request.Scope, request.SessionRequest)
 	} else {
 		action := request.Action
 		if action == "" {
 			action = "search"
 		}
-		result, err = b.context.Call(ctx, p, request.Kind, request.SourceID, action, contextservice.Action{ExpectedVersion: selected.Version, Scope: request.Scope, Query: request.Query, RecordID: request.RecordID, Limit: 5}, request.ID)
+		if action == "delete_preview" {
+			action = "get"
+		}
+		result, err = b.context.Call(ctx, p, request.Kind, request.SourceID, action, contextservice.Action{ExpectedVersion: selected.Version, Scope: request.Scope, Query: request.Query, RecordID: request.RecordID, RecordVersion: request.RecordVersion, Limit: 5, Title: request.Title, Content: request.Content, Source: request.Source, Type: "document", Token: request.Token, Mode: "skip", IdempotencyKey: request.ID, Confirmed: request.Confirmed}, request.ID)
 	}
 	if err != nil {
 		return nil, err

@@ -110,11 +110,15 @@ func (f *monitorFixture) exec(t *testing.T, query string, args ...any) {
 		t.Fatal(err)
 	}
 }
-func (f *monitorFixture) instance(t *testing.T) (string, string) {
+func (f *monitorFixture) instance(t *testing.T, existingOwner ...string) (string, string) {
 	t.Helper()
 	id, owner, asset, session := webapi.ID(), webapi.ID(), webapi.ID(), webapi.ID()
-	f.exec(t, `INSERT INTO users(id,identity_issuer,identity_subject,workspace_owner_id,status) VALUES($1,'https://monitor.test',$2,$1,'ACTIVE')`, owner, owner)
-	f.exec(t, `INSERT INTO memberships(org_id,user_id,role,status) VALUES($1,$2,'MEMBER','ACTIVE')`, f.org, owner)
+	if len(existingOwner) > 0 {
+		owner = existingOwner[0]
+	} else {
+		f.exec(t, `INSERT INTO users(id,identity_issuer,identity_subject,workspace_owner_id,status) VALUES($1,'https://monitor.test',$2,$1,'ACTIVE')`, owner, owner)
+		f.exec(t, `INSERT INTO memberships(org_id,user_id,role,status) VALUES($1,$2,'MEMBER','ACTIVE')`, f.org, owner)
+	}
 	snapshot := instances.Snapshot{DefaultsVersion: 1, TemplateID: webapi.ID(), TemplateVersion: webapi.ID(), ImageDigest: "sha256:" + string(bytes.Repeat([]byte{'a'}, 64)), Spec: instances.ResourceSpec{ID: webapi.ID(), CPU: 2000, Memory: 4 << 30, Storage: 10 << 30}, ModelID: f.model, ModelVersion: f.version, Provider: "deepseek-official", Protocol: "deepseek-messages", Model: "deepseek-flash"}
 	raw, _ := json.Marshal(struct {
 		SchemaVersion int `json:"schema_version"`

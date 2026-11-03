@@ -10,10 +10,13 @@ import (
 type BusinessHandler interface {
 	ServeAuthenticated(http.ResponseWriter, *http.Request, identity.Principal)
 }
-type BusinessMux struct{ Configuration, Resources, Access, Commands, Management, Skills, Context, Connectors, Extensions BusinessHandler }
+type BusinessMux struct{ Configuration, Resources, Access, Commands, Management, Skills, Context, Connectors, Extensions, Plugins BusinessHandler }
 
 func (m BusinessMux) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p identity.Principal) {
 	handler := m.Configuration
+	if r.URL.Path == "/v1/plugins" || r.URL.Path == "/v1/plugins:preview" || strings.HasPrefix(r.URL.Path, "/v1/plugins/") {
+		handler = m.Plugins
+	}
 	if strings.HasPrefix(r.URL.Path, "/v1/workspace-extensions/") {
 		handler = m.Extensions
 	}

@@ -28,6 +28,7 @@ def embed(texts, query=False):
 class Vectors:
     def __init__(self, backend, namespace, service=None, embedding_config=None):
         from embedding_provider import EmbeddingProvider
+
         self.embedder = EmbeddingProvider(embedding_config)
         self.backend, self.namespace = backend, namespace
         self.collection = ("Hc" if backend == "weaviate" else "hc_") + namespace
@@ -37,13 +38,21 @@ class Vectors:
         transport = None
         if service:
             from milvus_service import MilvusTransport, service_url
+
             if backend not in ("milvus", "weaviate", "qdrant"):
                 raise ValueError("Custom service backend not supported")
             service_url(self.url)
             transport = MilvusTransport()
             if not key:
                 headers = {}
-        self.http = httpx.Client(base_url=self.url, headers=headers, timeout=12, trust_env=False, transport=transport, follow_redirects=False)
+        self.http = httpx.Client(
+            base_url=self.url,
+            headers=headers,
+            timeout=12,
+            trust_env=False,
+            transport=transport,
+            follow_redirects=False,
+        )
 
     def request(self, method, path, data=None):
         response = self.http.request(method, path, json=data)
@@ -60,7 +69,11 @@ class Vectors:
         if self.backend == "qdrant":
             version = self.request("GET", "/")["version"]
             if self.http.get("/collections/" + c).status_code == 404:
-                self.request("PUT", "/collections/" + c, {"vectors": {"size": self.embedder.dimensions, "distance": "Cosine"}})
+                self.request(
+                    "PUT",
+                    "/collections/" + c,
+                    {"vectors": {"size": self.embedder.dimensions, "distance": "Cosine"}},
+                )
             info = self.request("GET", "/collections/" + c)["result"]
             if info["config"]["params"]["vectors"]["size"] != self.embedder.dimensions:
                 raise RuntimeError("embedding dimension mismatch")
@@ -68,27 +81,43 @@ class Vectors:
             version = self.request("GET", "/v1/meta")["version"]
             response = self.http.get("/v1/schema/" + c)
             if response.status_code == 404:
-                self.request("POST", "/v1/schema", {
-                    "class": c, "vectorizer": "none",
-                    "properties": [
-                        {"name": "record_id", "dataType": ["text"], "tokenization": "field"},
-                        {"name": "scope", "dataType": ["text"], "tokenization": "field"},
-                        {"name": "version", "dataType": ["int"]}, {"name": "chunk", "dataType": ["int"]},
-                    ],
-                })
+                self.request(
+                    "POST",
+                    "/v1/schema",
+                    {
+                        "class": c,
+                        "vectorizer": "none",
+                        "properties": [
+                            {"name": "record_id", "dataType": ["text"], "tokenization": "field"},
+                            {"name": "scope", "dataType": ["text"], "tokenization": "field"},
+                            {"name": "version", "dataType": ["int"]},
+                            {"name": "chunk", "dataType": ["int"]},
+                        ],
+                    },
+                )
             else:
                 response.raise_for_status()
         else:
             version = "REST-v2"  # the native REST endpoint does not advertise its server version
             collections = self.request("POST", "/v2/vectordb/collections/list", {})["data"]
             if c not in collections:
-                self.request("POST", "/v2/vectordb/collections/create", {
-                    "collectionName": c, "dimension": self.embedder.dimensions, "metricType": "COSINE",
-                    "primaryFieldName": "id", "idType": "VarChar",
-                    "autoId": False, "vectorFieldName": "vector",
-                    "params": {"max_length": "64", "enableDynamicField": True},
-                })
-            info = self.request("POST", "/v2/vectordb/collections/describe", {"collectionName": c})["data"]
+                self.request(
+                    "POST",
+                    "/v2/vectordb/collections/create",
+                    {
+                        "collectionName": c,
+                        "dimension": self.embedder.dimensions,
+                        "metricType": "COSINE",
+                        "primaryFieldName": "id",
+                        "idType": "VarChar",
+                        "autoId": False,
+                        "vectorFieldName": "vector",
+                        "params": {"max_length": "64", "enableDynamicField": True},
+                    },
+                )
+            info = self.request("POST", "/v2/vectordb/collections/describe", {"collectionName": c})[
+                "data"
+            ]
             field = next((f for f in info["fields"] if f["name"] == "vector"), None)
             params = field.get("params", {}) if field else {}
             if isinstance(params, list):
@@ -101,11 +130,23 @@ class Vectors:
 
     def put(self, record, chunks):
         c = self.collection
-        vectors = self.embedder.embed([document_chunks.embedding_text(record.get("title", ""), chunk) for chunk in chunks])
+        vectors = self.embedder.embed(
+            [document_chunks.embedding_text(record.get("title", ""), chunk) for chunk in chunks]
+        )
         rows = []
         for i, vector in enumerate(vectors):
-            identity = str(uuid.uuid5(uuid.NAMESPACE_URL, self.namespace + record["id"] + str(record["version"]) + ":" + str(i)))
-            payload = {"record_id": record["id"], "scope": record["scope"], "version": record["version"], "chunk": i}
+            identity = str(
+                uuid.uuid5(
+                    uuid.NAMESPACE_URL,
+                    self.namespace + record["id"] + str(record["version"]) + ":" + str(i),
+                )
+            )
+            payload = {
+                "record_id": record["id"],
+                "scope": record["scope"],
+                "version": record["version"],
+                "chunk": i,
+            }
             if self.backend == "qdrant":
                 rows.append({"id": identity, "vector": vector, "payload": payload})
             elif self.backend == "weaviate":
@@ -119,44 +160,83 @@ class Vectors:
             if any(item.get("result", {}).get("errors") for item in result):
                 raise RuntimeError("partial indexing failure")
         else:
-            self.request("POST", "/v2/vectordb/entities/upsert", {"collectionName": c, "data": rows})
+            self.request(
+                "POST", "/v2/vectordb/entities/upsert", {"collectionName": c, "data": rows}
+            )
 
     def search(self, query, scope, limit):
         vector = self.embedder.embed([query], query=True)[0]
         c = self.collection
         if self.backend == "qdrant":
-            result = self.request("POST", "/collections/" + c + "/points/query", {
-                "query": vector, "limit": limit, "with_payload": True,
-                "filter": {"must": [{"key": "scope", "match": {"value": scope}}]},
-            })["result"]["points"]
+            result = self.request(
+                "POST",
+                "/collections/" + c + "/points/query",
+                {
+                    "query": vector,
+                    "limit": limit,
+                    "with_payload": True,
+                    "filter": {"must": [{"key": "scope", "match": {"value": scope}}]},
+                },
+            )["result"]["points"]
             return [{**x["payload"], "score": x["score"]} for x in result]
         if self.backend == "weaviate":
-            expr = ("{Get{" + c + "(nearVector:{vector:" + json.dumps(vector)
-                    + "},where:{path:[\"scope\"],operator:Equal,valueText:" + json.dumps(scope)
-                    + "},limit:" + str(limit) + "){record_id scope version chunk _additional{distance}}}}")
+            expr = (
+                "{Get{"
+                + c
+                + "(nearVector:{vector:"
+                + json.dumps(vector)
+                + '},where:{path:["scope"],operator:Equal,valueText:'
+                + json.dumps(scope)
+                + "},limit:"
+                + str(limit)
+                + "){record_id scope version chunk _additional{distance}}}}"
+            )
             result = self.request("POST", "/v1/graphql", {"query": expr})["data"]["Get"][c]
             return [{**x, "score": 1 - x["_additional"]["distance"]} for x in result]
-        result = self.request("POST", "/v2/vectordb/entities/search", {
-            "collectionName": c, "data": [vector], "annsField": "vector", "limit": limit,
-            "filter": "scope == " + json.dumps(scope), "consistencyLevel": "Strong",
-            "outputFields": ["record_id", "scope", "version", "chunk"],
-        })["data"]
+        result = self.request(
+            "POST",
+            "/v2/vectordb/entities/search",
+            {
+                "collectionName": c,
+                "data": [vector],
+                "annsField": "vector",
+                "limit": limit,
+                "filter": "scope == " + json.dumps(scope),
+                "consistencyLevel": "Strong",
+                "outputFields": ["record_id", "scope", "version", "chunk"],
+            },
+        )["data"]
         return [{**x, "score": x["distance"]} for x in result]
 
     def delete(self, record_id, version=None):
         c = self.collection
         if self.backend == "qdrant":
             conditions = [{"key": "record_id", "match": {"value": record_id}}]
-            if version is not None: conditions.append({"key":"version","match":{"value":version}})
-            self.request("POST", "/collections/" + c + "/points/delete?wait=true", {"filter": {"must": conditions}})
+            if version is not None:
+                conditions.append({"key": "version", "match": {"value": version}})
+            self.request(
+                "POST",
+                "/collections/" + c + "/points/delete?wait=true",
+                {"filter": {"must": conditions}},
+            )
         elif self.backend == "weaviate":
             where = {"path": ["record_id"], "operator": "Equal", "valueText": record_id}
-            if version is not None: where = {"operator":"And","operands":[where,{"path":["version"],"operator":"Equal","valueInt":version}]}
-            self.request("DELETE", "/v1/batch/objects", {"match": {"class":c,"where":where}})
+            if version is not None:
+                where = {
+                    "operator": "And",
+                    "operands": [
+                        where,
+                        {"path": ["version"], "operator": "Equal", "valueInt": version},
+                    ],
+                }
+            self.request("DELETE", "/v1/batch/objects", {"match": {"class": c, "where": where}})
         else:
             expr = "record_id == " + json.dumps(record_id)
-            if version is not None: expr += " and version == " + str(version)
-            self.request("POST", "/v2/vectordb/entities/delete", {"collectionName":c,"filter":expr})
+            if version is not None:
+                expr += " and version == " + str(version)
+            self.request(
+                "POST", "/v2/vectordb/entities/delete", {"collectionName": c, "filter": expr}
+            )
 
     def close(self):
         self.http.close()

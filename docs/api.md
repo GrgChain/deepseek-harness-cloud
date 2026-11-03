@@ -1,6 +1,6 @@
 # DSH Cloud 接口设计
 
-版本：V0.1。公开契约以 [OpenAPI 3.0.3](../api/openapi.yaml) 为准；本文说明鉴权、事务、错误和开发约束。REQ-01～19 的范围见[功能需求](requirements.md)，数据库字段见[数据设计](data-model.md)。
+版本：V0.2。公开契约以 [OpenAPI 3.0.3](../api/openapi.yaml) 为准；本文说明鉴权、事务、错误和开发约束。REQ-01～19 的范围见[功能需求](requirements.md)，数据库字段见[数据设计](data-model.md)。
 
 ## 1 公共协议与认证
 
@@ -61,6 +61,11 @@
 | API-117 | `GET /v1/users/role-options` | 以users:read读取本组织精简角色选项，支持搜索与分页 |
 | API-118 | `GET /v1/workspace-extensions/plugins` | 创建时可选的固定版本插件及禁选原因 |
 | API-119 | `GET /v1/workspace-extensions/{id}` | 本人已选扩展、冻结版本/范围及当前运行代次状态 |
+| API-121 | `GET /v1/plugins` | 数据库默认目录与本人条目合并，个人资料按包名覆盖默认 |
+| API-122 | `POST /v1/plugins` | 重新校验并保存在线固定版本或离线 npm 原包 |
+| API-123 | `POST /v1/plugins:preview` | 读取在线 npm 信息或解析离线原包，不保存或安装 |
+| API-124 | `GET /v1/plugins/{id}/archive` | 下载本人离线添加时保存的原始压缩包 |
+| API-125 | `PUT /v1/plugins/{id}` | 按revision配置默认、在线或离线插件的本人展示资料 |
 | - | `GET /v1/workspace-extensions/{id}/skills` | 本人创建时选择的技能名称与版本，不包含技能内容 |
 | API-043 | `GET /v1/permissions` | 读取固定权限目录、中文名称、用途说明、可分配性及依赖 |
 | API-044 | `GET /v1/model-directory` | 读取已保存配置版本的批准目录 |
@@ -104,7 +109,7 @@
 
 ## 4 资源与配置语义
 
-实例列表、详情和操作仅返回本人可访问数据；allowed_actions与can_enter按当前权限、Owner、状态及必要健康计算。创建/启动/停止/应用配置/删除在接受事务内重查资格、版本、配额和原资产，记录操作及审计；Worker执行资源效果。删除保留原卷，永久回收为受控CLI，无用户永久删除API。停止/删除立即撤销访问代次与入口。
+实例列表、详情和操作仅返回本人可访问数据；allowed_actions与can_enter按当前权限、Owner、状态及必要健康计算。创建/启动/停止/应用配置/删除在接受事务内重查资格、版本、配额和原资产，记录操作及审计；Worker执行资源效果。实例删除为软删除，清理计算并保留原卷；停止/删除立即撤销访问代次与入口。具备 `instances:release-storage` 的Owner可经API-080精确确认，申请提前释放本人已删除工作空间的保留数据；202仅表示受理，后台核实物理回收结果后才释放额度。受信CLI另提供按维护规则执行的回收流程。`DELETE /v1/storage-assets/{id}` 只移除本人已回收资产的展示记录，保留后台资产、备份及审计，不触发物理回收；详细契约见[存储资产查询](#存储资产查询req-19)。
 
 模型配置是不可变版本，更新生成新版本；默认项变更只影响新创建。已有实例显式应用新配置。个人模型只允许本人读写，真实提供商Key加密保存、不读回；同提供商及地区允许省略Key复用，空值/切换提供商或地区不得借用旧Key。平台目录与受控网关决定可选模型/endpoint，用户不能提交任意网络地址或协议参数。同步未知、周期核对过期或真实校验失败不能被目录读取成功替代。
 
@@ -214,11 +219,11 @@ POST /v1/instances已有可选name字段，Portal创建抽屉现提交用户填�
 
 `GET /v1/defaults` 需要 configuration:read，未初始化返回 404 DEFAULTS_NOT_CONFIGURED。`PUT /v1/defaults` 需要 defaults:write、同源/CSRF 校验，必填 version、template_id、template_version、spec_id；初始化 version=0，更新须精确匹配当前版本，成功递增，冲突返回 409 VERSION_CONFLICT。模板和规格须已批准且启用；平台页不展示模板选择，按当前批准模板及数字资源解析 spec_id。存储支持 1–100 GiB 整数，协议仍传批准 spec_id，不允许未批准资源金额。
 
-可提交 retention_days（整数 1–365，初始化默认 7）和 max_user_instances（正整数，省略保留组织额度默认值）。上限不得超过组织 max_instances 或低于继承用户的现有实例占用；单独分配的用户额度不变。配置、默认额度版本与 DEFAULTS_SAVE 审计原子提交。数据期限用于后续确认软删除，已有更长资产期限不缩短；受控永久回收仍须满足独立 7 天安全门槛。资源修改不替换已有实例快照。
+可提交 retention_days（整数 1–365，初始化默认 7）和 max_user_instances（正整数，省略保留组织额度默认值）。上限不得超过组织 max_instances 或低于继承用户的现有实例占用；单独分配的用户额度不变。配置、默认额度版本与 DEFAULTS_SAVE 审计原子提交。数据期限用于后续确认软删除，已有更长资产期限不缩短；受信CLI的普通回收路径仍须满足保留期限及独立7天安全门槛，Owner明确申请提前释放另按API-080校验。资源修改不替换已有实例快照。
 
 模型字段可省略：新建运行默认值不需要组织模型，返回 model_configuration_id=""、model_configuration_version=0。兼容调用若显式提交组织模型，须同时提供合法 ID/版本并通过现有组织归属、凭据及能力校验；省略不清除已有模型绑定。平台页面不发送这两个字段，创建时独立验证所选本人模型提供商账号。
 
-API-043 返回当前34项有效权限目录（包含技能包、连接器、记忆及知识库权限），新增能力沿用既有授权：数据资产、文件浏览/预览/下载使用instances:read，手动释放使用instances:release-storage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。API-117仅返回角色的id/code/name，需users:read；不返回权限集合、说明、版本或用户数。完整角色、权限目录读取仍需roles:read，用户写入与角色分配仍需users:manage；搜索及page/cursor规则与列表一致。
+API-043 返回当前完整固定权限目录，包含技能包、连接器、记忆、知识库及 `plugins:manage` 插件目录管理权限。数据资产、文件浏览/预览/下载及插件库浏览使用instances:read，手动释放使用instances:release-storage，插件目录添加和资料编辑使用plugins:manage，用户资源配额使用users:read/users:manage，系统上限使用configuration:read/defaults:write，DSH原生插件与预设使用instances:access及本人工作空间边界。目录可附description说明，角色保存仍仅提交权限ID；目录展示不修改既有角色授权。API-117仅返回角色的id/code/name，需users:read；不返回权限集合、说明、版本或用户数。完整角色、权限目录读取仍需roles:read，用户写入与角色分配仍需users:manage；搜索及page/cursor规则与列表一致。
 
 ## 存储资产查询（REQ-19）
 
@@ -252,7 +257,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 ## 外接记忆与知识库（API-095～099、API-120）
 
-`/v1/context/{memory|knowledge}`提供本人连接列表/创建，`/{id}`更新/移除；`/{id}/{action}`提供验证、list/search/get/export、预览/保存、内容删除/重建、绑定和核实。POST即使只读仍校验Origin及CSRF。`apply/delete/rebuild`使用请求内幂等键；绑定同时检查连接与绑定版本；`reconcile`只接受空对象，重放服务器加密保存的原始操作。移除连接保留外部数据，永久内容删除独立确认。公开字段以[OpenAPI](../api/openapi.yaml)为准，支持程度见[实施记录](context-implementation.md)。
+`/v1/context/{memory|knowledge}`提供本人连接列表/创建，`/{id}`更新/移除；`/{id}/{action}`提供验证、list/search/get/export、预览/保存、内容删除/重建、绑定和核实。POST即使只读仍校验Origin及CSRF。`apply/delete/rebuild`使用请求内幂等键；绑定同时检查连接与绑定版本；`reconcile`只接受空对象，重放服务器加密保存的原始操作。移除连接保留外部数据，永久内容删除独立确认。公开字段以[OpenAPI](../api/openapi.yaml)为准，支持程度见[上下文服务部署](../deploy/context/README.md)。
 
 `POST /v1/context/knowledge/parse` 接收一个 multipart 文件并转交配置的 Docling，返回可编辑的 Markdown，不直接写入知识库。知识库 `list` 可提交 `page`、`page_size` 和标题 `query`；`search` 支持 `semantic`、`keyword`、`hybrid`，保留旧客户端的 `exact` 模式。`min_similarity` 可选，适用于语义和混合检索的向量结果；关键词命中不受阈值限制。未提交阈值时保持原有行为。
 
@@ -273,7 +278,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 | `POST /v1/connectors/{id}/oauth`（API-115） | 管理权限、CSRF及`expected_version`；返回`authorization_url`供当前浏览器跳转，不返回Token或客户端密钥 |
 | `GET /v1/connectors/oauth/callback`（API-116） | 当前组织、Owner及登录会话；单次消费state并交换授权码，保存密文后验证工具；303返回工作台 |
 
-所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[实施记录](connectors-implementation.md)。
+所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[连接器后端设计](backend.md#工作台连接器mcp)。
 
 `GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为10种官方远程服务提供预填地址，其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。推荐服务可预填地址，允许用户修改；旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存不发起外部请求。
 
@@ -283,4 +288,16 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 ## 创建扩展配置（REQ-25；API-005、118～119）
 
-API-005支持可空的`skills/connectors/memory/knowledge/plugins`。新四类只提交资源ID、准确版本、连接器目录版本或`personal/workspace`范围，与模型/资源一起原子接受及幂等重放；不接收密钥、任意npm地址或外部命名空间。非空四类需要`instances:configure`，连接器另需read/manage/invoke，记忆和知识库分别需read/manage。新增`GET /v1/workspace-extensions/plugins`（API-118）返回兼容性及禁选原因；`GET /v1/workspace-extensions/{id}`（API-119）返回本人配置及当前代次逐项状态，不返回无当前类型读取权限的名称或引用。原生DSH工具使用私有Worker通道，无新增公网工具调用接口。字段、数量和状态枚举以[OpenAPI](../api/openapi.yaml)为准。
+API-005支持可空的`skills/connectors/memory/knowledge/plugins`。新四类只提交资源ID、准确版本、连接器目录版本、知识库权限和可选会话同步开关；记忆与知识库固定每连接一份共享内容，不提交个人/工作空间范围，与模型/资源一起原子接受及幂等重放；不接收密钥、任意npm地址或外部命名空间。非空四类需要`instances:configure`，连接器另需read/manage/invoke，记忆和知识库分别需read/manage。新增`GET /v1/workspace-extensions/plugins`（API-118）返回兼容性及禁选原因；`GET /v1/workspace-extensions/{id}`（API-119）返回本人配置及当前代次逐项状态，不返回无当前类型读取权限的名称或引用。原生DSH工具使用私有Worker通道，无新增公网工具调用接口。字段、数量和状态枚举以[OpenAPI](../api/openapi.yaml)为准。
+
+
+## 本人插件目录（API-121～125）
+
+`GET /v1/plugins` 需 `instances:read`，返回数据库默认目录及本人条目，按包名以个人资料优先合并；前端仅展示该响应，不使用源码静态默认值。默认条目 `custom=false`，个人新增或覆盖条目 `custom=true`，全部记录 `revision>=1`。预览和添加需 `plugins:manage`、精确同源与 CSRF；在线分别提交 `{package_name}` 和 `{package_name,version,category}`，离线分别提交 `{filename,content_base64}` 和 `{filename,content_base64,category}`。两类字段互斥，拒绝未知字段、重复字段及 null。保存会重新从 npm 固定版本读取或重新解析离线原包，不信任预览返回的展示字段。
+
+离线仅接受 npm `.tgz` / `.tar.gz`，原包 5 MiB、展开 20 MiB、1000 项、清单 1 MiB，JSON 请求体 8 MiB；不联网或执行代码，声明的 DSH patch 必须在包内。超限为 `413 PLUGIN_TOO_LARGE`，非法包或请求为 `422 PLUGIN_INVALID`，同名为 `409 PLUGIN_EXISTS`。响应包含 `addition_method`、`filename`、`sha256`，在线后两项为空。`GET /v1/plugins/{id}/archive` 以 `application/gzip` 附件返回本人离线原包及 `X-Checksum-SHA256`，禁止缓存；跨 Owner、在线或不存在记录统一 404。列表不包含包内容或密文，添加不安装或启用插件。
+
+
+`PUT /v1/plugins/{id}` 需 `plugins:manage`、同源和 CSRF，完整提交 `name/summary/description/author/version/category/keywords/repository/documentation/compatibility/checked_at/source_note/expected_revision`。日期必须为真实 `YYYY-MM-DD`，说明、版本要求、来源说明及链接允许清空，链接仅接受无凭据的 HTTPS。版本是展示收录版本，不能据此改变离线原包。请求上限64 KiB，严格拒绝缺失、未知、重复或 null 字段。
+
+编辑默认条目会生成本人覆盖并返回新的个人 ID 和递增 `revision`；他人的默认或个人配置保持独立，默认覆盖不占100条新增额度。已有个人条目保持 ID，以 `expected_revision` 检查后递增；版本冲突为 `409 PLUGIN_VERSION_CONFLICT`，不可见个人 ID 为 `404 PLUGIN_NOT_FOUND`。编辑不请求 npm、不安装或执行代码，包名、添加方式、原包文件名、SHA-256及密文不可修改；元数据及 `PLUGIN_UPDATE` 审计原子提交。

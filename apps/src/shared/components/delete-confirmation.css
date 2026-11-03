@@ -1,0 +1,89 @@
+.delete-confirmation.ant-modal {
+  min-width: 0;
+  max-width: calc(100vw - 32px);
+}
+.delete-confirmation .ant-modal-content {
+  padding: 24px;
+}
+.delete-confirmation-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  line-height: 28px;
+}
+.delete-confirmation-target {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 20px;
+  padding: 14px 16px;
+  background: var(--color-background);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.delete-confirmation-target > span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.delete-confirmation-target > strong {
+  font-size: 15px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.delete-confirmation-impact {
+  margin: 20px 0;
+  color: var(--muted);
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.delete-confirmation-impact p + p {
+  margin-top: 8px;
+}
+.delete-confirmation-impact strong {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+.delete-confirmation-field label {
+  display: block;
+  font-weight: 500;
+}
+.delete-confirmation-field p {
+  margin: 6px 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.delete-confirmation-field .ant-input {
+  min-height: 44px;
+}
+.delete-confirmation-feedback {
+  margin-top: 8px;
+  min-height: 22px;
+  font-size: 12px;
+}
+.delete-confirmation .ant-alert {
+  margin-top: 16px;
+}
+.delete-confirmation .ant-modal-footer {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+.delete-confirmation .ant-modal-footer .ant-btn {
+  min-height: 44px;
+  min-width: 88px;
+}
+@media (max-width: 480px) {
+  .delete-confirmation .ant-modal-content {
+    padding: 20px;
+  }
+  .delete-confirmation .ant-modal-footer {
+    display: flex;
+    gap: 12px;
+  }
+  .delete-confirmation .ant-modal-footer .ant-btn {
+    flex: 1;
+    margin: 0;
+  }
+}

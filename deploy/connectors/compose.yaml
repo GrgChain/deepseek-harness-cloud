@@ -2,7 +2,7 @@ name: hc-mcp
 services:
   fixture:
     image: hc-mcp-fixture:0.1.0
-    user: "${HC_MCP_UID:-1000}:${HC_MCP_GID:-1000}"
+    user: '${HC_MCP_UID:-1000}:${HC_MCP_GID:-1000}'
     environment:
       HC_MCP_FIXTURE_ADDR: 0.0.0.0:18781
       HC_MCP_FIXTURE_KEY_FILE: /run/secrets/fixture-key

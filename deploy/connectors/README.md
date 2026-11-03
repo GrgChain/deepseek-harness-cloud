@@ -1,10 +1,10 @@
 # MCP连接器部署与复验
 
-本文提供现有连接器的配置和复验步骤。功能与模块见[实施说明](../../docs/connectors-implementation.md)，交付要求见[REQ-23](../../docs/requirements.md#617-连接器mcpreq-23)，历史结果见[测试验收](../../docs/testing.md)。文中的命令是复验入口，不代表本次整理重新执行了测试或改变部署。
+本文提供现有连接器的地址、认证配置和复验步骤。功能与模块见[后端说明](../../docs/backend.md#工作台连接器mcp)及[工作台交互](../../docs/frontend.md#工作台连接器mcp)，交付要求见[REQ-23](../../docs/requirements.md#617-连接器mcpreq-23)，验收状态见[测试文档](../../docs/testing.md)。
 
 ## 1 部署前提
 
-工作台入口为 `/app/connectors`。平台API须具备PostgreSQL、Redis、登录会话、数据加密密钥及公网HTTPS出口；用户需要本人连接的读取/管理/调用权限。平台作为远程MCP客户端，不修改DSH。支持Streamable HTTP、无认证/Bearer/OAuth 2.0 + PKCE，协议选择为 `2026-07-28` 或显式 `2025-11-25`。
+工作台入口为 `/app/connectors`。平台API须具备PostgreSQL、Redis、登录会话、数据加密密钥及公网HTTPS出口；用户需要本人连接的读取/管理/调用权限。工作台由平台作为远程MCP客户端，不修改DSH；创建时的受控接入另见[REQ-25](../../docs/requirements.md#619-创建工作空间扩展配置req-25)。支持Streamable HTTP、无认证/Bearer/OAuth 2.0 + PKCE；新建连接优先使用 `2026-07-28`，自动协商兼容 `2025-11-25`，已有兼容版配置保留。
 
 执行 `make migrate` 应用迁移49～51并更新API角色授权，再更新平台API原生进程；本机 `make run-auth` 包含迁移及初始化步骤。API依赖就绪后即可执行登录测试，无请求限流或启动冷却。无需通过重启DSH处理平台认证问题。
 
@@ -51,11 +51,43 @@ API通过 `HC_CONNECTOR_ENDPOINTS_FILE` 读取0600私有JSON文件；本机 `mak
 
 此示例用于说明绑定格式；默认OAuth服务通常无需重复登记。除已支持的腾讯文档、腾讯会议、微云、乐享及滴滴原生认证外，其他需CLI、stdio或旧SSE的条目，先独立部署兼容HTTP MCP适配服务，再由用户填写该服务地址；可选通过平台策略提供推荐地址。目录本身不会部署这些服务。用户可在任意目录条目直接填写个人地址，也可选择推荐地址后修改；“自定义MCP”用于不关联目录的服务。
 
-官方地址及认证格式见[默认地址说明](../../docs/connectors-reference.md#连接器默认地址)。默认地址均可修改，平台已有同目录服务时优先使用平台服务；公网地址无需预先登记。
+### 默认地址与认证
+
+以下为2026-10-27核对的19种官方远程地址；名称链接指向来源文档。默认地址可修改，已有同目录平台绑定优先；预填地址不代表用户已授权或服务持续可用。
+
+| 连接器 | 默认地址 | 个人认证 |
+| --- | --- | --- |
+| [腾讯文档](https://developer.cloud.tencent.com/mcp/server/11803) | `https://docs.qq.com/openapi/mcp` | Token，原样发送 `Authorization` |
+| 腾讯会议 | `https://mcp.meeting.tencent.com/mcp/wemeet-open/v1` | Token，发送 `X-Tencent-Meeting-Token` 及 `X-Skill-Version: v1.0.1` |
+| 腾讯微云 | `https://www.weiyun.com/api/v3/mcpserver` | Token，发送 `WyHeader: mcp_token=令牌` |
+| [腾讯乐享](https://github.com/tencent-lexiang/lexiang-mcp-skill) | `https://mcp.lexiang-app.com/mcp` | 企业标识 `company_from` 与访问令牌，格式见下文 |
+| [滴滴](https://mcp.didichuxing.com/api) | `https://mcp.didichuxing.com/mcp-servers` | MCP Key，仅出站时写入 `key` 查询参数 |
+| [腾讯设计 Ardot](https://docs.ardot.tencent.com/ardot-mcp/introduction.html) | `https://ardot.tencent.com/mcp` | OAuth |
+| [Notion](https://developers.notion.com/docs/mcp) | `https://mcp.notion.com/mcp` | OAuth |
+| [OpenAlex](https://help.openalex.org/access/connector/) | `https://mcp.openalex.org/mcp` | OAuth |
+| [滴答清单](https://help.dida365.com/articles/7438132116019216384) | `https://mcp.dida365.com` | OAuth |
+| [企查查](https://agent.qcc.com/guide) | `https://agent.qcc.com/mcp/company/stream` | OAuth或Bearer Key；当前仅接入企业信息服务 |
+| [GitHub](https://github.com/github/github-mcp-server) | `https://api.githubcopilot.com/mcp/` | 个人访问令牌（PAT），标准Bearer |
+| [Gitee](https://gitee.com/oschina/mcp-gitee/blob/master/README_CN.md) | `https://api.gitee.com/mcp` | 个人访问令牌，标准Bearer |
+| [GitLab](https://docs.gitlab.com/user/model_context_protocol/mcp_server/) | `https://gitlab.com/api/v4/mcp` | 具有MCP tool资源Execute权限的细粒度PAT，或OAuth；传统PAT不可用 |
+| [Codeup](https://github.com/aliyun/alibabacloud-devops-mcp-server/blob/master/docs/hosted-mcp-guide.zh-CN.md) | `https://openapi-rdc.aliyuncs.com/ai/mcp` | 云效个人访问令牌，标准Bearer；Region站改为本组织域名下的 `/ai/mcp` |
+| [Context7](https://context7.com/docs/resources/all-clients) | `https://mcp.context7.com/mcp` | 可选“无需认证”，或以标准Bearer发送本人API Key |
+| [Linear](https://linear.app/docs/mcp) | `https://mcp.linear.app/mcp` | OAuth |
+| [Sentry](https://mcp.sentry.dev/) | `https://mcp.sentry.dev/mcp` | OAuth；可按官方说明改为组织或项目专属路径 |
+| [Vercel](https://vercel.com/docs/agent-resources/vercel-mcp) | `https://mcp.vercel.com` | OAuth，必要时登记厂商批准的客户端与回调 |
+| [Supabase](https://supabase.com/docs/guides/ai-tools/mcp) | `https://mcp.supabase.com/mcp` | OAuth或PAT；不能使用项目 `anon` / `service_role` Key |
+
+腾讯会议、微云等原生格式的核对来源另见[腾讯云 Octop 配置](https://github.com/TencentCloud/Octop/blob/0d65f2ad4b855141572f4ddeb367db5538c5e92e/src/octop/infra/connectors/builder.py)。原生认证仅适用于精确匹配的官方URL，自定义网关继续使用标准Bearer，不因目录ID相同而发送厂商专用头。
+
+乐享页面分别填写企业标识和令牌；API的 `credential` 为包含二者的JSON字符串，如 `{"token":"本人令牌","company_from":"企业标识"}`。服务端将 `company_from` 编码为查询参数，并发送 `Authorization: Bearer 令牌`。二者一起加密且均不读回；原地址编辑时均留空可保留，更换任意一项须一起重填。滴滴Key只在出站时注入，不保存到连接URL、列表或导出中。
+
+GitLab自建实例使用该实例的 `/api/v4/mcp`，并须在群组或实例允许MCP。Context7匿名接入保存并验证后，可在“工具与记录”启用 `resolve-library-id` 和 `query-docs`；厂商可能限制匿名额度，需要时按[官方说明](https://context7.com/docs/resources/troubleshooting)改用Bearer API Key。
+
+其余目录没有统一的兼容公共地址：CLI或stdio服务须独立部署HTTP MCP网关，有道云笔记的旧SSE须适配，Dify地址由个人应用或工作流发布生成。填写个人兼容HTTPS地址仍沿用平台出口校验，目录本身不部署服务。
 
 ## 3 OAuth配置
 
-内置Ardot、Notion、OpenAlex、滴答清单、企查查企业信息MCP的推荐地址，用户可以修改。每个用户用自己的厂商账号授权；企查查五类聚合和专用解绑仍属待实现范围。
+默认目录中9种服务使用OAuth，地址见[上表](#默认地址与认证)。每个用户用自己的厂商账号授权；企查查五类聚合和专用解绑仍属待实现范围。
 
 回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`。正式部署使用可访问的HTTPS源站，并按厂商要求登记完整回调；本机须使浏览器信任证书。平台源站、证书、登录会话与网关应一致，不单独改授权请求里的回调地址。
 
@@ -78,11 +110,23 @@ API通过 `HC_CONNECTOR_ENDPOINTS_FILE` 读取0600私有JSON文件；本机 `mak
 
 客户端配置按精确服务URL匹配，不通过连接器列表读回。`auth_method`支持 `none`、`client_secret_basic`、`client_secret_post`，公开客户端无需 `client_secret`。所有元数据、注册与Token端点均执行独立出口检查；测试HTTP端点须逐个精确批准，不能仅批准MCP地址就放行所有授权端点。
 
+### 资源标识与厂商回调
+
+自定义服务通过RFC 9728路径级或根级保护资源元数据发现授权服务器；Linear、Sentry、Supabase使用此流程。`resource` 必须与厂商声明的标识一致，不按服务URL自行拼接或去掉末尾 `/`：滴答清单为 `https://mcp.dida365.com/`，Vercel为 `https://mcp.vercel.com/`。scope与grant按厂商元数据和本人授权范围申请；2026-10-26滴答清单元数据仅声明 `authorization_code`，平台支持刷新不代表厂商一定签发refresh token。
+
+Vercel的注册接口为 `https://api.vercel.com/login/oauth/register`。2026-10-26检查中，当前本机 `portal.harness.localhost` 回调被以 `invalid_redirect_uri` 拒绝；须先取得厂商批准的客户端及回调，再按精确服务URL配置 `oauth_clients`。仅修改MCP地址或授权请求回调不能解决登记限制。
+
 ### 企查查回调限制
 
-2026-10-26检查时，自定义本机域名 `portal.harness.localhost` 被企查查注册接口拒绝；`localhost`、`127.0.0.1`的回环回调注册被接受。结果见[实网报告](../../docs/connectors-reference.md#oauth-连接器可用性检查)。
+2026-10-26检查时，自定义本机域名 `portal.harness.localhost` 被企查查以 `invalid_client_metadata` 拒绝；回调路径为 `/v1/connectors/oauth/callback` 时，`http://localhost:42013`、`http://127.0.0.1:42013` 和 `https://127.0.0.1:42013` 的注册被接受。该结果仅证明当日注册接受地址，不证明登录、会话和回调已完整运行。
 
 本机回调要求浏览器与服务处于同一机器，并满足平台的TLS/会话配置；厂商接受某个HTTP回调不代表当前平台登录可直接迁移到HTTP。云端平台须登记正式HTTPS回调，不能用用户电脑的localhost替代。企查查API Key可避免OAuth回调限制，但当前仅有通用Bearer入口，尚未完成专用双模式及真实Key验收。
+
+### 实网验证边界
+
+2026-10-26，Ardot、Notion、OpenAlex、滴答清单、Linear、Sentry和Supabase通过平台真实出站策略的元数据、动态注册及授权入口检查；未完成厂商账号同意、成功回调、业务调用或真实令牌刷新。Context7匿名模式已通过平台握手、工具发现及两项显式业务调用，协商协议为 `2025-11-25`；GitHub未提供本人PAT，未验收业务工具。Vercel和企查查的回调限制见上文。这些是当日结果，不代表持续健康，厂商策略或平台配置变化后须重新验证。
+
+平台模拟OAuth、受控页面和合成MCP服务验证不能替代逐厂商真实账号验收。厂商调用与刷新按[TC-106](../../docs/testing.md#2-用例目录)继续验收；企查查专用双模式、五类聚合及远端撤销按[第6.17.2节](../../docs/requirements.md#6172-企查查完整接入扩展交付)交付。
 
 ## 4 独立测试服务
 
@@ -121,9 +165,12 @@ cd apps
 npm run typecheck
 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/connectors.spec.ts --workers=2
 HC_REAL_IDENTITY=true HC_REAL_CONNECTORS=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/connectors-live.spec.ts --workers=1
+HC_REAL_DEVELOPMENT_MCP=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chrome/chrome npx playwright test tests/connectors-development-live.spec.ts --project=desktop --workers=1
 ```
 
 受控页面使用模拟API；真实页面创建独立成员账号，验证平台配置/工具流程并清理数据，桌面另覆盖Ardot真实注册、授权URL及取消回调。合成工具调用成功不代表真实厂商工具通过；厂商账号同意、成功回调及业务调用须按TC-106～109另行验收。
+
+开发类实网用例显式启用后验证Context7调用及OAuth入口；它保留全部OAuth入口成功的断言，未解决Vercel回调批准时整项会失败，不能将其余入口通过写成整项通过。未启用真实环境开关时跳过，不计作验收成功。
 
 ## 6 排查入口
 

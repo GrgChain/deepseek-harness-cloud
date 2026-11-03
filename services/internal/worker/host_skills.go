@@ -2,15 +2,14 @@ package worker
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 
+	"github.com/jonluo94/deepseek-harness-cloud/infrastructure/runtime/workspace-assets"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/skills"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 )
 
-//go:embed install_skills.mjs
-var installSkillsProgram string
+var installSkillsProgram = workspaceassets.InstallSkills
 
 func (h *LocalHost) installSkills(ctx context.Context, p ExecutionPlan) error {
 	if p.Action != "CREATE" || len(p.skills) == 0 {

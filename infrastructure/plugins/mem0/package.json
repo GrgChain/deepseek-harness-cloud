@@ -1,0 +1,58 @@
+{
+  "name": "@harness-cloud/dsh-mem0-memory",
+  "version": "0.1.0",
+  "description": "Mem0 OSS memory for DSH: recall, confirmed remember and opt-in conversation capture.",
+  "author": "Harness Cloud",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.mjs",
+  "icon": "./icon.svg",
+  "exports": {
+    ".": "./index.mjs",
+    "./package.json": "./package.json",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.mjs",
+    "runtime.mjs",
+    "cordis.patch.yml",
+    "locale",
+    "icon.svg",
+    "README.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "engines": {
+      "dsh": "0.2.1-alpha.2"
+    }
+  },
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/dsh-llm": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-tools": "0.2.1-alpha.2",
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+  },
+  "scripts": {
+    "test": "node --loader ./test-loader.mjs --test test/*.test.mjs",
+    "check": "node --check index.mjs && node --check runtime.mjs"
+  },
+  "keywords": [
+    "dsh",
+    "mem0",
+    "memory",
+    "auto-recall",
+    "conversation"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jonluo94/deepseek-harness-cloud.git",
+    "directory": "infrastructure/plugins/mem0"
+  },
+  "homepage": "https://github.com/jonluo94/deepseek-harness-cloud/tree/main/infrastructure/plugins/mem0"
+}

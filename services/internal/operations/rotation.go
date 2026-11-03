@@ -41,6 +41,7 @@ var encryptedTables = []encryptedTable{
 	{"oidc_transactions", "id", "$3::text", "id::text", "key_id", "pkce_nonce", "pkce_cipher", "oidc-pkce"},
 	{"native_sessions", "instance_id", "(SELECT org_id::text FROM public.instances WHERE id=t.instance_id)", "instance_id::text||':'||runtime_generation::text", "key_id", "nonce", "cookie_ciphertext", "native-cookie"},
 	{"personal_skills", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "skill-bundle"},
+	{"personal_plugins", "id", "org_id::text", "owner_id::text||'/'||id::text", "archive_key_id", "archive_nonce", "archive_ciphertext", "plugin-archive"},
 	{"skill_import_previews", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "skill-import"},
 	{"skill_replacements", "skill_id", "(SELECT org_id::text FROM public.personal_skills WHERE id=t.skill_id)", "skill_id::text", "key_id", "nonce", "ciphertext", "skill-bundle"},
 	{"context_connections", "id", "org_id::text", "id::text", "key_id", "nonce", "ciphertext", "context-credential"},

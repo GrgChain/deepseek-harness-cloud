@@ -9,9 +9,12 @@ for (const [name, value] of Object.entries(uiColors)) {
   document.documentElement.style.setProperty(`--color-${name}`, value);
 }
 
-const queryClient = new QueryClient({ defaultOptions: {
-  queries: { retry: false, refetchOnWindowFocus: true }, mutations: { retry: false },
-} });
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { retry: false, refetchOnWindowFocus: true },
+    mutations: { retry: false },
+  },
+});
 
 const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 const subscribeToMotionPreference = (notify: () => void) => {
@@ -20,8 +23,18 @@ const subscribeToMotionPreference = (notify: () => void) => {
 };
 
 export function AppProviders({ children }: { children: ReactNode }) {
-  const reducedMotion = useSyncExternalStore(subscribeToMotionPreference, () => motionPreference.matches);
-  return <ConfigProvider locale={zhCN} theme={{ ...portalTheme, token: { ...portalTheme.token, motion: !reducedMotion } }}>
-      <QueryClientProvider client={queryClient}><BrowserRouter>{children}</BrowserRouter></QueryClientProvider>
-    </ConfigProvider>;
+  const reducedMotion = useSyncExternalStore(
+    subscribeToMotionPreference,
+    () => motionPreference.matches,
+  );
+  return (
+    <ConfigProvider
+      locale={zhCN}
+      theme={{ ...portalTheme, token: { ...portalTheme.token, motion: !reducedMotion } }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <BrowserRouter>{children}</BrowserRouter>
+      </QueryClientProvider>
+    </ConfigProvider>
+  );
 }

@@ -1,14 +1,14 @@
 name: hc-context
 
 x-direct-network: &direct-network
-  HTTP_PROXY: ""
-  HTTPS_PROXY: ""
-  ALL_PROXY: ""
-  http_proxy: ""
-  https_proxy: ""
-  all_proxy: ""
-  NO_PROXY: "*"
-  no_proxy: "*"
+  HTTP_PROXY: ''
+  HTTPS_PROXY: ''
+  ALL_PROXY: ''
+  http_proxy: ''
+  https_proxy: ''
+  all_proxy: ''
+  NO_PROXY: '*'
+  no_proxy: '*'
 
 # Only external knowledge/memory services belong in this project. Portal and
 # existing DSH containers are managed by their existing deployment.
@@ -17,12 +17,12 @@ services:
     image: hc-docling:1.36.0
     build: ./docling
     profiles: [knowledge, docling]
-    ports: ["127.0.0.1:18582:5001"]
+    ports: ['127.0.0.1:18582:5001']
     environment:
       <<: *direct-network
-      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: "false"
-      DOCLING_SERVE_MAX_SYNC_WAIT: "280"
-      DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: "280"
+      DOCLING_SERVE_ENABLE_REMOTE_SERVICES: 'false'
+      DOCLING_SERVE_MAX_SYNC_WAIT: '280'
+      DOCLING_SERVE_MAX_DOCUMENT_TIMEOUT: '280'
     mem_limit: 4g
     cpus: 2
     security_opt: [no-new-privileges:true]
@@ -31,7 +31,7 @@ services:
   bridge:
     image: hc-context-bridge:dev
     build: ./bridge
-    profiles: [knowledge, memory, bridge, graphiti, openviking]
+    profiles: [knowledge, memory, bridge, mem0, graphiti, openviking]
     environment:
       <<: *direct-network
       HC_CONTEXT_TEST_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
@@ -40,29 +40,81 @@ services:
       WEAVIATE_URL: http://weaviate:8080
       MILVUS_URL: ${HC_CONTEXT_DEFAULT_MILVUS_URL:-http://milvus:19530}
       HC_CONTEXT_MODEL_CONFIG: ${HC_CONTEXT_MODEL_CONFIG:-e30=}
-      GRAPHITI_TELEMETRY_ENABLED: "false"
-      SEMAPHORE_LIMIT: "2"
+      GRAPHITI_TELEMETRY_ENABLED: 'false'
+      SEMAPHORE_LIMIT: '2'
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_PASSWORD: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
       OPENVIKING_URL: http://openviking:1933
-      HF_HUB_OFFLINE: "1"
-    ports: ["127.0.0.1:18580:8580"]
-    volumes: ["bridge-data:/data", "embedding-models:/models"]
+      HF_HUB_OFFLINE: '1'
+    ports: ['127.0.0.1:18580:8580']
+    volumes: ['bridge-data:/data', 'embedding-models:/models']
     mem_limit: 2g
     cpus: 2
     security_opt: [no-new-privileges:true]
     healthcheck:
-      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://localhost:8580/healthz')"]
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://localhost:8580/healthz')",
+        ]
       interval: 10s
       timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  mem0:
+    image: hc-context-mem0:dev
+    build: ./bridge
+    profiles: [memory, mem0]
+    command: [uvicorn, 'mem0_rest:app', --host, '0.0.0.0', --port, '8580', --no-access-log]
+    environment:
+      <<: *direct-network
+      HC_CONTEXT_TEST_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
+      QDRANT_URL: http://qdrant:6333
+      HC_MEM0_COLLECTION: hc_workbench_memories
+      HF_HUB_OFFLINE: '1'
+    ports: ['127.0.0.1:18583:8580']
+    volumes: ['mem0-data:/data', 'embedding-models:/models']
+    depends_on:
+      qdrant: { condition: service_started }
+    mem_limit: 1g
+    cpus: 2
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        [
+          CMD,
+          python,
+          -c,
+          "import urllib.request; urllib.request.urlopen('http://localhost:8580/healthz')",
+        ]
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
       retries: 12
     restart: unless-stopped
 
   embeddings:
     image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9@sha256:2538ea1c9640d3763b15af668039d24172d063b42337b0c27796fc2be180c78d
     profiles: [knowledge, embeddings, openviking]
-    ports: ["127.0.0.1:18581:8581"]
-    command: [--hostname, "0.0.0.0", --port, "8581", --tokenization-workers, "2", --max-client-batch-size, "64", --max-batch-tokens, "4096", --max-concurrent-requests, "16"]
+    ports: ['127.0.0.1:18581:8581']
+    command:
+      [
+        --hostname,
+        '0.0.0.0',
+        --port,
+        '8581',
+        --tokenization-workers,
+        '2',
+        --max-client-batch-size,
+        '64',
+        --max-batch-tokens,
+        '4096',
+        --max-concurrent-requests,
+        '16',
+      ]
     healthcheck:
       test: [CMD, curl, --fail, --silent, http://localhost:8581/health]
       interval: 10s
@@ -74,9 +126,9 @@ services:
       MODEL_ID: ${HC_CONTEXT_EMBEDDING_MODEL:-BAAI/bge-small-zh-v1.5}
       API_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
       HUGGINGFACE_HUB_CACHE: /data
-      OMP_NUM_THREADS: "2"
+      OMP_NUM_THREADS: '2'
       LOG_LEVEL: warn
-    volumes: ["embedding-api-data:/data"]
+    volumes: ['embedding-api-data:/data']
     mem_limit: 1g
     cpus: 2
     security_opt: [no-new-privileges:true]
@@ -86,10 +138,10 @@ services:
     image: ghcr.io/volcengine/openviking@sha256:46f9e34cd37238c28cbd9535033773d179006bdf7f3e528dd1c46567abce7701
     profiles: [openviking]
     entrypoint: [openviking-server]
-    command: [--config, /run/context/ov.conf, --host, 0.0.0.0, --port, "1933"]
+    command: [--config, /run/context/ov.conf, --host, 0.0.0.0, --port, '1933']
     environment:
       <<: *direct-network
-    volumes: ["openviking-data:/data", "../../.local/context/ov.conf:/run/context/ov.conf:ro"]
+    volumes: ['openviking-data:/data', '../../.local/context/ov.conf:/run/context/ov.conf:ro']
     mem_limit: 2g
     cpus: 2
     security_opt: [no-new-privileges:true]
@@ -104,7 +156,7 @@ services:
       NEO4J_server_memory_heap_initial__size: 256m
       NEO4J_server_memory_heap_max__size: 512m
       NEO4J_server_memory_pagecache_size: 256m
-    volumes: ["neo4j-data:/data"]
+    volumes: ['neo4j-data:/data']
     mem_limit: 1536m
     cpus: 2
     security_opt: [no-new-privileges:true]
@@ -117,12 +169,12 @@ services:
 
   qdrant:
     image: qdrant/qdrant:v1.20.0
-    profiles: [knowledge, memory, qdrant]
+    profiles: [knowledge, memory, mem0, qdrant]
     environment:
       <<: *direct-network
       QDRANT__SERVICE__API_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
-    ports: ["127.0.0.1:16333:6333"]
-    volumes: ["qdrant-data:/qdrant/storage"]
+    ports: ['127.0.0.1:16333:6333']
+    volumes: ['qdrant-data:/qdrant/storage']
     mem_limit: 768m
     cpus: 1
     security_opt: [no-new-privileges:true]
@@ -131,24 +183,24 @@ services:
   weaviate:
     image: semitechnologies/weaviate:1.27.0
     profiles: [knowledge, weaviate]
-    command: ["--host", "0.0.0.0", "--port", "8080", "--scheme", "http"]
+    command: ['--host', '0.0.0.0', '--port', '8080', '--scheme', 'http']
     environment:
       <<: *direct-network
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "false"
-      AUTHENTICATION_APIKEY_ENABLED: "true"
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'false'
+      AUTHENTICATION_APIKEY_ENABLED: 'true'
       AUTHENTICATION_APIKEY_ALLOWED_KEYS: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
       AUTHENTICATION_APIKEY_USERS: context-test
-      AUTHORIZATION_ADMINLIST_ENABLED: "true"
+      AUTHORIZATION_ADMINLIST_ENABLED: 'true'
       AUTHORIZATION_ADMINLIST_USERS: context-test
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
       DEFAULT_VECTORIZER_MODULE: none
       CLUSTER_HOSTNAME: context-test
-      DISABLE_TELEMETRY: "true"
-      LIMIT_RESOURCES: "true"
-      DISK_USE_WARNING_PERCENTAGE: "90"
-      DISK_USE_READONLY_PERCENTAGE: "97"
-    ports: ["127.0.0.1:18085:8080", "127.0.0.1:15051:50051"]
-    volumes: ["weaviate-data:/var/lib/weaviate"]
+      DISABLE_TELEMETRY: 'true'
+      LIMIT_RESOURCES: 'true'
+      DISK_USE_WARNING_PERCENTAGE: '90'
+      DISK_USE_READONLY_PERCENTAGE: '97'
+    ports: ['127.0.0.1:18085:8080', '127.0.0.1:15051:50051']
+    volumes: ['weaviate-data:/var/lib/weaviate']
     mem_limit: 768m
     cpus: 1
     security_opt: [no-new-privileges:true]
@@ -160,11 +212,17 @@ services:
     environment:
       <<: *direct-network
       ETCD_AUTO_COMPACTION_MODE: revision
-      ETCD_AUTO_COMPACTION_RETENTION: "1000"
-      ETCD_QUOTA_BACKEND_BYTES: "1073741824"
-      ETCD_SNAPSHOT_COUNT: "50000"
-    command: [etcd, "--advertise-client-urls=http://etcd:2379", "--listen-client-urls=http://0.0.0.0:2379", "--data-dir=/etcd"]
-    volumes: ["etcd-data:/etcd"]
+      ETCD_AUTO_COMPACTION_RETENTION: '1000'
+      ETCD_QUOTA_BACKEND_BYTES: '1073741824'
+      ETCD_SNAPSHOT_COUNT: '50000'
+    command:
+      [
+        etcd,
+        '--advertise-client-urls=http://etcd:2379',
+        '--listen-client-urls=http://0.0.0.0:2379',
+        '--data-dir=/etcd',
+      ]
+    volumes: ['etcd-data:/etcd']
     healthcheck:
       test: [CMD, etcdctl, endpoint, health]
       interval: 10s
@@ -182,7 +240,7 @@ services:
       MINIO_ROOT_USER: context-test
       MINIO_ROOT_PASSWORD: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
     command: [minio, server, /data]
-    volumes: ["minio-data:/data"]
+    volumes: ['minio-data:/data']
     healthcheck:
       test: [CMD, curl, -f, http://localhost:9000/minio/health/live]
       interval: 10s
@@ -204,12 +262,12 @@ services:
       MINIO_SECRET_ACCESS_KEY: ${HC_CONTEXT_TEST_KEY:?run prepare.py first}
       MINIO_REGION: us-east-1
       COMMON_STORAGETYPE: remote
-      OMP_NUM_THREADS: "2"
-    ports: ["127.0.0.1:19531:19530", "127.0.0.1:19091:9091"]
-    volumes: ["milvus-data:/var/lib/milvus"]
+      OMP_NUM_THREADS: '2'
+    ports: ['127.0.0.1:19531:19530', '127.0.0.1:19091:9091']
+    volumes: ['milvus-data:/var/lib/milvus']
     depends_on:
-      etcd: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      etcd: { condition: service_healthy }
+      minio: { condition: service_healthy }
     healthcheck:
       test: [CMD, curl, -f, http://localhost:9091/healthz]
       interval: 10s
@@ -224,6 +282,7 @@ volumes:
   neo4j-data:
   openviking-data:
   bridge-data:
+  mem0-data:
   embedding-models:
   embedding-api-data:
   qdrant-data:

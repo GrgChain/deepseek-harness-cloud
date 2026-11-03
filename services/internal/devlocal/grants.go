@@ -45,6 +45,9 @@ GRANT SELECT ON storage_assets,instance_health,audit_events TO hc_api;
 GRANT SELECT,INSERT ON storage_release_requests TO hc_api;
 GRANT SELECT,INSERT,DELETE ON storage_browse_requests TO hc_api;
 GRANT SELECT,INSERT,UPDATE,DELETE ON personal_skills,skill_import_previews,skill_replacements TO hc_api;
+GRANT SELECT,INSERT ON personal_plugins TO hc_api;
+GRANT UPDATE(name,package_version,author,category,summary,description,keywords,repository,documentation,compatibility,checked_at,source_note,revision) ON personal_plugins TO hc_api;
+GRANT SELECT ON plugin_catalog_defaults TO hc_api;
 GRANT SELECT,INSERT ON workspace_skill_snapshots TO hc_api;
 GRANT SELECT,INSERT ON workspace_extensions TO hc_api;
 GRANT SELECT,INSERT,UPDATE,DELETE ON context_connections,context_bindings,context_previews TO hc_api;
@@ -112,7 +115,7 @@ GRANT SELECT ON instances,storage_assets,quota_policies,quota_reservations,model
 GRANT SELECT,UPDATE(applied_at,applied_generation) ON workspace_extensions TO hc_worker;
 GRANT EXECUTE ON FUNCTION public.hc_extensions_lock_authority(uuid,uuid,uuid,bigint) TO hc_worker;
 GRANT SELECT,UPDATE ON context_connections,context_bindings,mcp_connectors TO hc_worker;
-GRANT SELECT ON context_operations TO hc_worker;
+GRANT SELECT,INSERT,UPDATE ON context_operations TO hc_worker;
 GRANT SELECT,INSERT,UPDATE ON mcp_calls,mcp_oauth_transactions TO hc_worker;
 GRANT SELECT(id,asset_id,status) ON storage_backups TO hc_worker;
 GRANT SELECT(id,org_id,revoked_at,key_id,nonce,ciphertext) ON secrets TO hc_worker;

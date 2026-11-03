@@ -1,0 +1,23 @@
+**/.git/**
+**/.local/**
+**/node_modules/**
+**/dist/**
+**/test-results/**
+**/playwright-report/**
+**/coverage/**
+**/.terraform/**
+**/__pycache__/**
+**/.ruff_cache/**
+
+# Dependency locks, generated packages, and third-party inputs.
+**/package-lock.json
+**/npm-shrinkwrap.json
+**/pnpm-lock.yaml
+**/yarn.lock
+**/vendor/**
+apps/public/plugin-packages/**
+infrastructure/plugins/openviking/**
+db/migrations/**
+
+# This file contains class members inserted into a reviewed upstream module.
+apps/dsh-adapters/managed-model-catalog-read.js

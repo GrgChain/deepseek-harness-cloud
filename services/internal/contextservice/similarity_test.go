@@ -29,3 +29,18 @@ func TestValidateKeywordSearch(t *testing.T) {
 		t.Fatalf("keyword search rejected: %v", err)
 	}
 }
+
+func TestValidateMemorySearchSource(t *testing.T) {
+	for _, tc := range []struct {
+		action, source string
+		valid          bool
+	}{
+		{"search", "", true}, {"search", "automatic", true}, {"search", "manual", true},
+		{"search", "all", false}, {"search", "other", false}, {"list", "automatic", false}, {"get", "manual", false},
+	} {
+		err := validateAction(tc.action, Action{ExpectedVersion: 1, Query: "回答偏好", MemorySource: tc.source})
+		if (err == nil) != tc.valid {
+			t.Errorf("action=%s source=%s: %v", tc.action, tc.source, err)
+		}
+	}
+}

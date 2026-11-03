@@ -94,6 +94,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					budget = 20 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
 				}
+				if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/context/memory/") && (strings.HasSuffix(r.URL.Path, "/export") || strings.HasSuffix(r.URL.Path, "/preview")) {
+					budget = 95 * time.Second
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
+				}
 				if r.Method == http.MethodPost && (r.URL.Path == "/v1/skills:source" || strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, ":check-update")) {
 					budget = 125 * time.Second
 					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))

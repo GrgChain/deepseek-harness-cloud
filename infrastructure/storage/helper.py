@@ -20,6 +20,7 @@ UUID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f
 FIELDS = {"schema_version", "asset_id", "instance_id", "org_id", "owner_id", "capacity_bytes"}
 PHASE = "CONTRACT"
 
+
 def unique_object(pairs):
     result = {}
     for key, value in pairs:
@@ -28,13 +29,26 @@ def unique_object(pairs):
         result[key] = value
     return result
 
+
 def parse(data):
     value = json.loads(data, object_pairs_hook=unique_object)
-    if not isinstance(value, dict) or set(value) != FIELDS or type(value["schema_version"]) is not int or value["schema_version"] != 1 or type(value["capacity_bytes"]) is not int or not GiB <= value["capacity_bytes"] <= MAX_CAPACITY or value["capacity_bytes"] % GiB:
+    if (
+        not isinstance(value, dict)
+        or set(value) != FIELDS
+        or type(value["schema_version"]) is not int
+        or value["schema_version"] != 1
+        or type(value["capacity_bytes"]) is not int
+        or not GiB <= value["capacity_bytes"] <= MAX_CAPACITY
+        or value["capacity_bytes"] % GiB
+    ):
         raise ValueError("Invalid storage contract")
-    if any(not isinstance(value[key], str) or not UUID.fullmatch(value[key]) for key in ["asset_id", "instance_id", "org_id", "owner_id"]):
+    if any(
+        not isinstance(value[key], str) or not UUID.fullmatch(value[key])
+        for key in ["asset_id", "instance_id", "org_id", "owner_id"]
+    ):
         raise ValueError("Invalid storage identity")
     return value
+
 
 def regular_private(path):
     info = path.lstat()
@@ -42,13 +56,18 @@ def regular_private(path):
         raise ValueError("Private regular file required")
     return info
 
+
 def private_directory(path):
     info = path.lstat()
     if not stat.S_ISDIR(info.st_mode) or info.st_mode & 0o077:
         raise ValueError("Private directory required")
 
+
 def command(*args):
-    return subprocess.run(args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90).stdout.strip()
+    return subprocess.run(
+        args, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=90
+    ).stdout.strip()
+
 
 def atomic(path, value):
     fd, name = tempfile.mkstemp(prefix=".hc-", dir=path.parent)
@@ -67,7 +86,14 @@ def atomic(path, value):
         if os.path.exists(name):
             os.unlink(name)
 
-def execute(action, config, base=Path("/assets"), devices=Path("/host-dev/hc-cloud"), mountpoint=Path("/mnt/asset")):
+
+def execute(
+    action,
+    config,
+    base=Path("/assets"),
+    devices=Path("/host-dev/hc-cloud"),
+    mountpoint=Path("/mnt/asset"),
+):
     global PHASE
     PHASE = "ASSET_DIRECTORY"
     if action not in ["prepare", "inspect"]:
@@ -98,7 +124,18 @@ def execute(action, config, base=Path("/assets"), devices=Path("/host-dev/hc-clo
             # devices can implement that by punching holes in the backing file.
             # Finish initialization now, then recommit any zeroed extents before
             # publishing the independently owned filesystem.
-            command("mkfs.ext4", "-q", "-F", "-E", "nodiscard,lazy_itable_init=0,lazy_journal_init=0", "-m", "0", "-U", config["asset_id"], str(image))
+            command(
+                "mkfs.ext4",
+                "-q",
+                "-F",
+                "-E",
+                "nodiscard,lazy_itable_init=0,lazy_journal_init=0",
+                "-m",
+                "0",
+                "-U",
+                config["asset_id"],
+                str(image),
+            )
             fd = os.open(image, os.O_RDWR | os.O_NOFOLLOW)
             try:
                 os.posix_fallocate(fd, 0, config["capacity_bytes"])
@@ -166,13 +203,19 @@ def execute(action, config, base=Path("/assets"), devices=Path("/host-dev/hc-clo
         capacity = config["capacity_bytes"]
         if fs.f_blocks * fs.f_frsize > capacity or fs.f_blocks * fs.f_frsize < capacity * 0.9:
             raise ValueError("Filesystem capacity does not match the hard limit")
-        return {"filesystem_id": config["asset_id"], "capacity_bytes": capacity, "resource_name": "hc-" + config["asset_id"], "device": "/dev/hc-cloud/" + config["asset_id"]}
+        return {
+            "filesystem_id": config["asset_id"],
+            "capacity_bytes": capacity,
+            "resource_name": "hc-" + config["asset_id"],
+            "device": "/dev/hc-cloud/" + config["asset_id"],
+        }
     finally:
         if mounted:
             command("umount", str(mountpoint))
         os.close(lock)
         # The loop device remains owned by this independent asset. Compute
         # destruction never detaches or deletes it.
+
 
 if __name__ == "__main__":
     try:
@@ -183,5 +226,8 @@ if __name__ == "__main__":
             raise ValueError("Request too large")
         print(json.dumps(execute(sys.argv[1], parse(data))))
     except Exception:
-        print("harness-cloud: storage operation failed [" + PHASE + "]; original data retained", file=sys.stderr)
+        print(
+            "harness-cloud: storage operation failed [" + PHASE + "]; original data retained",
+            file=sys.stderr,
+        )
         sys.exit(1)

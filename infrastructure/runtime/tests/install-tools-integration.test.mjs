@@ -5,15 +5,38 @@ import { promisify } from 'node:util';
 import { randomUUID } from 'node:crypto';
 
 const exec = promisify(execFile);
-const docker = async (...args) => (await exec('docker', args, { timeout: 45000, maxBuffer: 1024 * 1024 })).stdout.trim();
+const docker = async (...args) =>
+  (await exec('docker', args, { timeout: 45000, maxBuffer: 1024 * 1024 })).stdout.trim();
 
-test('Ubuntu runtime provides Node, Python and working install tools as a non-root user', { skip: !process.env.HC_RUNTIME_IMAGE, timeout: 60000 }, async t => {
-  const name = 'hc-install-tools-' + randomUUID();
-  t.after(async () => { await docker('rm', '-f', name).catch(() => {}); });
-  // Serve a local fixture inside the container so this contract needs no internet.
-  await docker('run', '-d', '--name', name, '--network', 'none', '--read-only', '--cap-drop', 'ALL',
-    '--security-opt', 'no-new-privileges', '--tmpfs', '/tmp:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000',
-    '--entrypoint', 'python3', process.env.HC_RUNTIME_IMAGE, '-u', '-c', `
+test(
+  'Ubuntu runtime provides Node, Python and working install tools as a non-root user',
+  { skip: !process.env.HC_RUNTIME_IMAGE, timeout: 60000 },
+  async (t) => {
+    const name = 'hc-install-tools-' + randomUUID();
+    t.after(async () => {
+      await docker('rm', '-f', name).catch(() => {});
+    });
+    // Serve a local fixture inside the container so this contract needs no internet.
+    await docker(
+      'run',
+      '-d',
+      '--name',
+      name,
+      '--network',
+      'none',
+      '--read-only',
+      '--cap-drop',
+      'ALL',
+      '--security-opt',
+      'no-new-privileges',
+      '--tmpfs',
+      '/tmp:rw,noexec,nosuid,nodev,size=256m,uid=1000,gid=1000',
+      '--entrypoint',
+      'python3',
+      process.env.HC_RUNTIME_IMAGE,
+      '-u',
+      '-c',
+      `
 import http.server, io, pathlib, tarfile, zipfile
 root = pathlib.Path('/tmp')
 payload = b'installer-download-proof\\n'
@@ -29,14 +52,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 server = http.server.HTTPServer(('127.0.0.1', 8000), Handler)
 (root / 'ready').touch()
 server.serve_forever()
-`);
-  let ready = false;
-  for (let attempt = 0; attempt < 40; attempt++) {
-    if (await docker('exec', name, 'sh', '-c', 'test -f /tmp/ready && echo ready').catch(() => '') === 'ready') { ready = true; break; }
-    await new Promise(resolve => setTimeout(resolve, 100));
-  }
-  assert.ok(ready, 'Local download fixture must start');
-  const output = await docker('exec', name, 'bash', '-euc', `
+`,
+    );
+    let ready = false;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (
+        (await docker('exec', name, 'sh', '-c', 'test -f /tmp/ready && echo ready').catch(
+          () => '',
+        )) === 'ready'
+      ) {
+        ready = true;
+        break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    assert.ok(ready, 'Local download fixture must start');
+    const output = await docker(
+      'exec',
+      name,
+      'bash',
+      '-euc',
+      `
     test "$(id -u)" = 1000
     source /etc/os-release
     test "$ID" = ubuntu
@@ -58,6 +94,8 @@ server.serve_forever()
     tar -xJf downloaded.tar.xz -C tar-output
     cmp zip-output/proof.txt tar-output/proof.txt
     cat zip-output/proof.txt
-  `);
-  assert.equal(output, 'installer-download-proof');
-});
+  `,
+    );
+    assert.equal(output, 'installer-download-proof');
+  },
+);

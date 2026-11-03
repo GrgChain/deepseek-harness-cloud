@@ -24,6 +24,7 @@ var permissionCatalog = []Permission{
 	{"roles:read", "查看角色与权限目录", "查看角色拥有的权限及各权限的用途和依赖。", true, []string{}},
 	{"roles:manage", "管理角色与权限", "新增、编辑和删除自定义角色，可配置全部可分配权限；内置角色受保护。", true, []string{"roles:read"}},
 	{"instances:read", "查看本人工作空间与数据", "包含数据资产、目录浏览、文件预览和下载。", true, []string{}},
+	{"plugins:manage", "管理本人插件目录", "在线或离线添加第三方 DSH 插件，编辑本人目录中默认及新增插件的资料。", true, []string{"instances:read"}},
 	{"skills:read", "查看本人 Skill 库", "查看技能正文与资源清单，下载单项或导出技能包。", true, []string{}},
 	{"skills:manage", "管理本人 Skill 库", "创建、编辑、删除、导入与手动同步外部 Skill；不修改 DSH 容器。", true, []string{"skills:read"}},
 	{"memory:read", "查看本人记忆", "查看和检索授权记忆，下载本人记忆迁移包。", true, []string{}},
