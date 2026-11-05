@@ -36,11 +36,11 @@ make context-mem0-test            # 经 REST 验证真实读写、检索、更�
 
 页面填写的是平台接入容器可访问的 Compose 内网地址。宿主机调试地址为 `http://127.0.0.1:18583`，仅绑定回环；`http://127.0.0.1:18580/mem0` 是平台内部签名接口，不能填写到此表单。已有本机策略由 `make context-mem0-up` 补齐 `service_key_file`；平台 API 须加载 `.local/context/endpoints.local.json`（`make run-auth` 自动识别）。
 
-新增的 `mem0` 服务是基于真实 Mem0 2.2.1 SDK 的精简本机测试入口，实现平台所需的四个 [OSS REST 路由](https://github.com/mem0ai/mem0/blob/v2.2.1/server/main.py)：`GET/POST /memories`、`POST /search`、`DELETE /memories/{id}`，不是上游完整服务器或 Dashboard。所有数据接口校验 `X-API-Key`，写入固定 `infer=False`，使用本机 `BAAI/bge-small-zh-v1.5` 512 维向量，不调用外部推理模型。Qdrant collection 为 `hc_workbench_memories`，历史记录保存在独立 `mem0-data` 卷，与原 SDK 接入的 collection 和历史库分开。
+新增的 `mem0` 服务是基于真实 Mem0 2.2.1 SDK 的精简本机测试入口，实现平台所需的四个 [OSS REST 路由](https://github.com/mem0ai/mem0/blob/v2.2.1/server/main.py)：`GET/POST /memories`、`POST /search`、`DELETE /memories/{id}`，不是上游完整服务器或 Dashboard。所有数据接口校验 `X-API-Key`，手动写入使用 `infer=False`，会话归档使用 `infer=True` 和已批准的推理模型；向量使用本机 `BAAI/bge-small-zh-v1.5` 512 维模型。Qdrant collection 为 `hc_workbench_memories`，历史记录保存在独立 `mem0-data` 卷，与原 SDK 接入的 collection 和历史库分开。
 
-验证就绪后，在“管理内容”添加记忆“星河项目每周三下午 15:00 发布，李明负责发布”，预览并确认保存。检索“星河项目什么时候发布？”，应命中这条记忆并能查看原文；测试结束后可删除记录。平台 Mem0 连接通过已接入工作空间手动检索记忆，不提供完整会话自动同步。
+验证就绪后，在“管理内容”添加记忆“星河项目每周三下午 15:00 发布，李明负责发布”，预览并确认保存。检索“星河项目什么时候发布？”，应命中这条记忆并能查看原文；测试结束后可删除记录。平台 Mem0 连接支持完整会话同步与归档提取，详见下文。
 
-需要 DSH 自动召回、确认保存或可选的对话采集时，可在工作台“插件”搜索“Mem0 记忆”，下载本项目维护的 `@harness-cloud/dsh-mem0-memory@0.1.0`，在目标工作空间安装并配置后启用，详见[插件 README](../../infrastructure/plugins/mem0/README.md)。此插件直接连接 Mem0 OSS REST，单独配置 `endpoint`、`apiKey`、`userId`；自动采集默认关闭，用户显式开启后才保存消息。本机服务使用上表 API Key，`infer` 保持 `false`；`http://mem0:8580` 只在目标工作空间能访问 Compose 网络时可用。插件使用独立用户命名空间，其内容不会自动出现在平台记忆连接的管理列表。
+通过创建工作空间选择已验证的 Mem0 连接，即可默认启用完整会话同步与自动召回，并自动安装、启用本项目维护的Mem0原生DSH插件；可在DSH插件管理中查看和启停，无需重填服务凭据。需要独立管理插件凭据及采集开关时，可在工作台“插件”搜索“Mem0 记忆”，下载本项目维护的 `@harness-cloud/dsh-mem0-memory@0.2.0`，在目标工作空间安装并配置后启用，详见[插件 README](../../infrastructure/plugins/mem0/README.md)。此插件直接连接 Mem0 OSS REST，单独配置 `endpoint`、`apiKey`、`userId`；自动采集默认关闭，用户显式开启后才保存消息。本机服务使用上表 API Key，`infer` 保持 `false`；`http://mem0:8580` 只在目标工作空间能访问 Compose 网络时可用。插件使用独立用户命名空间，其内容不会自动出现在平台记忆连接的管理列表。
 
 工作台真实集成测试会创建并清理专用账号、角色、连接和合成记录；使用本机已安装的 Chromium 时，可用 `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` 指定可执行文件路径：
 
@@ -148,7 +148,7 @@ HC_CONTEXT_TEST_BACKENDS=openviking,graphiti python3 deploy/context/test_service
 | Embedding | Hugging Face TEI cpu-1.9，镜像固定摘要 | 18581 / 内网8581 |
 | 文档解析 | Docling Serve CPU v1.36.0，包含 LibreOffice | 18582 / 内网5001 |
 | Mem0 | 2.2.1 SDK，经认证伴随服务 | 18580/mem0 |
-| Mem0 REST 测试入口 | 2.2.1 SDK，固定 infer=False | 18583 / 内网 mem0:8580 |
+| Mem0 REST 测试入口 | 2.2.1 SDK，手动直存／归档推理 | 18583 / 内网 mem0:8580 |
 | Qdrant | 1.20.0 | 16333 |
 | Weaviate | 1.27.0，vectorizer=none | 18085 / gRPC 15051 |
 | Milvus | 2.5.6，独立etcd/MinIO | 19531 / 健康19091 |
@@ -184,17 +184,19 @@ docker compose --env-file .local/context/compose.env -f deploy/context/compose.y
 
 ### DSH 完整会话与 OpenViking 集成
 
-创建工作空间，选择已验证的 OpenViking 记忆连接，默认开启“完整会话同步”（可手动关闭），同一用户接入同一连接的多个工作空间可共享会话记忆并跨空间召回，无需选择保存范围。每个工作空间最多接入一个记忆连接，未勾选和旧配置均不自动采集。Mem0、Graphiti 保持现有手动检索方式。
+创建工作空间，选择已验证的 OpenViking、Mem0 或 Graphiti 记忆连接，默认开启通用“完整会话同步”（可手动关闭），同一用户接入同一连接的多个工作空间可共享会话记忆并跨空间召回，无需选择保存范围。每个工作空间最多接入一个记忆连接，未勾选和旧配置均不自动采集。Mem0由本项目维护的DSH原生插件捕获，安装、加载和启停方式与OpenViking一致，平台扩展只提供受控代理；Graphiti也使用原生组合包，提供`graphiti-memory`技能和MCP检索、同步状态工具。两种后端同步用户消息、助手回复和工具结果，写入当前连接的内容索引，并自动召回；具体安装方式无需用户额外配置。
 
-初始化时离线安装未修改的官方 `@openviking/dsh-memory-plugin@0.5.31` npm 包，校验 SHA-256，并登记到工作空间 profile 的 `dependencies` 和 `dsh.profile.bundles`，复用当前固定 DSH 版本的依赖；无需升级运行镜像或在工作空间运行安装命令。官方 `openviking-memory-runtime` 条目由 DSH loader 加载并管理生命周期，可在 DSH 插件列表查看和启用、停用。插件提供原生 MCP 工具及 `openviking-memory`、`openviking-skills`、`ov-experience-memory` 三个内置技能。
+Mem0 与 OpenViking 一样先同步原始会话，在达到约 20000 token、开始压缩或会话释放时提取长期记忆。原始会话由连接适配层单独持久化，不直接写入 Mem0 记忆索引；归档使用所选 Mem0 的 `infer: true`，本机服务读取已批准的 `HC_CONTEXT_MODEL_CONFIG`，没有配置或推理失败时保留待归档原文并明确失败。只将提取出的记忆写入当前连接的可检索索引，与手动记忆共同管理和导出。自动生成记忆日常只读，可按自动／手动来源筛选；旧版已有会话记录保留。提取在独立临时命名空间进行，避免改写手动记忆；回执持久化后索引重试不会再次提取。Graphiti 继续同步生成图谱。同一用户的多个已接入工作空间共享，其他连接和用户隔离。新插件版本为 0.2.0；已有工作空间需升级原生插件及受控代理后使用压缩、会话释放归档，不覆盖用户配置。
+
+OpenViking 初始化时离线安装未修改的官方 `@openviking/dsh-memory-plugin@0.5.31` npm 包，校验 SHA-256，并登记到工作空间 profile 的 `dependencies` 和 `dsh.profile.bundles`，复用当前固定 DSH 版本的依赖；无需升级运行镜像或在工作空间运行安装命令。官方 `openviking-memory-runtime` 条目由 DSH loader 加载并管理生命周期，可在 DSH 插件列表查看和启用、停用。插件提供原生 MCP 工具及 `openviking-memory`、`openviking-skills`、`ov-experience-memory` 三个内置技能。
 
 官方插件从 DSH 事件流捕获用户消息、助手回复和工具结果，过滤系统/插件注入上下文，在新输入到达时自动召回。消息发送到 OpenViking 原生 `dsh-<session-id>` 会话；达到 20000 token、开始压缩或会话销毁时归档并触发记忆提取，失败写入由官方插件在工作盘排队补写。短会话可要求助手用 `mcp__openviking__remember` 立即保存明确偏好，或结束会话等待归档后再验证召回；打开另一个聊天本身不保证前一个会话已归档。
 
 服务密钥保留在平台服务端。平台 `cloudSessionMemory` 仅为官方插件提供容器回环端点和私有 Worker 转发通道，不自行实现捕获、召回和归档；每次转发检查创建快照、连接版本、当前用户权限、绑定与范围。伴随服务以组织/用户/连接隔离原生租户，同一连接跨已接入工作空间共享，禁止转发管理 API、任意地址和身份头。MCP 工具仅开放 search、find、read、list、tree、grep、glob 和 remember；原生删除、编辑、资源导入及技能写入不开放，内置技能也受此工具边界约束。取消绑定、停用连接或撤销权限后，后续同步和召回被拒绝。
 
-OpenViking 连接的“管理内容”统一展示“自动生成”和“手动添加”的记忆，可按来源过滤，共用名称、分类搜索和分页，并支持查看原文及 Markdown 预览。自动生成的记忆日常管理只读；手动添加的记忆保留新增、编辑、删除功能。“记忆检索”同时语义检索此连接下全部自动和手动记忆，按相关度合并结果，标明来源并支持查看对应原文，不受列表的名称、来源筛选或分页限制。页面合并保留两类记录原有的数据和存储租户，不自动迁移或改写内容，也不改变官方插件的召回范围。
+OpenViking 连接的“管理内容”统一展示“自动生成”和“手动添加”的记忆，可按来源过滤，共用名称、分类搜索和分页，并支持查看原文及 Markdown 预览。自动生成的记忆日常管理只读；手动添加的记忆保留新增、编辑、删除功能。“记忆检索”同时语义检索此连接下全部自动和手动记忆，按相关度合并结果，标明来源并支持查看对应原文，不受列表的名称、来源筛选或分页限制。DSH 官方插件的自动召回及 MCP find/search/read 也可检索、读取该连接的手动记忆；由服务端解析两个租户，按当前有效版本过滤，不暴露已删除内容或其他用户、连接的数据。两类记录保留原存储租户，官方插件包保持原样，捕获与归档继续写入原生会话租户。此修复只需更新 API、Worker 和 bridge，现有工作空间无需重建。
 
-OpenViking、Mem0 和 Graphiti 的记忆检索均可选择返回 5／10／20 条，以及最低相关度（-1 至 1，留空不过滤）。默认检索此连接的全部记忆并返回最多 5 条。“重置条件”恢复默认条件、清除旧结果并保留检索问题。OpenViking 另可选择“全部来源／自动生成／手动添加”，来源条件决定实际查询的记忆集合；最低相关度同时作用于选中来源的候选结果，后端过滤、按相关度合并后再截取返回条数。Mem0、Graphiti 检索通过本平台维护的记忆，不显示会话自动生成来源；相关度按各后端返回分数判断，Graphiti 当前使用原生召回排名分数，不宜跨服务比较。
+OpenViking、Mem0 和 Graphiti 的记忆检索均可选择返回 5／10／20 条，以及最低相关度（-1 至 1，留空不过滤）。默认检索此连接的全部记忆并返回最多 5 条。“重置条件”恢复默认条件、清除旧结果并保留检索问题。OpenViking 和 Mem0 另可选择“全部来源／自动生成／手动添加”，来源条件决定实际查询的记忆集合；最低相关度同时作用于选中来源的候选结果，后端过滤、按相关度合并后再截取返回条数。Graphiti 检索通过本平台维护的记忆，不显示会话自动生成来源；相关度按各后端返回分数判断，Graphiti 当前使用原生召回排名分数，不宜跨服务比较。
 
 更新检索参数后，须同步重新构建并重启 API 和 bridge；仅更新前端无法更新正在运行的接口字段定义。部署后应通过真实登录接口验证“手动添加”来源及最低相关度，避免旧 API 将 `memory_source` 拒绝为“请求字段或格式不正确”，或旧 bridge 拒绝新增字段。
 
@@ -213,3 +215,5 @@ HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 node --test infrastructure/runtime/tests/o
 HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 HC_RUNTIME_SESSION_MEMORY=true node --test infrastructure/runtime/tests/docker-integration.test.mjs
 python3 -m unittest discover -s deploy/context/bridge -p 'test_viking*.py'
 ```
+
+Graphiti 原生插件为 `@harness-cloud/dsh-graphiti-memory@0.1.0`，通过 `graphiti-memory` 技能与 MCP 检索、状态工具使用平台连接；不另填Neo4j凭据，不直接注册内置记忆工具。安装和启停由DSH原生Profile管理，旧空间需新建后采用此模式。详见[Graphiti插件README](../../infrastructure/plugins/graphiti/README.md)。

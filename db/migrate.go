@@ -194,6 +194,24 @@ var editablePluginCatalog string
 //go:embed migrations/000061_mem0_plugin.sql
 var mem0Plugin string
 
+//go:embed migrations/000062_mem0_native_session_plugin.sql
+var mem0NativeSessionPlugin string
+
+//go:embed migrations/000063_mem0_mcp_skill.sql
+var mem0MCPSkill string
+
+//go:embed migrations/000064_graphiti_native_memory_plugin.sql
+var graphitiNativeMemoryPlugin string
+
+//go:embed migrations/000065_mem0_session_archive.sql
+var mem0SessionArchive string
+
+//go:embed migrations/000066_ip_workspace_access.sql
+var ipWorkspaceAccess string
+
+//go:embed migrations/000067_graphiti_session_archive.sql
+var graphitiSessionArchive string
+
 type migration struct {
 	version int64
 	sql     string
@@ -262,6 +280,12 @@ func migrations() []migration {
 		{59, offlinePlugins},
 		{60, editablePluginCatalog},
 		{61, mem0Plugin},
+		{62, mem0NativeSessionPlugin},
+		{63, mem0MCPSkill},
+		{64, graphitiNativeMemoryPlugin},
+		{65, mem0SessionArchive},
+		{66, ipWorkspaceAccess},
+		{67, graphitiSessionArchive},
 	}
 }
 func checksumOf(sql string) string {

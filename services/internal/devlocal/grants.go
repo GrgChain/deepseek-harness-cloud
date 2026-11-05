@@ -37,6 +37,7 @@ GRANT SELECT(id,org_id,owner_id,connection_id,bound_version,revoked_at) ON exter
 GRANT SELECT,INSERT,UPDATE ON secrets,model_configuration_heads,model_configurations,model_validations,probe_budgets,organization_defaults TO hc_api;
 GRANT EXECUTE ON FUNCTION public.hc_worker_lock_model(uuid) TO hc_api;
 GRANT EXECUTE ON FUNCTION public.hc_access_lock_principal(uuid,uuid,uuid,bigint),public.hc_access_lock_instance(uuid,uuid,uuid) TO hc_api;
+GRANT SELECT,INSERT,DELETE ON ip_workspace_ports TO hc_api;
 GRANT SELECT ON access_challenges TO hc_api;
 GRANT UPDATE(consumed_at) ON access_challenges TO hc_api;
 GRANT SELECT,INSERT ON access_tickets TO hc_api;
@@ -142,7 +143,8 @@ func GrantGateway(ctx context.Context, tx pgx.Tx) error {
 	if err := grantWorkspaceRead(ctx, tx, "hc_gateway"); err != nil {
 		return err
 	}
-	_, err := tx.Exec(ctx, `GRANT SELECT ON organizations,memberships,model_configurations,instances,storage_assets,instance_health,access_routes,native_sessions TO hc_gateway;
+	_, err := tx.Exec(ctx, `GRANT SELECT ON ip_workspace_ports TO hc_gateway;
+GRANT SELECT ON organizations,memberships,model_configurations,instances,storage_assets,instance_health,access_routes,native_sessions TO hc_gateway;
 GRANT EXECUTE ON FUNCTION public.hc_model_available(uuid,uuid,uuid,bigint) TO hc_gateway;
 GRANT SELECT(id,instance_id,status,type,build_id) ON operations TO hc_gateway;
 GRANT SELECT(id,workspace_owner_id,status) ON users TO hc_gateway;

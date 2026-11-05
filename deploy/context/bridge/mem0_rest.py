@@ -1,4 +1,4 @@
-"""Local OSS REST test entry point backed by the real Mem0 SDK, infer=False only.
+"""Local OSS REST entry point backed by the real Mem0 SDK.
 
 Implements the four OSS routes used by Memories; not the Mem0 hosted API or the
 upstream dashboard server. Runs in its own container, collection and data volume.
@@ -37,7 +37,7 @@ class MemoryCreate(BaseModel):
     user_id: str = Field(min_length=1, max_length=256)
     agent_id: str = Field(min_length=1, max_length=256)
     metadata: dict
-    infer: Literal[False] = False
+    infer: bool = False
 
 
 class MemorySearch(BaseModel):
@@ -67,12 +67,12 @@ def list_memories(
 
 @routes.post("/memories")
 def add_memories(body: MemoryCreate):
-    return memory().add(
+    return memory(infer=body.infer).add(
         [message.model_dump() for message in body.messages],
         user_id=body.user_id,
         agent_id=body.agent_id,
         metadata=body.metadata,
-        infer=False,
+        infer=body.infer,
     )
 
 

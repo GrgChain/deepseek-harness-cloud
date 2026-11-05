@@ -8,8 +8,8 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/identity"
 )
 
-// SessionRequest is a native OpenViking request, carried only over the private
-// workspace broker. The companion enforces the native endpoint/tool allowlist.
+// SessionRequest carries backend session operations only over the private
+// workspace broker. The companion validates the selected backend protocol.
 type SessionRequest struct {
 	Method  string            `json:"method"`
 	Path    string            `json:"path"`
@@ -36,7 +36,7 @@ func (s *Service) Session(ctx context.Context, p identity.Principal, id string, 
 	if v.Version != version {
 		return nil, conflict()
 	}
-	if v.Backend != "openviking" || !v.Enabled || v.Status != "READY" {
+	if !v.Enabled || v.Status != "READY" {
 		return nil, unavailable()
 	}
 	_, err = scope(ctx, tx, p, selectedScope)

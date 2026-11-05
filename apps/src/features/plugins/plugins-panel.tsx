@@ -8,7 +8,7 @@ import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { errorMessage } from '../../shared/utils/error-message';
 import {
   filterPlugins,
-  isBundledMem0Plugin,
+  bundledMemoryPlugin,
   pluginCategories,
   type CatalogPlugin,
 } from './plugin-catalog';
@@ -125,7 +125,7 @@ export function PluginsPanel({ user }: { user: CurrentUser }) {
                     <Icon size={23} />
                   </span>
                   <div className="plugin-card-tags">
-                    <Tag>{isBundledMem0Plugin(plugin) ? '本地维护' : '第三方'}</Tag>
+                    <Tag>{bundledMemoryPlugin(plugin) ? '本地维护' : '第三方'}</Tag>
                     {plugin.additionMethod === 'offline' && <Tag>离线</Tag>}
                   </div>
                 </div>

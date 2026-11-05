@@ -100,7 +100,7 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 			ExpectedVersion int64 `json:"expected_version"`
 		}
 		if err = decode(w, r, &in); err == nil {
-			result, err = h.service.StartOAuth(ctx, p, parts[0], in.ExpectedVersion, trace)
+			result, err = h.service.StartOAuth(ctx, p, parts[0], in.ExpectedVersion, trace, r.Header.Get("X-HC-Public-Origin"))
 		}
 	case len(parts) == 0 && r.Method == "GET":
 		result, err = h.service.List(ctx, p)

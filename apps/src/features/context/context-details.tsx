@@ -102,7 +102,8 @@ export function ContextDetails({
   const memory = connection.kind === 'memory';
   const manage = hasPermission(user, connection.kind + ':manage');
   const cache = useQueryClient();
-  const nativeMemory = memory && connection.backend === 'openviking';
+  const remoteNativeMemory = memory && connection.backend === 'openviking';
+  const nativeMemory = memory && ['openviking', 'mem0', 'graphiti'].includes(connection.backend);
   const [previewImport, setPreviewImport] = useState(false);
   const scope = 'personal';
   const [query, setQuery] = useState('');
@@ -185,13 +186,13 @@ export function ContextDetails({
     queryKey: ['context-session-memories', user.id, connection.id, connection.version],
     queryFn: () =>
       client.call<{ items: SessionMemory[]; truncated: boolean }>(user, connection, 'session-list'),
-    enabled: ready && nativeMemory,
+    enabled: ready && remoteNativeMemory,
     retry: false,
     refetchOnWindowFocus: false,
   });
   useExpiredSession(nativeRecords.error);
-  const listLoading = records.isFetching || (nativeMemory && nativeRecords.isFetching);
-  const listFailed = records.isError && (!nativeMemory || nativeRecords.isError);
+  const listLoading = records.isFetching || (remoteNativeMemory && nativeRecords.isFetching);
+  const listFailed = records.isError && (!remoteNativeMemory || nativeRecords.isError);
   async function run(action: string, fn: () => Promise<void>) {
     const inSearch = searchOpen && (action === 'search' || action === 'get');
     setBusy(action);
@@ -323,7 +324,10 @@ export function ContextDetails({
   async function refresh() {
     setHits(null);
     setDetail(null);
-    await Promise.all([records.refetch(), ...(nativeMemory ? [nativeRecords.refetch()] : [])]);
+    await Promise.all([
+      records.refetch(),
+      ...(remoteNativeMemory ? [nativeRecords.refetch()] : []),
+    ]);
     await cache.invalidateQueries({ queryKey: ['context', user.id, connection.kind] });
   }
   useEffect(() => {
@@ -368,7 +372,7 @@ export function ContextDetails({
   async function open(row: ManagedRecord) {
     setDetail(null);
     await run('get', async () => {
-      if (row.memory_source === 'automatic') {
+      if (row.memory_source === 'automatic' && remoteNativeMemory) {
         const result = await client.call<SessionMemory>(user, connection, 'session-get', {
           record_id: row.id,
         });
@@ -471,7 +475,7 @@ export function ContextDetails({
         !result ||
         !Array.isArray(result.entries) ||
         typeof result.sha256 !== 'string' ||
-        (nativeMemory
+        (remoteNativeMemory
           ? result.schema !== 'hc-memory-v2' || !Array.isArray(result.automatic_entries)
           : result.schema !== 'hc-memory-v1')
       )
@@ -490,9 +494,9 @@ export function ContextDetails({
   const memoryRows: ManagedRecord[] = [
     ...(records.isError ? [] : (records.data?.items ?? [])).map((row) => ({
       ...row,
-      memory_source: 'manual' as const,
+      memory_source: row.memory_source ?? ('manual' as const),
     })),
-    ...(nativeMemory && !nativeRecords.isError ? (nativeRecords.data?.items ?? []) : []).map(
+    ...(remoteNativeMemory && !nativeRecords.isError ? (nativeRecords.data?.items ?? []) : []).map(
       (row) => ({
         ...row,
         type: 'memory',
@@ -575,7 +579,7 @@ export function ContextDetails({
       </div>
       {!ready && <Alert type="warning" showIcon message="连接未就绪，请在列表中启用并验证服务。" />}
       {pendingFeedback}
-      {!operationPending && (error || (!nativeMemory && records.isError)) && (
+      {!operationPending && (error || (!remoteNativeMemory && records.isError)) && (
         <Alert
           type="error"
           showIcon
@@ -587,7 +591,7 @@ export function ContextDetails({
           }
         />
       )}
-      {nativeMemory && records.isError && !operationPending && (
+      {remoteNativeMemory && records.isError && !operationPending && (
         <Alert
           type="error"
           showIcon
@@ -600,7 +604,7 @@ export function ContextDetails({
           }
         />
       )}
-      {nativeMemory &&
+      {remoteNativeMemory &&
         nativeRecords.isError &&
         !(
           operationPending &&
@@ -619,7 +623,7 @@ export function ContextDetails({
             }
           />
         )}
-      {nativeMemory && nativeRecords.data?.truncated && (
+      {remoteNativeMemory && nativeRecords.data?.truncated && (
         <Alert
           type="info"
           showIcon
@@ -902,7 +906,7 @@ export function ContextDetails({
                 <p className="knowledge-document-empty-hint">
                   {memory
                     ? nativeMemory
-                      ? '添加记忆，或在 DSH 会话归档并完成提取后查看。'
+                      ? 'DSH 生成或手动添加记忆后，将在这里展示。'
                       : manage
                         ? '点击「添加记忆」保存偏好与约定。'
                         : '此连接还没有记忆。'
@@ -989,46 +993,55 @@ export function ContextDetails({
             title: '操作',
             width: memory ? 128 : 190,
             hidden: !manage && !nativeMemory,
-            render: (_, row) =>
-              row.memory_source === 'automatic' ? (
-                <Button size="small" disabled={!!busy} onClick={() => void open(row)}>
-                  查看
-                </Button>
-              ) : manage ? (
-                <Space wrap={memory}>
-                  <Button
-                    size="small"
-                    disabled={writeBlocked}
-                    onClick={() =>
-                      void run('edit', async () =>
-                        newContent(
-                          await client.call(user, connection, 'get', { scope, record_id: row.id }),
-                        ),
-                      )
-                    }
-                  >
-                    编辑
+            render: (_, row) => (
+              <Space wrap={memory}>
+                {row.memory_source === 'automatic' || !manage ? (
+                  <Button size="small" disabled={!!busy} onClick={() => void open(row)}>
+                    查看
                   </Button>
-                  {(!memory || row.status !== 'READY') && (
+                ) : (
+                  <>
                     <Button
                       size="small"
-                      aria-label={
-                        rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
-                          ? '重建中'
-                          : '重建'
+                      disabled={writeBlocked}
+                      onClick={() =>
+                        void run('edit', async () =>
+                          newContent(
+                            await client.call(user, connection, 'get', {
+                              scope,
+                              record_id: row.id,
+                            }),
+                          ),
+                        )
                       }
-                      aria-busy={
-                        rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
-                      }
-                      loading={rebuildState?.record.id === row.id && rebuildState.phase !== 'done'}
-                      disabled={writeBlocked || records.isFetching}
-                      onClick={() => rebuild(row)}
                     >
-                      {rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
-                        ? '重建中'
-                        : '重建'}
+                      编辑
                     </Button>
-                  )}
+                    {(!memory || row.status !== 'READY') && (
+                      <Button
+                        size="small"
+                        aria-label={
+                          rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
+                            ? '重建中'
+                            : '重建'
+                        }
+                        aria-busy={
+                          rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
+                        }
+                        loading={
+                          rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
+                        }
+                        disabled={writeBlocked || records.isFetching}
+                        onClick={() => rebuild(row)}
+                      >
+                        {rebuildState?.record.id === row.id && rebuildState.phase !== 'done'
+                          ? '重建中'
+                          : '重建'}
+                      </Button>
+                    )}
+                  </>
+                )}
+                {manage && (row.memory_source !== 'automatic' || !remoteNativeMemory) && (
                   <Button
                     size="small"
                     danger
@@ -1042,12 +1055,9 @@ export function ContextDetails({
                   >
                     删除
                   </Button>
-                </Space>
-              ) : (
-                <Button size="small" disabled={!!busy} onClick={() => void open(row)}>
-                  查看
-                </Button>
-              ),
+                )}
+              </Space>
+            ),
           },
         ]}
       />

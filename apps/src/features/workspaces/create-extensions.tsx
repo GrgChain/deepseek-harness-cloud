@@ -168,7 +168,7 @@ export function CreateExtensions({
                 selected.find((item) => item.id === id) ??
                 (() => {
                   const option = options.find((item) => item.id === id)!;
-                  const sessionMemory = kind === 'memory' && option.logo === 'openviking';
+                  const sessionMemory = kind === 'memory';
                   return kind === 'plugins'
                     ? { id, version: String(option.version) }
                     : {
@@ -296,37 +296,34 @@ export function CreateExtensions({
                 </Button>
               )}
               {kind === 'memory' &&
-                (value.memory ?? [])
-                  .filter(
-                    (item) =>
-                      options.find((option) => option.id === item.id)?.logo === 'openviking',
-                  )
-                  .map((item) => (
-                    <div className="create-session-memory" key={item.id}>
-                      <Checkbox
-                        disabled={disabled}
-                        checked={item.session_memory ?? false}
-                        onChange={(event) =>
-                          onChange({
-                            ...value,
-                            memory: value.memory?.map((other) => {
-                              const {
-                                session_memory: _enabled,
-                                session_scope: _scope,
-                                ...base
-                              } = other;
-                              return other.id === item.id && event.target.checked
-                                ? { ...base, session_memory: true }
-                                : base;
-                            }),
-                          })
-                        }
-                      >
-                        {options.find((option) => option.id === item.id)?.name}完整会话同步
-                      </Checkbox>
-                      {item.session_memory && <p>自动同步对话，跨工作空间召回记忆。</p>}
-                    </div>
-                  ))}
+                (value.memory ?? []).map((item) => (
+                  <div className="create-session-memory" key={item.id}>
+                    <Checkbox
+                      disabled={disabled}
+                      checked={item.session_memory ?? false}
+                      onChange={(event) =>
+                        onChange({
+                          ...value,
+                          memory: value.memory?.map((other) => {
+                            const {
+                              session_memory: _enabled,
+                              session_scope: _scope,
+                              ...base
+                            } = other;
+                            return other.id === item.id && event.target.checked
+                              ? { ...base, session_memory: true }
+                              : base;
+                          }),
+                        })
+                      }
+                    >
+                      完整会话同步
+                    </Checkbox>
+                    {item.session_memory && (
+                      <p>自动同步用户消息、助手回复和工具结果，跨工作空间召回记忆。</p>
+                    )}
+                  </div>
+                ))}
               {kind === 'knowledge' && selected.length > 0 && (
                 <div className="create-knowledge-permissions">
                   <div

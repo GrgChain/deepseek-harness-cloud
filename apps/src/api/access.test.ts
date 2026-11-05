@@ -26,6 +26,92 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+test('IP workspace entry uses the Portal port and instance mount for challenge and handoff', async () => {
+  const ipPortal = 'https://192.168.1.20:42013';
+  const ipWorkspace = `https://192.168.1.20:42013/dsh/${id}`;
+  const paths: string[] = [];
+  const client = new AccessClient(async (input, init) => {
+    const path = String(input);
+    paths.push(path);
+    if (path.endsWith(':access-endpoint')) {
+      expect(init?.method).toBe('POST');
+      expect(init?.headers).toMatchObject({ 'X-CSRF-Token': user.csrf_token });
+      return new Response(
+        JSON.stringify({
+          canonical_origin: `https://${host}:42013`,
+          ip_origin: ipPortal,
+          ip_base_path: `/dsh/${id}`,
+        }),
+      );
+    }
+    if (path.endsWith('/__dsh/challenge')) {
+      expect(path).toBe(ipWorkspace + '/__dsh/challenge');
+      expect(init?.credentials).toBe('include');
+      return new Response(
+        JSON.stringify({ ...challenge, expires_at: new Date(Date.now() + 60_000).toISOString() }),
+      );
+    }
+    return new Response(
+      JSON.stringify({
+        ...challenge,
+        ticket: 't'.repeat(43),
+        handoff_url: `https://${host}:42013/__dsh/handoff`,
+        expires_at: new Date(Date.now() + 40_000).toISOString(),
+      }),
+    );
+  });
+  const handoff = await client.prepareReady(
+    user,
+    instance,
+    ipPortal,
+    () => false,
+    () => {},
+  );
+  expect(handoff.handoff_url).toBe(ipWorkspace + '/__dsh/handoff');
+  expect(paths).toEqual([
+    `/v1/instances/${id}:access-endpoint`,
+    ipWorkspace + '/__dsh/challenge',
+    `/v1/instances/${id}:access`,
+  ]);
+});
+
+test('IP discovery rejects Portal-origin, foreign-host, missing mount and credential-bearing workspace endpoints before requesting a challenge', async () => {
+  const ipPortal = 'https://192.168.1.20:42013';
+  for (const ip_origin of [
+    ipPortal,
+    'https://192.168.1.21:43000',
+    'http://192.168.1.20:43000',
+    'https://user@192.168.1.20:43000',
+    'https://192.168.1.20:43000/path',
+  ]) {
+    let requests = 0;
+    const client = new AccessClient(async () => {
+      requests++;
+      return new Response(JSON.stringify({ canonical_origin: `https://${host}:42013`, ip_origin }));
+    });
+    await expect(client.prepare(user, instance, ipPortal)).rejects.toThrow('工作空间访问地址无效');
+    expect(requests).toBe(1);
+  }
+});
+
+test('IP discovery rejects a foreign workspace mount and does not request its challenge', async () => {
+  let requests = 0;
+  const client = new AccessClient(async () => {
+    requests++;
+    return new Response(
+      JSON.stringify({
+        canonical_origin: `https://${host}:42013`,
+        ip_origin: 'https://192.168.1.20:42013',
+        ip_base_path: '/dsh/00000000-0000-4000-8000-000000000009',
+      }),
+    );
+  });
+  await expect(client.prepare(user, instance, 'https://192.168.1.20:42013')).rejects.toThrow(
+    '工作空间访问地址无效',
+  );
+  expect(requests).toBe(1);
+});
+
 test('startup state conflict waits for fresh readiness and uses a new challenge', async () => {
   vi.useFakeTimers();
   let grants = 0,

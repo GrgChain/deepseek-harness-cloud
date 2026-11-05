@@ -47,11 +47,10 @@ func InitResources(ctx context.Context, pool *pgxpool.Pool, org, operator string
 		if !configured {
 			return errors.New("default resources require an approved 1 CPU / 2 GiB / 10 GiB specification")
 		}
-		// Assign initial accounts once, when defaults are first created. Users
-		// with existing usage keep their inherited policy; never lower a cap
-		// beneath a reservation or retained asset during startup.
-		if defaults > 0 {
-			result, err = tx.Exec(ctx, `INSERT INTO user_quota_policies(org_id,owner_id,max_instances,cpu_millicores,memory_bytes,storage_bytes)
+		// Fill missing initial-account quotas on replay too. Existing quotas
+		// and users with usage retain their policies; never lower a cap beneath
+		// a reservation or retained asset during startup.
+		result, err = tx.Exec(ctx, `INSERT INTO user_quota_policies(org_id,owner_id,max_instances,cpu_millicores,memory_bytes,storage_bytes)
  SELECT q.org_id,m.user_id,LEAST(q.max_user_instances,q.max_instances),
  CASE WHEN LEAST(q.max_user_instances,q.max_instances)>q.cpu_millicores/s.cpu_millicores THEN q.cpu_millicores ELSE s.cpu_millicores*LEAST(q.max_user_instances,q.max_instances) END,
  CASE WHEN LEAST(q.max_user_instances,q.max_instances)>q.memory_bytes/s.memory_bytes THEN q.memory_bytes ELSE s.memory_bytes*LEAST(q.max_user_instances,q.max_instances) END,
@@ -61,11 +60,10 @@ func InitResources(ctx context.Context, pool *pgxpool.Pool, org, operator string
  WHERE q.org_id=$1 AND u.status<>'ARCHIVED'
  AND NOT EXISTS(SELECT 1 FROM quota_commitments c WHERE c.org_id=m.org_id AND c.owner_id=m.user_id)
  ON CONFLICT(org_id,owner_id) DO NOTHING`, org)
-			if err != nil {
-				return err
-			}
-			users = result.RowsAffected()
+		if err != nil {
+			return err
 		}
+		users = result.RowsAffected()
 	}
 	if quota.RowsAffected()+defaults+users > 0 {
 		if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,org_id,resource_id,action,outcome,trace_id,details)

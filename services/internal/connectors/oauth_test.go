@@ -20,10 +20,27 @@ import (
 )
 
 func testOAuthFlow(t *testing.T, ctx context.Context, s *Service, root *pgxpool.Pool, owner, other identity.Principal, mcpEndpoint Endpoint) {
+	for _, ip := range []bool{false, true} {
+		name := "domain"
+		if ip {
+			name = "IP"
+		}
+		t.Run(name, func(t *testing.T) { testOAuthFlowAtOrigin(t, ctx, s, root, owner, other, mcpEndpoint, ip) })
+	}
+}
+
+func testOAuthFlowAtOrigin(t *testing.T, ctx context.Context, s *Service, root *pgxpool.Pool, owner, other identity.Principal, mcpEndpoint Endpoint, ip bool) {
 	t.Helper()
-	previousPolicy, previousOrigin := s.policy, s.portalOrigin
-	defer func() { s.policy = previousPolicy; s.portalOrigin = previousOrigin }()
+	previousPolicy, previousOrigin, previousIP := s.policy, s.portalOrigin, s.ipPortalOrigin
+	defer func() { s.policy = previousPolicy; s.portalOrigin = previousOrigin; s.ipPortalOrigin = previousIP }()
 	s.portalOrigin = "https://portal.example"
+	s.ipPortalOrigin = "https://192.168.1.20:42013"
+	browserOrigin := ""
+	redirect := s.portalOrigin + "/v1/connectors/oauth/callback"
+	if ip {
+		browserOrigin = s.ipPortalOrigin
+		redirect = s.ipPortalOrigin + "/v1/connectors/oauth/callback"
+	}
 	var exchanges, refreshes atomic.Int32
 	var rejectRefresh atomic.Bool
 	var challenge string
@@ -42,7 +59,7 @@ func testOAuthFlow(t *testing.T, ctx context.Context, s *Service, root *pgxpool.
 				Auth      string   `json:"token_endpoint_auth_method"`
 			}
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			if len(in.Redirects) != 1 || in.Redirects[0] != "https://portal.example/v1/connectors/oauth/callback" || in.Auth != "none" {
+			if len(in.Redirects) != 1 || in.Redirects[0] != redirect || in.Auth != "none" {
 				t.Error("invalid DCR configuration")
 			}
 			_, _ = w.Write([]byte(`{"client_id":"test-public-client","token_endpoint_auth_method":"none"}`))
@@ -67,7 +84,7 @@ func testOAuthFlow(t *testing.T, ctx context.Context, s *Service, root *pgxpool.
 			}
 			exchanges.Add(1)
 			sum := sha256.Sum256([]byte(r.Form.Get("code_verifier")))
-			if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge || r.Form.Get("code") != "once-only-code" || r.Form.Get("redirect_uri") != "https://portal.example/v1/connectors/oauth/callback" {
+			if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge || r.Form.Get("code") != "once-only-code" || r.Form.Get("redirect_uri") != redirect {
 				t.Error("PKCE or redirect mismatch")
 			}
 			_, _ = w.Write([]byte(`{"access_token":"private-test-token","token_type":"Bearer","refresh_token":"secret-refresh-token","expires_in":3600}`))
@@ -94,7 +111,7 @@ func testOAuthFlow(t *testing.T, ctx context.Context, s *Service, root *pgxpool.
 	}
 	start := func() url.Values {
 		t.Helper()
-		result, e := s.StartOAuth(ctx, owner, conn.ID, conn.Version, "")
+		result, e := s.StartOAuth(ctx, owner, conn.ID, conn.Version, "", browserOrigin)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -246,6 +263,25 @@ func testOAuthFlow(t *testing.T, ctx context.Context, s *Service, root *pgxpool.
 	}
 	if err = s.Delete(ctx, owner, conn.ID, Input{ExpectedVersion: conn.Version, ConfirmedName: conn.Name}, ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestOAuthCallbackOriginSelectionIsExplicit(t *testing.T) {
+	s := NewService(nil, nil, "test", false, "", "https://portal.example", "https://192.168.1.20:42013")
+	for _, origin := range []string{"", "https://192.168.1.20:42013"} {
+		got, err := s.oauthRedirect(origin)
+		want := origin
+		if want == "" {
+			want = "https://portal.example"
+		}
+		if err != nil || got != want+"/v1/connectors/oauth/callback" {
+			t.Fatal("configured OAuth callback origin changed", err)
+		}
+	}
+	for _, origin := range []string{"https://attacker.example", "https://192.168.1.20:43000", "https://192.168.1.20:42013.evil"} {
+		if _, err := s.oauthRedirect(origin); err == nil {
+			t.Fatal("unconfigured callback origin accepted")
+		}
 	}
 }
 

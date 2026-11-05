@@ -645,7 +645,8 @@ paths:
         other actions require kind:manage and read. Binding additionally requires instances:configure and instances:read.
         Scope is retained for compatibility; the server resolves a shared corpus per connection.
         OpenViking search covers both current manual records and native automatic memories in the connection, independent of list filters or pagination.
-        Results identify memory_source as manual or automatic and are merged by relevance; use session-get for automatic result URIs and get for manual record identifiers.
+        All memory backends identify memory_source as manual or automatic and support filtering by source.
+        Use session-get for OpenViking native result URIs; use get for Mem0, Graphiti and manual record identifiers.
         OpenViking export returns hc-memory-v2 with all current manual records and complete native memory files, independent of list filters or pagination.
         Import uses preview then apply; v2 preserves automatic versus manual sources and native memory paths, while hc-memory-v1 remains accepted.
         Memory packages for all three backends are limited to 16 MiB and 10000 entries. Mem0 and Graphiti retain hc-memory-v1 with complete current records and graph fields.
@@ -1422,6 +1423,49 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/AccessRequest'
+  /v1/instances/{id}:access-endpoint:
+    parameters:
+      - $ref: '#/components/parameters/ResourceId'
+    post:
+      operationId: resolveInstanceAccessEndpoint
+      x-api-id: API-126
+      tags:
+        - Access
+      summary: Resolve an owned ready workspace's domain and optional IP entry
+      description: Checks current instances:access permission, Owner, health and workspace ownership. IP access uses the Portal HTTPS port and an instance-specific /dsh/{id} mount; no port is allocated. No ticket or runtime credential is returned.
+      parameters:
+        - $ref: '#/components/parameters/Csrf'
+        - $ref: '#/components/parameters/Origin'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Fixed entry origins; Cache-Control no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                  - canonical_origin
+                properties:
+                  canonical_origin:
+                    type: string
+                    format: uri
+                  ip_origin:
+                    type: string
+                    format: uri
+                  ip_base_path:
+                    type: string
+                    description: Instance-specific mount on ip_origin, without a trailing slash.
+                    example: /dsh/00000000-0000-4000-8000-000000000001
+        default:
+          $ref: '#/components/responses/Error'
   /v1/audit-events:
     get:
       operationId: listOperationLogs
@@ -5434,7 +5478,7 @@ components:
           {
             type: string,
             enum: [automatic, manual],
-            description: OpenViking memory search source; omit to search both automatic session memories and manually added memories.,
+            description: Memory search source for all three backends; omit to search both automatically generated and manually added memories.,
           }
         page:
           {
@@ -6069,11 +6113,11 @@ components:
         session_memory:
           type: boolean
           default: false
-          description: OpenViking memory only. Enable automatic full conversation capture and recall using the official DSH plugin. The creation UI selects this by default for the selected OpenViking connection; omitted values and existing configurations remain disabled. At most one connection per workspace.
+          description: Memory connections only. Enable full conversation synchronization and automatic recall for OpenViking, Mem0, and Graphiti. OpenViking uses its official DSH plugin; Mem0 uses the native Harness Cloud DSH memory bundle with a managed loopback proxy; Graphiti uses the managed session adapter. The creation UI enables this for each newly selected memory connection; omitted values and existing configurations remain disabled. At most one connection per workspace.
         session_scope:
           type: string
           enum: [personal, workspace]
-          description: Legacy compatibility field. New native session memory always uses the shared connection corpus; this field may be omitted.
+          description: Legacy compatibility field. New session memory always uses the shared connection corpus; this field may be omitted.
         scopes:
           type: array
           minItems: 1
@@ -6132,6 +6176,10 @@ components:
             - memory
             - knowledge
             - plugin
+        backend:
+          type: string
+          enum: [openviking, mem0, graphiti, qdrant, weaviate, milvus]
+          description: Backend frozen for memory and knowledge selections. Omitted in older snapshots.
         id:
           type: string
         name:
@@ -6152,7 +6200,7 @@ components:
           type: boolean
         session_scope:
           type: string
-          description: Historical storage key of native session memory. New selections use personal for cross-workspace sharing.
+          description: Historical storage key of session memory. New selections use personal for cross-workspace sharing.
         scopes:
           type: array
           items:

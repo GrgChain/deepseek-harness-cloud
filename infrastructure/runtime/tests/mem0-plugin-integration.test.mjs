@@ -11,7 +11,7 @@ test(
   async () => {
     const archive = fileURLToPath(
       new URL(
-        '../../../apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.1.0.tgz',
+        '../../../apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.2.0.tgz',
         import.meta.url,
       ),
     );
@@ -21,7 +21,8 @@ test(
     const script = `
    import assert from 'node:assert/strict';
    import fs from 'node:fs';
-   import {spawnSync} from 'node:child_process';
+   import {spawn,spawnSync} from 'node:child_process';
+   import {createInterface} from 'node:readline';
    import {randomUUID} from 'node:crypto';
    import {loadProfile, composeEntries} from '@deepseek-ai/dsh-app-boot';
    import {createUserMessage} from '@deepseek-ai/dsh-llm';
@@ -45,10 +46,21 @@ test(
     const response=await fetch(endpoint+path,{method,headers:{'X-API-Key':apiKey,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});
     assert.equal(response.status,200);return response.json();
    };
-   const handlers=new Map(),tools=new Map(),effects=[];
-   const ctx={logger:{warn(){}},on(event,handler){handlers.set(event,handler);},provide(key,value){this[key]=value;},get(key){return this[key];},effect(setup){effects.push(setup());},tools:{register(tool){tools.set(tool.name,tool);}}};
-   plugin.apply(ctx,{endpoint,apiKey,userId:owner,autoCapture:true});
+   const handlers=new Map(),effects=[],mounts=[];
+   const ctx={logger:{warn(){}},on(event,handler){handlers.set(event,handler);},provide(key,value){this[key]=value;},get(key){return this[key];},effect(setup){effects.push(setup());},plugin(_plugin,config){mounts.push(config);return Promise.resolve();},tools:{register(){throw Error('Direct tools must not be registered');}}};
+   await plugin.apply(ctx,{endpoint,apiKey,userId:owner,autoCapture:true});
+   const mcp=mounts.find(config=>config.serverName==='mem0');
+   assert.ok(mounts.some(config=>config.providerName==='mem0'));
+   const child=spawn(mcp.command,mcp.args,{env:{...process.env,...mcp.env},stdio:['pipe','pipe','pipe']});
+   let sequence=0;const pending=new Map();
+   const lines=createInterface({input:child.stdout});
+   lines.on('line',line=>{const message=JSON.parse(line);pending.get(message.id)?.(message);pending.delete(message.id);});
+   const rpc=(method,params={})=>new Promise(resolve=>{const id=++sequence;pending.set(id,resolve);child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\\n');});
    try{
+    const initialized=await rpc('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'mem0-test',version:'1'}});
+    assert.equal(initialized.result.serverInfo.name,'mem0');
+    const listed=await rpc('tools/list');
+    assert.deepEqual(listed.result.tools.map(tool=>tool.name),['search','status','remember']);
     const session={id:'first-'+randomUUID(),header:{},events:[]};
     const content='星河项目发布窗口固定在周三下午15点。';
     const message=createUserMessage({content:[{type:'text',text:content}],source:{kind:'user'}});
@@ -67,12 +79,23 @@ test(
     assert.equal(decision.startsRequestSeries,true);assert.equal(decision.messages.length,2);
     assert.equal(decision.messages[1].source.kind,'mem0-memory');
     assert.match(JSON.stringify(decision.messages[1]),/周三下午15点/);
-    await assert.rejects(tools.get('mem0_remember').execute({content:'需确认的记忆'},{agent:{session:next}}),/approval/);
-    ctx.approval={request:async()=> 'allowed-once'};
-    const receipt=JSON.parse(await tools.get('mem0_remember').execute({content:'发布负责人为李明。'},{agent:{session:next},callId:randomUUID()}));
+    const searched=await rpc('tools/call',{name:'search',arguments:{query:'星河项目发布时间'}});
+    assert.match(searched.result.content[0].text,/周三下午15点/);
+    const denied=await rpc('tools/call',{name:'search',arguments:{query:'星河',user_id:other}});
+    assert.equal(denied.result.isError,true);
+    const guard=handlers.get('tools/pre-execute');
+    const execution={name:'mcp__mem0__remember',arguments:{content:'发布负责人为李明。'},agent:{session:next},callId:randomUUID()};
+    assert.equal((await guard({...execution,agent:null},async()=>({kind:'allow'}))).kind,'deny');
+    const ask=await guard(execution,async()=>({kind:'allow'}));
+    assert.equal(ask.kind,'ask');assert.match(ask.reason,/发布负责人为李明/);
+    assert.equal((await native('/memories?user_id='+owner,null,'GET')).results.length,1);
+    // Simulate the native runtime's allowed-once decision before executing MCP.
+    const saved=await rpc('tools/call',{name:'remember',arguments:execution.arguments});
+    const receipt=JSON.parse(saved.result.content[0].text);
     assert.equal(receipt.saved,true);assert.equal(receipt.ids.length,1);
     console.log(JSON.stringify({bundle:true,capture:true,recall:true,isolation:true,confirmed_save:true}));
    }finally{
+    child.kill();lines.close();
     for(const cleanup of effects.reverse())await cleanup?.();
     const records=await native('/memories?user_id='+owner,null,'GET');
     for(const row of records.results)await native('/memories/'+row.id,null,'DELETE');

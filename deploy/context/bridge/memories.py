@@ -1,19 +1,33 @@
-"""The OSS Mem0 SDK owns memory storage and recall, without automatic extraction."""
+"""Mem0 storage/recall and explicit session-commit extraction."""
 import os
 import hashlib
 import uuid
+import base64
+import json
 import httpx
 from milvus_service import MilvusTransport, service_url
 
 _memory = None
+_inference_memory = None
 
 
-def memory():
+def memory(infer=False):
     from mem0 import Memory
 
-    global _memory
-    if _memory is None:
-        _memory = Memory.from_config(
+    global _memory, _inference_memory
+    current = _inference_memory if infer else _memory
+    if current is None:
+        llm = {"api_key": "disabled-manual-memory-only", "model": "disabled"}
+        if infer:
+            model = json.loads(base64.b64decode(os.environ["HC_CONTEXT_MODEL_CONFIG"]))
+            llm = {
+                "api_key": model["api_key"],
+                "model": model["model"],
+                "openai_base_url": model["api_base"],
+                "temperature": 0,
+                "max_tokens": 4096,
+            }
+        current = Memory.from_config(
             {
                 "version": "v1.1",
                 "vector_store": {
@@ -34,15 +48,16 @@ def memory():
                         "model_kwargs": {"cache_dir": "/models", "threads": 2},
                     },
                 },
-                # infer=False never calls this LLM. No external model key is supplied.
-                "llm": {
-                    "provider": "openai",
-                    "config": {"api_key": "disabled-manual-memory-only", "model": "disabled"},
-                },
+                # Manual writes never invoke inference or need a model key.
+                "llm": {"provider": "openai", "config": llm},
                 "history_db_path": "/data/mem0-history.db",
             }
         )
-    return _memory
+        if infer:
+            _inference_memory = current
+        else:
+            _memory = current
+    return current
 
 
 class Memories:
@@ -126,6 +141,50 @@ class Memories:
             query, filters={"user_id": self.namespace, "scope": scope}, top_k=limit
         )["results"]
         return [{**r.get("metadata", {}), "score": r.get("score", 0), "chunk": 0} for r in rows]
+
+    def extraction_scope(self, commit_id):
+        return hashlib.sha256((self.namespace + ":mem0-extraction").encode()).hexdigest(), commit_id
+
+    def extraction_rows(self, commit_id):
+        owner, agent = self.extraction_scope(commit_id)
+        if self.http:
+            return self.request(
+                "GET", "/memories", params={"user_id": owner, "agent_id": agent, "top_k": 1000}
+            )["results"]
+        return self.client.get_all(filters={"user_id": owner, "agent_id": agent}, top_k=1000)[
+            "results"
+        ]
+
+    def extract_session(self, messages, commit_id):
+        # A separate staging identity prevents inference from editing manual
+        # memories. Reconcile a prior timed-out write before calling the model.
+        existing = self.extraction_rows(commit_id)
+        if existing:
+            return [row["memory"] for row in existing]
+        owner, agent = self.extraction_scope(commit_id)
+        transcript = json.dumps({"messages": messages}, ensure_ascii=False)
+        body = {
+            "messages": [{"role": "user", "content": transcript}],
+            "user_id": owner,
+            "agent_id": agent,
+            "infer": True,
+            "metadata": {"commit_id": commit_id},
+        }
+        if self.http:
+            result = self.request("POST", "/memories", json=body)
+        else:
+            result = memory(infer=True).add(**body)
+        if not isinstance(result, dict) or not isinstance(result.get("results"), list):
+            raise RuntimeError("Missing Mem0 extraction receipt")
+        return [row["memory"] for row in result["results"] if row.get("event") == "ADD"]
+
+    def cleanup_extraction(self, commit_id):
+        for row in self.extraction_rows(commit_id):
+            identity = str(uuid.UUID(str(row["id"])))
+            if self.http:
+                self.request("DELETE", "/memories/" + identity)
+            else:
+                self.client.delete(identity)
 
     def delete(self, record_id, version=None):
         if self.http:

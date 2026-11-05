@@ -97,6 +97,35 @@ class ManualMemoryArchive(lifecycle.ManualMemoryFixture):
                         self.assertEqual(restored[field], original[field])
                     self.assertEqual(restored["version"], 1)
 
+    def test_graphiti_export_import_preserves_null_graph_fields_and_checksum(self):
+        graph = {
+            "edges": [{"fact": "每周三发布", "invalid_at": None, "expired_at": None}],
+            "nodes": [{"name": "星河", "name_embedding": None, "attributes": {"owner": None}}],
+            "sequence": 9007199254740993,
+            "weight": 1.0,
+        }
+        self.start("graphiti")
+        self.seed([self.entry(graph=graph)])
+        exported = self.execute("export")
+        self.assertEqual(exported["entries"][0]["graph"], graph)
+        self.start("graphiti")
+        staged = self.execute("preview", package=exported)
+        self.assertEqual(staged["items"][0]["graph"], graph)
+        self.assertTrue(staged["warnings"])
+        self.assertEqual(self.store.calls, [])
+        result = self.execute(
+            "apply",
+            token=staged["token"],
+            mode="skip",
+            idempotency_key=str(uuid.uuid4()),
+            confirmed=True,
+            accept_loss=True,
+        )
+        self.assertEqual(result["applied"], ["product-memory"])
+        restored = self.execute("export")
+        self.assertEqual(restored["entries"][0]["graph"], graph)
+        self.assertEqual(restored["sha256"], app.digest(restored["entries"]))
+
     def test_v1_preview_accepts_ten_thousand_entries_and_rejects_one_more(self):
         entries = [self.entry(id=f"memory-{i:05d}", content="偏好") for i in range(10001)]
         for backend in self.backends:

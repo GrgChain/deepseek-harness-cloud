@@ -57,18 +57,40 @@ export function installExtensions(root, request) {
         bundles.push(item.package);
       }
     }
-    if (request.extensions.items.some((item) => item.session_memory)) {
+    const memory = request.extensions.items.find(
+      (item) => item.kind === 'memory' && item.session_memory,
+    );
+    if (memory?.backend && !['openviking', 'mem0', 'graphiti'].includes(memory.backend))
+      throw Error('Unsupported session memory backend');
+    let memoryBundle;
+    if (memory) {
+      const mem0 = memory.backend === 'mem0';
+      memoryBundle = mem0
+        ? {
+            name: '@harness-cloud/dsh-mem0-memory',
+            version: '0.2.0',
+            sha256: 'a0a47d5114d21d6e14e700b28d8ed9b9aa0c5fcc2a6b8209bb299beec80af515',
+          }
+        : memory.backend === 'graphiti'
+          ? {
+              name: '@harness-cloud/dsh-graphiti-memory',
+              version: '0.2.0',
+              sha256: '8822670006e77904234cf29b30f2a0033950ede55f57ff2ff552eb103c5adc29',
+            }
+          : {
+              name: '@openviking/dsh-memory-plugin',
+              version: '0.5.31',
+              sha256: '111c45ce690b5ab4b3ce1db04a9e847af1fe27ebc310ec97c90dcb76d55de46e',
+            };
       const artifact = Buffer.from(request.session_plugin ?? '', 'base64');
-      if (
-        createHash('sha256').update(artifact).digest('hex') !==
-        '111c45ce690b5ab4b3ce1db04a9e847af1fe27ebc310ec97c90dcb76d55de46e'
-      )
+      if (createHash('sha256').update(artifact).digest('hex') !== memoryBundle.sha256)
         throw Error('Invalid session memory artifact');
       const modules = path.join(staging, 'node_modules');
       fs.mkdirSync(modules, { mode: 0o700 });
-      const scope = path.join(modules, '@openviking');
+      const [scopeName, packageName] = memoryBundle.name.split('/');
+      const scope = path.join(modules, scopeName);
       fs.mkdirSync(scope, { mode: 0o700 });
-      const plugin = path.join(scope, 'dsh-memory-plugin');
+      const plugin = path.join(scope, packageName);
       fs.mkdirSync(plugin, { mode: 0o700 });
       const unpack = spawnSync(
         'tar',
@@ -84,6 +106,13 @@ export function installExtensions(root, request) {
         { input: artifact, timeout: 10000, stdio: ['pipe', 'ignore', 'pipe'] },
       );
       if (unpack.status !== 0) throw Error('Session memory extraction failed');
+      const metadata = JSON.parse(fs.readFileSync(path.join(plugin, 'package.json'), 'utf8'));
+      if (
+        metadata.name !== memoryBundle.name ||
+        metadata.version !== memoryBundle.version ||
+        !metadata.dsh?.bundle
+      )
+        throw Error('Incompatible session memory plugin');
       // Supply the exact host peers without running npm, scripts or a network call.
       fs.symlinkSync('/opt/harness-runtime/node_modules', path.join(plugin, 'node_modules'));
       const sync = (value) => {
@@ -99,7 +128,7 @@ export function installExtensions(root, request) {
         }
       };
       sync(modules);
-      bundles.push('@openviking/dsh-memory-plugin');
+      bundles.push(memoryBundle.name);
     }
     const sessionMemory = bundles.includes('@openviking/dsh-memory-plugin');
     const patches = [
@@ -126,16 +155,39 @@ export function installExtensions(root, request) {
           commitTokenThreshold: 20000,
         },
       });
+    const localMemory = memoryBundle && memoryBundle.name !== '@openviking/dsh-memory-plugin';
+    const localFilename = localMemory
+      ? memoryBundle.name.slice(1).replace('/', '-') + '-' + memoryBundle.version + '.tgz'
+      : undefined;
+    if (localMemory)
+      patches.push({
+        id: memory.backend + '-memory-runtime',
+        disabled: false,
+        inject: ['cloudSessionMemory'],
+        config: {
+          ...(memory.backend === 'mem0' ? { managed: true } : {}),
+          endpoint: { __jsExpr: 'ctx.cloudSessionMemory.endpoint' },
+        },
+      });
     const files = {
       'package.json': JSON.stringify({
         name: 'dsh-profile-web',
         private: true,
-        dependencies: sessionMemory ? { '@openviking/dsh-memory-plugin': '0.5.31' } : {},
+        dependencies: memoryBundle
+          ? {
+              [memoryBundle.name]: localMemory ? 'file:./' + localFilename : memoryBundle.version,
+            }
+          : {},
         dsh: { profile: { bundles } },
       }),
       'cordis.patch.yml': JSON.stringify(patches),
       'cloud-extensions.mjs': request.program,
       'openviking-session.mjs': request.session_program ?? '',
+      ...(localMemory
+        ? {
+            [localFilename]: Buffer.from(request.session_plugin, 'base64'),
+          }
+        : {}),
       'cloud-extensions.json': JSON.stringify(request.extensions),
       'pnpm-workspace.yaml': 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\n',
     };

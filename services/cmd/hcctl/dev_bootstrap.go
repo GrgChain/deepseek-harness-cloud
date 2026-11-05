@@ -48,24 +48,34 @@ func bootstrapLocal(ctx context.Context) error {
 			return fmt.Errorf("initialize local accounts: %w", err)
 		}
 	}
-	if _, err = os.Lstat(".local/worker-config.json"); errors.Is(err, os.ErrNotExist) {
+	return bootstrapLocalResources(ctx, pool, org)
+}
+
+func bootstrapLocalResources(ctx context.Context, pool *pgxpool.Pool, org string) error {
+	// The organization pool is needed by quota management even when runtime
+	// setup is incomplete. Persist it before checking runtime prerequisites.
+	if err := devlocal.InitResources(ctx, pool, org, os.Getenv("HC_OPERATOR_REF"), false); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(".local/worker-config.json"); errors.Is(err, os.ErrNotExist) {
 		// Login-only installations can initialize the organization pool before
 		// a runtime is installed. No template is approved without its proofs.
-		return devlocal.InitResources(ctx, pool, org, os.Getenv("HC_OPERATOR_REF"), false)
+		return nil
 	} else if err != nil {
 		return err
 	}
-	if err = runWorkspace("workspace-init"); err != nil {
+	if err := runWorkspace("workspace-init"); err != nil {
 		return fmt.Errorf("initialize workspace authority: %w", err)
 	}
-	if err = pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM approved_templates WHERE enabled)`).Scan(&exists); err != nil {
+	var exists bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM approved_templates WHERE enabled)`).Scan(&exists); err != nil {
 		return err
 	}
 	if !exists {
-		if err = runWorkspace("workspace-template"); err != nil {
+		if err := runWorkspace("workspace-template"); err != nil {
 			return fmt.Errorf("initialize workspace template: %w", err)
 		}
-		if err = approveLocalRuntime(ctx); err != nil {
+		if err := approveLocalRuntime(ctx); err != nil {
 			return fmt.Errorf("initialize verified runtime: %w", err)
 		}
 	}

@@ -19,17 +19,18 @@ var configName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // This file contains deployment facts and references to private credentials.
 // Gateway never loads an OIDC client secret or the plaintext model API key.
 type Options struct {
-	SchemaVersion           int    `json:"schema_version"`
-	OrganizationID          string `json:"organization_id"`
-	WorkspaceOrganizationID string `json:"workspace_organization_id"`
-	ControlUserID           string `json:"control_user_id"`
-	WorkspaceEngine         string `json:"workspace_engine"`
-	Environment             string `json:"environment"`
-	DataKeyID               string `json:"data_key_id"`
-	DataKeyFile             string `json:"data_key_file"`
-	DataKeyringFile         string `json:"data_keyring_file,omitempty"`
-	PortalOrigin            string `json:"portal_origin"`
-	Domain                  string `json:"instance_domain"`
+	SchemaVersion           int        `json:"schema_version"`
+	OrganizationID          string     `json:"organization_id"`
+	WorkspaceOrganizationID string     `json:"workspace_organization_id"`
+	ControlUserID           string     `json:"control_user_id"`
+	WorkspaceEngine         string     `json:"workspace_engine"`
+	Environment             string     `json:"environment"`
+	DataKeyID               string     `json:"data_key_id"`
+	DataKeyFile             string     `json:"data_key_file"`
+	DataKeyringFile         string     `json:"data_keyring_file,omitempty"`
+	PortalOrigin            string     `json:"portal_origin"`
+	Domain                  string     `json:"instance_domain"`
+	IPAccess                *IPOptions `json:"ip_access,omitempty"`
 }
 
 func LoadOptions(path string) (Options, error) {
@@ -50,6 +51,9 @@ func LoadOptions(path string) (Options, error) {
 		return Options{}, ErrConfiguration
 	}
 	if o.WorkspaceEngine != "embedded" {
+		return Options{}, ErrConfiguration
+	}
+	if o.IPAccess != nil && o.IPAccess.Validate() != nil {
 		return Options{}, ErrConfiguration
 	}
 	return o, nil
@@ -80,6 +84,7 @@ func NewRuntime(ctx context.Context, pool *pgxpool.Pool, path string) (*Runtime,
 	native := NewNativeVerifier(rules)
 	runtime := &Runtime{Options: o, Rules: rules, client: client, native: native}
 	runtime.Service = NewService(NewStore(pool, cipher, o.Environment, o.OrganizationID, rules), NewWorkspaceOwnership(client, o.WorkspaceOrganizationID, o.ControlUserID), native)
+	runtime.Service.ipAccess = o.IPAccess
 	if err = runtime.Ready(ctx); err != nil {
 		runtime.Close()
 		return nil, ErrConfiguration

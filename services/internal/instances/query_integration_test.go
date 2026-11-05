@@ -398,6 +398,28 @@ func TestOwnerQueriesWithRestrictedPostgres(t *testing.T) {
 		if e != nil || len(nativeSnapshot.Items) != 4 || !nativeSnapshot.Items[1].SessionMemory || nativeSnapshot.Items[1].SessionScope != "personal" || len(nativeSnapshot.Items[1].Scopes) != 1 || nativeSnapshot.Items[1].Scopes[0] != "personal" {
 			t.Fatal("session capture was not frozen to the shared corpus", nativeSnapshot, e)
 		}
+		// All memory backends use the same immutable opt-in and shared binding.
+		must(`UPDATE quota_reservations SET status='RELEASED' WHERE instance_id=ANY($1::uuid[])`, []string{accepted.InstanceID, second.InstanceID})
+		for _, backend := range []string{"mem0", "graphiti"} {
+			connection := webapi.ID()
+			must(`INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,'memory',$4,'test','Shared session memory '||$4,'READY','test',$5,'x')`, connection, org, p.UserID, backend, bytes.Repeat([]byte{0}, 12))
+			generic := input
+			generic.Memory = []workspaceextensions.Selection{{ID: connection, Version: 1, SessionMemory: true}}
+			created, err := commands.Create(ctx, p, webapi.ID(), generic, "")
+			if err != nil {
+				t.Fatal("generic session selection rejected", backend, err)
+			}
+			tx, err := database.Begin(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			snapshot, err := workspaceextensions.Load(ctx, tx, org, p.UserID, created.InstanceID)
+			_ = tx.Rollback(ctx)
+			if err != nil || !snapshot.Items[1].SessionMemory || snapshot.Items[1].Backend != backend || snapshot.Items[1].SessionScope != "personal" {
+				t.Fatal("generic session selection lost backend or shared scope", backend, snapshot, err)
+			}
+			must(`UPDATE quota_reservations SET status='RELEASED' WHERE instance_id=$1`, created.InstanceID)
+		}
 		must(`UPDATE mcp_connectors SET deleted_at=clock_timestamp(),enabled=false WHERE id=$1`, connector)
 		replay, e := commands.Create(ctx, p, key, input, "")
 		if e != nil || replay != accepted {

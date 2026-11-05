@@ -108,13 +108,13 @@ class ManualMemorySearch(unittest.TestCase):
                     self.assertEqual(engine.call_count, 5)
                     self.assertEqual(target.closed, 5)
 
-    def test_manual_backends_keep_native_source_and_nonsearch_threshold_restrictions(self):
+    def test_manual_backends_keep_nonsearch_threshold_and_source_restrictions(self):
         for backend in ("mem0", "graphiti"):
             namespace = hashlib.sha256(uuid.uuid4().bytes).hexdigest()
             for action, values in (
                 ("list", {"min_similarity": 0}),
-                ("search", {"memory_source": "manual"}),
-                ("search", {"memory_source": "automatic"}),
+                ("list", {"memory_source": "manual"}),
+                ("list", {"memory_source": "automatic"}),
                 ("search", {"search_mode": "keyword", "min_similarity": 0}),
                 ("search", {"search_mode": "exact", "min_similarity": 0}),
             ):
@@ -300,7 +300,6 @@ class MemorySearch(unittest.TestCase):
     def test_source_filters_are_rejected_for_unrelated_operations_and_backends(self):
         for backend, action, source in (
             ("openviking", "list", "manual"),
-            ("mem0", "search", "manual"),
             ("milvus", "search", "automatic"),
         ):
             with self.subTest(backend=backend, action=action):

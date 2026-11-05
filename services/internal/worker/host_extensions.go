@@ -30,10 +30,18 @@ func (h *LocalHost) installExtensions(ctx context.Context, p ExecutionPlan) erro
 	}
 	var sessionPlugin []byte
 	for _, item := range p.extensions.Items {
-		if item.SessionMemory {
-			sessionPlugin = pluginassets.OpenVikingPlugin
-			break
+		if !item.SessionMemory {
+			continue
 		}
+		switch item.Backend {
+		case "", "openviking":
+			sessionPlugin = pluginassets.OpenVikingPlugin
+		case "mem0":
+			sessionPlugin = pluginassets.Mem0Plugin
+		case "graphiti":
+			sessionPlugin = pluginassets.GraphitiPlugin
+		}
+		break
 	}
 	input, err := json.Marshal(struct {
 		storageRequest

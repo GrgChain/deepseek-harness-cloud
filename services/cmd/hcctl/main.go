@@ -22,7 +22,7 @@ func run() error {
 		return runOperations(os.Args[1], os.Args[2:])
 	}
 	if len(os.Args) != 2 {
-		return fmt.Errorf("usage: hcctl dev-init | dev-bootstrap | dev-auth-init | workspace-init | workspace-template | workspace-names-migrate | dev-worker-init | dev-access-init | dev-runtime-approve | dev-runtime-upgrade | dev-runtime-rollback | identity-apply | identity-import | migrate | dev-grants | backup | backup-daily | restore | recovery-inventory | recovery-retain | recovery-adopt | recovery-fence-source | storage-backup | storage-backup-reconcile | storage-hold | storage-restore | storage-reclaim | cleanup | secrets-reencrypt | audit-archive | audit-hold")
+		return fmt.Errorf("usage: hcctl dev-init | dev-bootstrap | dev-auth-init | workspace-init | workspace-template | workspace-names-migrate | dev-worker-init | dev-access-init | dev-ip-access-init | dev-runtime-approve | dev-runtime-upgrade | dev-runtime-rollback | identity-apply | identity-import | migrate | dev-grants | backup | backup-daily | restore | recovery-inventory | recovery-retain | recovery-adopt | recovery-fence-source | storage-backup | storage-backup-reconcile | storage-hold | storage-restore | storage-reclaim | cleanup | secrets-reencrypt | audit-archive | audit-hold")
 	}
 	if os.Args[1] == "dev-init" {
 		return devlocal.Init(".local")
@@ -49,6 +49,9 @@ func run() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return initLocalAccess(ctx)
+	}
+	if os.Args[1] == "dev-ip-access-init" {
+		return initLocalIPAccess()
 	}
 	if os.Args[1] == "identity-apply" || os.Args[1] == "identity-import" {
 		dsn, err := config.ReadSecret(os.Getenv("HC_DB_DSN_FILE"))

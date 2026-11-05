@@ -89,18 +89,23 @@ func (s *Service) remote(ctx context.Context, e Endpoint, v Connection, p identi
 	}
 	// Namespaces do not expose browser-selected organization or user identities.
 	digest := sha256.Sum256([]byte(p.OrganizationID + ":" + p.UserID + ":" + v.ID))
-	var sessionNamespace string
+	var sessionNamespace, manualNamespace string
+	if v.Kind == "memory" && v.Backend == "openviking" && action == "session" {
+		// The official plugin can read this owner's platform memories as well as
+		// its native tenant. Neither tenant can be selected by a tool argument.
+		manualNamespace = hex.EncodeToString(digest[:])
+	}
 	if v.Kind == "memory" && v.Backend == "openviking" && (action == "search" || action == "export" || action == "preview" || action == "apply") {
 		// Search and complete archives span manual and official-plugin memories.
 		// The second tenant is resolved here, never by the caller.
 		nativeDigest := sha256.Sum256([]byte(p.OrganizationID + ":" + p.UserID + ":" + v.ID + ":dsh-session:" + input.Scope))
 		sessionNamespace = hex.EncodeToString(nativeDigest[:])
 	}
-	if v.Kind == "memory" && (action == "export" || action == "preview") {
+	if v.Kind == "memory" && (action == "export" || action == "preview" || action == "session") {
 		client.Timeout = 90 * time.Second
 		client.Transport.(*http.Transport).ResponseHeaderTimeout = 85 * time.Second
 	}
-	if action == "session" || action == "session-list" || action == "session-get" {
+	if v.Backend == "openviking" && (action == "session" || action == "session-list" || action == "session-get") {
 		// Native archives and extracted memories use a dedicated tenant per
 		// connection. Session memory is shared across this user's workspaces.
 		digest = sha256.Sum256([]byte(p.OrganizationID + ":" + p.UserID + ":" + v.ID + ":dsh-session:" + input.Scope))
@@ -112,11 +117,12 @@ func (s *Service) remote(ctx context.Context, e Endpoint, v Connection, p identi
 		Contract         string           `json:"contract"`
 		Namespace        string           `json:"namespace"`
 		SessionNamespace string           `json:"session_namespace,omitempty"`
+		ManualNamespace  string           `json:"manual_namespace,omitempty"`
 		Kind             string           `json:"kind"`
 		Service          *milvusService   `json:"service,omitempty"`
 		Embedding        *EmbeddingConfig `json:"embedding,omitempty"`
 		Action
-	}{Contract, hex.EncodeToString(digest[:]), sessionNamespace, v.Kind, service, settings.Embedding, input}); err != nil {
+	}{Contract, hex.EncodeToString(digest[:]), sessionNamespace, manualNamespace, v.Kind, service, settings.Embedding, input}); err != nil {
 		return nil, invalid("请求内容格式不正确")
 	}
 	body := buffer.Bytes()

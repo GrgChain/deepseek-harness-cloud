@@ -188,7 +188,7 @@ test('four extension groups submit exact references and retain them during uncer
   await expect(page.getByRole('button', { name: '确认创建结果', exact: true })).toBeEnabled();
   expect(bodies[0]).toMatchObject({
     connectors: [{ id: id(10), version: 3, catalog_version: 4 }],
-    memory: [{ id: id(11), version: 2 }],
+    memory: [{ id: id(11), version: 2, session_memory: true }],
     knowledge: [{ id: id(12), version: 2, permissions: ['read', 'write', 'delete'] }],
     plugins: [{ id: 'session-search', version: '0.2.1-alpha.2' }],
   });
@@ -346,53 +346,54 @@ test('creation groups stay compact and reopening starts with fresh extension cho
   await expect(page.getByRole('button', { name: '创建并运行', exact: true })).toBeDisabled();
 });
 
-test('memory is single select and OpenViking sync defaults on for each new choice', async ({
-  page,
-}, info) => {
-  await setup(page);
-  await page.route('**/v1/context/memory', (r) =>
-    r.fulfill({
-      json: {
-        items: [
-          { ...source('memory'), backend: 'openviking', name: 'OpenViking 记忆' },
-          { ...source('memory'), id: id(14), backend: 'openviking', name: '备用记忆' },
-        ],
-        bindings: [],
-      },
-    }),
-  );
-  let body: Record<string, unknown> | undefined;
-  await page.route('**/v1/instances', (r) => {
-    body = r.request().postDataJSON();
-    return r.fulfill({ status: 409, json: { code: 'CONFIGURATION_INVALID' } });
+for (const backend of ['openviking', 'mem0', 'graphiti'])
+  test(`memory is single select and ${backend} sync defaults on for each new choice`, async ({
+    page,
+  }, info) => {
+    await setup(page);
+    await page.route('**/v1/context/memory', (r) =>
+      r.fulfill({
+        json: {
+          items: [
+            { ...source('memory'), backend: 'openviking', name: 'OpenViking 记忆' },
+            { ...source('memory'), id: id(14), backend, name: '备用记忆' },
+          ],
+          bindings: [],
+        },
+      }),
+    );
+    let body: Record<string, unknown> | undefined;
+    await page.route('**/v1/instances', (r) => {
+      body = r.request().postDataJSON();
+      return r.fulfill({ status: 409, json: { code: 'CONFIGURATION_INVALID' } });
+    });
+    await open(page);
+    await choose(page, '创建时的记忆', 'OpenViking 记忆');
+    const first = page.getByRole('checkbox', { name: '完整会话同步', exact: true });
+    await expect(first).toBeChecked();
+    await first.uncheck();
+    await expect(first).not.toBeChecked();
+    await choose(page, '创建时的记忆', '备用记忆');
+    await expect(first).toHaveCount(1);
+    await expect(page.getByRole('checkbox', { name: '完整会话同步', exact: true })).toBeChecked();
+    await expect(page.getByRole('combobox', { name: '会话记忆保存范围', exact: true })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole('group', { name: '记忆检索范围', exact: true })).toHaveCount(0);
+    const memory = page.getByRole('region', { name: '选择记忆', exact: true });
+    await expect(memory.locator('.ant-select-selection-item')).toHaveCount(1);
+    await expect(
+      page.getByText('自动同步用户消息、助手回复和工具结果，跨工作空间召回记忆。'),
+    ).toBeVisible();
+    await page.getByRole('heading', { name: '选择记忆', exact: false }).click();
+    await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
+    await memory.screenshot({ path: info.outputPath('session-memory.png') });
+    await page.getByRole('button', { name: '创建并运行', exact: true }).click();
+    await expect.poll(() => body).toBeTruthy();
+    expect(body!.memory).toEqual([{ id: id(14), version: 2, session_memory: true }]);
   });
-  await open(page);
-  await choose(page, '创建时的记忆', 'OpenViking 记忆');
-  const first = page.getByRole('checkbox', { name: 'OpenViking 记忆完整会话同步', exact: true });
-  await expect(first).toBeChecked();
-  await first.uncheck();
-  await expect(first).not.toBeChecked();
-  await choose(page, '创建时的记忆', '备用记忆');
-  await expect(first).toHaveCount(0);
-  await expect(
-    page.getByRole('checkbox', { name: '备用记忆完整会话同步', exact: true }),
-  ).toBeChecked();
-  await expect(page.getByRole('combobox', { name: '会话记忆保存范围', exact: true })).toHaveCount(
-    0,
-  );
-  await expect(page.getByRole('group', { name: '记忆检索范围', exact: true })).toHaveCount(0);
-  const memory = page.getByRole('region', { name: '选择记忆', exact: true });
-  await expect(memory.locator('.ant-select-selection-item')).toHaveCount(1);
-  await expect(page.getByText('自动同步对话，跨工作空间召回记忆。')).toBeVisible();
-  await page.getByRole('heading', { name: '选择记忆', exact: false }).click();
-  await expect(page.locator('.ant-select-dropdown:visible')).toHaveCount(0);
-  await memory.screenshot({ path: info.outputPath('session-memory.png') });
-  await page.getByRole('button', { name: '创建并运行', exact: true }).click();
-  await expect.poll(() => body).toBeTruthy();
-  expect(body!.memory).toEqual([{ id: id(14), version: 2, session_memory: true }]);
-});
 
-test('memory sync stays off after unrelated choices and selecting manual memory replaces it', async ({
+test('memory sync stays off after unrelated choices and switching backends enables the new selection', async ({
   page,
 }) => {
   await setup(page);
@@ -401,7 +402,7 @@ test('memory sync stays off after unrelated choices and selecting manual memory 
       json: {
         items: [
           { ...source('memory'), backend: 'openviking', name: 'OpenViking 记忆' },
-          { ...source('memory'), id: id(14), name: '手动记忆' },
+          { ...source('memory'), id: id(14), backend: 'mem0', name: 'Mem0 记忆' },
         ],
         bindings: [],
       },
@@ -414,16 +415,19 @@ test('memory sync stays off after unrelated choices and selecting manual memory 
   });
   await open(page);
   await choose(page, '创建时的记忆', 'OpenViking 记忆');
-  const sync = page.getByRole('checkbox', { name: 'OpenViking 记忆完整会话同步', exact: true });
+  const sync = page.getByRole('checkbox', { name: '完整会话同步', exact: true });
   await sync.uncheck();
   await choose(page, '创建时的知识库', '项目知识库');
   await expect(sync).not.toBeChecked();
   await page.getByRole('button', { name: '创建并运行', exact: true }).click();
   await expect.poll(() => body).toBeTruthy();
   expect(body!.memory).toEqual([{ id: id(11), version: 2 }]);
-  await choose(page, '创建时的记忆', '手动记忆');
-  await expect(sync).toHaveCount(0);
-  await expect(page.getByText('自动同步对话，跨工作空间召回记忆。')).toHaveCount(0);
+  await choose(page, '创建时的记忆', 'Mem0 记忆');
+  await expect(sync).toBeChecked();
+  await sync.uncheck();
+  await expect(
+    page.getByText('自动同步用户消息、助手回复和工具结果，跨工作空间召回记忆。'),
+  ).toHaveCount(0);
   await page.getByRole('button', { name: '创建并运行', exact: true }).click();
   await expect.poll(() => body!.memory).toEqual([{ id: id(14), version: 2 }]);
 });

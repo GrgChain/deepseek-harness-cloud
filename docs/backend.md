@@ -1,5 +1,33 @@
 # DSH Cloud 后端技术架构
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 架构目标](#1-架构目标)
+- [2 技术选型](#2-技术选型)
+- [3 运行拓扑与权限](#3-运行拓扑与权限)
+- [4 模块划分](#4-模块划分)
+- [5 工程目录](#5-工程目录)
+- [6 请求与事务流程](#6-请求与事务流程)
+- [7 异步执行与故障恢复](#7-异步执行与故障恢复)
+- [8 配置、健康与访问](#8-配置健康与访问)
+- [9 API 与观测规范](#9-api-与观测规范)
+- [10 实施与验收](#10-实施与验收)
+- [11 面向对象实现约束](#11-面向对象实现约束)
+- [12 运行适配与外部契约](#12-运行适配与外部契约)
+- [13 调度、健康发布与安全补偿](#13-调度健康发布与安全补偿)
+- [内置身份模块](#内置身份模块)
+- [个人模型提供商账号聚合](#个人模型提供商账号聚合)
+- [模型提供商账号默认模型与审计投影](#模型提供商账号默认模型与审计投影)
+- [DSH模型提供商账号模型范围](#dsh模型提供商账号模型范围)
+- [外接记忆与知识库](#外接记忆与知识库)
+- [工作台连接器（MCP）](#工作台连接器mcp)
+- [创建扩展与受控运行（REQ-25）](#创建扩展与受控运行req-25)
+- [本人第三方插件目录](#本人第三方插件目录)
+
+</details>
+
 版本：V0.2。Go API/Worker/Gateway、身份、配置、生命周期、内嵌 Workspace、原卷与受控访问已有实现。本机运行闭环及部分运维能力已验证；当前验收状态与未完成范围集中见[测试验收](testing.md)，需求见[功能需求](requirements.md)，选择理由见[系统设计](design.md)。
 
 ## 1 架构目标
@@ -10,22 +38,22 @@
 
 ## 2 技术选型
 
-| 技术 | 开发基线 | 职责与约束 |
-| --- | --- | --- |
-| Go | 1.27.2，见 go.mod 的 toolchain | 标准net/http API/BFF、领域对象、Worker与Gateway；HTTP超时/取消/优雅退出；同工程分权限运行，框架按实际需要引入 |
-| PostgreSQL | 17 | 业务事实、事务/约束、Outbox、配额、会话和审计 |
-| Redis | 7.4 | 脱敏短期缓存；ACL/noeviction；不能保存唯一授权/任务 |
-| pgx | v5 | 显式SQL、事务、条件更新、索引/约束和连接池；避免隐式事务，结构见[db/schema.sql](../db/schema.sql) |
-| go-redis | v9 | Cache/RateLimiter端口适配，200ms有界超时 |
-| OIDC / OAuth2 | 平台 AuthorizationServer + go-oidc/oauth2/go-jose + bcrypt | 内置授权码/PKCE、RS256/JWKS、数据库账号与BFF；标准库和成熟签名/散列实现 |
-| crypto/aes、cipher.GCM | Go标准库 | AES-256-GCM、外置主密钥、AAD、key_id |
-| 内嵌 Workspace 模块 + Terraform Provider | 上游源码 v2.37.4，Terraform 1.15.5，Coder Provider 2.19.0，Docker Provider 4.6.0 | Go 内部编排Workspace/TemplateVersion/Build，平台PG持久化，Worker执行受控Terraform |
-| Docker Engine | D0按目标主机锁定兼容版本 | 固定DSH镜像digest、非特权用户、批准规格、容器硬限额及独立卷、隔离网络；成员无Socket |
-| net/http/httputil | Go标准库 | 最小Gateway、固定路由、HTTP/WS代理、实时授权 |
-| OpenAPI | 3.0.3 | 平台API契约、类型生成与fixture验证 |
-| 异步任务 | PostgreSQL Operation/Outbox + Worker | 有界领取、幂等、租约和对账，不新增消息队列 |
-| 秘密 | 受控密钥存储及版本引用 | AES-256-GCM密文存PG，key_id/AAD；主密钥只读文件外置 |
-| 观测 | 结构化日志、指标、关联 ID | 脱敏；不记录 Key/Token/工作正文 |
+| 技术                                     | 开发基线                                                                         | 职责与约束                                                                                                    |
+| ---------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Go                                       | 1.27.2，见 go.mod 的 toolchain                                                   | 标准net/http API/BFF、领域对象、Worker与Gateway；HTTP超时/取消/优雅退出；同工程分权限运行，框架按实际需要引入 |
+| PostgreSQL                               | 17                                                                               | 业务事实、事务/约束、Outbox、配额、会话和审计                                                                 |
+| Redis                                    | 7.4                                                                              | 脱敏短期缓存；ACL/noeviction；不能保存唯一授权/任务                                                           |
+| pgx                                      | v5                                                                               | 显式SQL、事务、条件更新、索引/约束和连接池；避免隐式事务，结构见[db/schema.sql](../db/schema.sql)             |
+| go-redis                                 | v9                                                                               | Cache/RateLimiter端口适配，200ms有界超时                                                                      |
+| OIDC / OAuth2                            | 平台 AuthorizationServer + go-oidc/oauth2/go-jose + bcrypt                       | 内置授权码/PKCE、RS256/JWKS、数据库账号与BFF；标准库和成熟签名/散列实现                                       |
+| crypto/aes、cipher.GCM                   | Go标准库                                                                         | AES-256-GCM、外置主密钥、AAD、key_id                                                                          |
+| 内嵌 Workspace 模块 + Terraform Provider | 上游源码 v2.37.4，Terraform 1.15.5，Coder Provider 2.19.0，Docker Provider 4.6.0 | Go 内部编排Workspace/TemplateVersion/Build，平台PG持久化，Worker执行受控Terraform                             |
+| Docker Engine                            | D0按目标主机锁定兼容版本                                                         | 固定DSH镜像digest、非特权用户、批准规格、容器硬限额及独立卷、隔离网络；成员无Socket                           |
+| net/http/httputil                        | Go标准库                                                                         | 最小Gateway、固定路由、HTTP/WS代理、实时授权                                                                  |
+| OpenAPI                                  | 3.0.3                                                                            | 平台API契约、类型生成与fixture验证                                                                            |
+| 异步任务                                 | PostgreSQL Operation/Outbox + Worker                                             | 有界领取、幂等、租约和对账，不新增消息队列                                                                    |
+| 秘密                                     | 受控密钥存储及版本引用                                                           | AES-256-GCM密文存PG，key_id/AAD；主密钥只读文件外置                                                           |
+| 观测                                     | 结构化日志、指标、关联 ID                                                        | 脱敏；不记录 Key/Token/工作正文                                                                               |
 
 精确 Go/驱动版本锁定在 go.mod/go.sum，本地 PG/Redis 镜像 digest 在 deploy/local/compose.yaml。运行命令见 README；运行批准绑定实际模板、镜像、helper 和协议摘要。升级需运行相应契约与回归测试。
 
@@ -71,20 +99,20 @@ API-043的25项权限名称、用途说明和依赖由`identity/permissions.go`�
 
 REQ-13～15由 identity 管理应用服务、受控 IAM 数据库函数与有效权限目录实现。最后管理员、内置/在用角色、不可变主体和Owner由事务约束保护，变更与会话撤销、代次递增和审计原子提交；内置 Accounts 在意图提交后写入平台数据库，结果未知继续原任务。
 
-| 当前包 | 职责 | 主要边界 |
-| --- | --- | --- |
-| `identity` | OIDC、会话、固定组织、角色、Owner 映射与撤销 | Principal 来自服务端；事务内重新授权 |
-| `settings` | 模型保存/校验/撤销、默认项、模板和预检 | 版本、加密、Probe 租约与持久预算 |
-| `instances` | 查询、命令、重试、状态规划、幂等、配额及资源审计查询 | 接受短事务；不执行 Docker/Terraform |
-| `worker` | Outbox/租约、检查点/构建意图、原卷/配置/网络、终态、健康与安全停止 | 唯一正常外部执行边界；最小受信主机权限 |
-| `workspace` | Workspace/TemplateVersion/Build 持久化、稳定名称、Terraform 排他执行 | 固定 authority、模板不可变、连续 Build、私有 state |
-| `access` | 挑战/票据/会话、Owner、原生认证和 HTTP/WS 代理 | 精确 Host/Origin、每次请求再授权、无任意上游 |
-| `admission` / `hostcapacity` | Worker/HTTPS/运行批准观察、主机容量准入 | 预检不代替接受事务内的配额及授权校验 |
-| `runtimeapproval` | 固定模板/镜像/helper 契约验证、受信批准、兼容升级/回滚 | 普通服务没有批准写权 |
-| `operations` | 数据库/卷备份恢复、回收、资源核对/保留/接纳、来源围栏、密钥维护与审计归档 | 受信 CLI；维护意图与隔离恢复 |
-| `retention` | 已到期短期记录有界清理 | 保护活跃操作/会话/FK 引用 |
-| `security` / `pagination` | 密文与密钥环、签名游标 | 有界依赖；不保存唯一授权/配额事实于 Redis |
-| `httpserver` / `webapi` / `bootstrap` / `config` / `devlocal` | 协议、严格输入、进程装配、私有配置、本地环境和角色授权 | 组合具体服务；开发初始化不进入正常浏览器路径 |
+| 当前包                                                        | 职责                                                                      | 主要边界                                           |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------- |
+| `identity`                                                    | OIDC、会话、固定组织、角色、Owner 映射与撤销                              | Principal 来自服务端；事务内重新授权               |
+| `settings`                                                    | 模型保存/校验/撤销、默认项、模板和预检                                    | 版本、加密、Probe 租约与持久预算                   |
+| `instances`                                                   | 查询、命令、重试、状态规划、幂等、配额及资源审计查询                      | 接受短事务；不执行 Docker/Terraform                |
+| `worker`                                                      | Outbox/租约、检查点/构建意图、原卷/配置/网络、终态、健康与安全停止        | 唯一正常外部执行边界；最小受信主机权限             |
+| `workspace`                                                   | Workspace/TemplateVersion/Build 持久化、稳定名称、Terraform 排他执行      | 固定 authority、模板不可变、连续 Build、私有 state |
+| `access`                                                      | 挑战/票据/会话、Owner、原生认证和 HTTP/WS 代理                            | 精确 Host/Origin、每次请求再授权、无任意上游       |
+| `admission` / `hostcapacity`                                  | Worker/HTTPS/运行批准观察、主机容量准入                                   | 预检不代替接受事务内的配额及授权校验               |
+| `runtimeapproval`                                             | 固定模板/镜像/helper 契约验证、受信批准、兼容升级/回滚                    | 普通服务没有批准写权                               |
+| `operations`                                                  | 数据库/卷备份恢复、回收、资源核对/保留/接纳、来源围栏、密钥维护与审计归档 | 受信 CLI；维护意图与隔离恢复                       |
+| `retention`                                                   | 已到期短期记录有界清理                                                    | 保护活跃操作/会话/FK 引用                          |
+| `security` / `pagination`                                     | 密文与密钥环、签名游标                                                    | 有界依赖；不保存唯一授权/配额事实于 Redis          |
+| `httpserver` / `webapi` / `bootstrap` / `config` / `devlocal` | 协议、严格输入、进程装配、私有配置、本地环境和角色授权                    | 组合具体服务；开发初始化不进入正常浏览器路径       |
 
 生命周期操作及配额属于 `instances`/`worker`，`operations` 包专指受信运维；不存在独立的 configuration/quotas/storage/audit 服务包。规则、用例、SQL 和外部集成按文件职责组织，确有复用时再提取包。
 
@@ -156,12 +184,12 @@ PostgreSQL 是实例、配置版本、幂等记录、Operation/Outbox、配额�
 
 请求入口不设置频率限制，API/Gateway 启动和 Redis 重连不设置冷却窗口。模型费用预算和实例额度仍持久化控制；Redis 只保存可重建缓存，TTL和容量按 [配置基线](deployment.md#8-配置与业务规则基线) 实现并测试。
 
-| Redis 状况 | 后端行为 |
-| --- | --- |
-| 缓存未命中/不可用 | 有界回源 PostgreSQL，避免无限重试或集中打满连接池 |
-| 请求频率 | 不设平台请求限流；授权、持久预算和资源容量独立校验 |
+| Redis 状况         | 后端行为                                                         |
+| ------------------ | ---------------------------------------------------------------- |
+| 缓存未命中/不可用  | 有界回源 PostgreSQL，避免无限重试或集中打满连接池                |
+| 请求频率           | 不设平台请求限流；授权、持久预算和资源容量独立校验               |
 | 权限撤销/停止/删除 | 不依赖缓存成功；走数据库授权、单操作约束和审计，持续执行安全清理 |
-| 已接受的持久操作 | Worker 从 PostgreSQL 继续执行/对账，不因缓存丢失重复创建 |
+| 已接受的持久操作   | Worker 从 PostgreSQL 继续执行/对账，不因缓存丢失重复创建         |
 
 Redis 放内部网络，使用 ACL 和最小命令/键权限，禁止浏览器及成员容器直连。配置内存上限、TTL 和明确淘汰策略；采用 noeviction 并严格限制缓存容量。Redis 不备份为业务事实，重启由数据库安全重建缓存。
 
@@ -205,14 +233,14 @@ DSH 上游为 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deep
 
 ### 12.2 启动与配置契约
 
-| 输入 | 规则 |
-| --- | --- |
-| 身份 | instance/org/owner UUID 与 storage asset UUID，不能从工作文件推导 |
-| 路径 | 一个数据资产挂载 `/data`；工作目录 `/data/workspace`，DSH_HOME=`/data/dsh` |
-| 配置 | manifest 固定基础profile及启动覆盖策略；Owner管理可选插件和预设设置，模型路由、默认模型覆盖与权限策略仍由平台控制 |
-| Web | 端口 3080；绑定容器单个内网 IP；public URL 为实例 HTTPS 根；trusted-host 仅实例精确域名 |
-| 模型 | 当前 `deepseek-official` / `deepseek-messages`，批准 endpoint 与模型；Key 单独受控注入；平台模型网关适配见12.7节 |
-| 启动输出 | 仅版本、instance_id、config_version、非敏感 health；禁止打印 Token 链接 |
+| 输入     | 规则                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------- |
+| 身份     | instance/org/owner UUID 与 storage asset UUID，不能从工作文件推导                                                 |
+| 路径     | 一个数据资产挂载 `/data`；工作目录 `/data/workspace`，DSH_HOME=`/data/dsh`                                        |
+| 配置     | manifest 固定基础profile及启动覆盖策略；Owner管理可选插件和预设设置，模型路由、默认模型覆盖与权限策略仍由平台控制 |
+| Web      | 端口 3080；绑定容器单个内网 IP；public URL 为实例 HTTPS 根；trusted-host 仅实例精确域名                           |
+| 模型     | 当前 `deepseek-official` / `deepseek-messages`，批准 endpoint 与模型；Key 单独受控注入；平台模型网关适配见12.7节  |
+| 启动输出 | 仅版本、instance_id、config_version、非敏感 health；禁止打印 Token 链接                                           |
 
 启动器生成 profile patch 与必要设置时使用 YAML/JSON 结构化序列化、临时文件+fsync+原子 rename、0600/0700 权限；不使用字符串拼接 Shell。模型 Key 不放 Terraform 参数/state、镜像层、普通日志；由受信执行器在受控临时文件或进程环境提供，进程启动后清除临时副本。直接注入限制见安全文档。
 
@@ -252,14 +280,14 @@ StorageAsset 先登记，卷名 `hc-` 加资产 UUID；标签包含 org/owner/in
 
 ### 12.6 契约测试与证据
 
-| 风险 | 先写的验收 | 通过条件 |
-| --- | --- | --- |
-| 启动/适配 | 固定镜像启动，读取结构化就绪 | 不抓日志、无 Token 泄漏、配置版本一致 |
-| 一键使用 | 新浏览器进入并提交合成任务 | 工作目录/模型已选，无手工补配 |
-| 原生认证 | root 交换、错误 Host/Origin、WS、进程重启 | 无浏览器启动 Token，错误拒绝，重建原生会话有效 |
-| 外部幂等 | 超时/迟到/重投/名称冲突 | 一个 Owner/name 只绑定一个 Workspace |
-| 存储 | stop/start/destroy、移除卷、卸载竞争 | 校验和不变；缺失拒绝而非空卷启动 |
-| 工具/网络 | 合成文件读写、越界路径、端口旁路 | 批准目录可用，未批准访问拒绝 |
+| 风险      | 先写的验收                                | 通过条件                                       |
+| --------- | ----------------------------------------- | ---------------------------------------------- |
+| 启动/适配 | 固定镜像启动，读取结构化就绪              | 不抓日志、无 Token 泄漏、配置版本一致          |
+| 一键使用  | 新浏览器进入并提交合成任务                | 工作目录/模型已选，无手工补配                  |
+| 原生认证  | root 交换、错误 Host/Origin、WS、进程重启 | 无浏览器启动 Token，错误拒绝，重建原生会话有效 |
+| 外部幂等  | 超时/迟到/重投/名称冲突                   | 一个 Owner/name 只绑定一个 Workspace           |
+| 存储      | stop/start/destroy、移除卷、卸载竞争      | 校验和不变；缺失拒绝而非空卷启动               |
+| 工具/网络 | 合成文件读写、越界路径、端口旁路          | 批准目录可用，未批准访问拒绝                   |
 
 本地真实验证已通过固定容器启动、默认目录/模型、原生HTTP/WS认证矩阵、重启换代、硬容量ENOSPC、删除保卷、网络私网阻断/公网TLS和Workspace Owner/同名冲突/启停/销毁。受限DeepSeek工具调用探测及DSH Web默认预设的真实模型写文件/工具读回/最终回答已通过（最多3请求，每次512输出tokens，禁自动重试）；Go Worker 已通过真实创建、启停、配置重启、删除保卷和构建响应丢失对账；真实 OIDC 管理员配置、成员一键创建和浏览器 Gateway 进入已通过；普通浏览器模型文件任务及本机加密备份/隔离恢复/回收已通过；恢复保留计额已实现；可信检查点接纳/保留转换已实现；未知资源处置、授权切换和完整故障矩阵仍待完成；本机日备份/定时器已实现；审计加密归档、法律保留与失败回滚已通过真实PG。命令见README，不能将已通过的原型契约等同于完整产品TC通过。技术依据：[DSH Web 部署](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/public-deployments.md)、[原生连接认证](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/client/connection/README.md)、[模型插件](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/llm/llm-deepseek/README.md)、[模型设置](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/providers.md)。平台隔离与适配方案为本项目设计，需要真实验证。
 
@@ -267,14 +295,14 @@ StorageAsset 先登记，卷名 `hc-` 加资产 UUID；标签包含 org/owner/in
 
 模型链路为DSH → 本平台Go模型入口 → 官方提供商API。`services/cmd/model-gateway`使用`internal/modelgateway`，不启动第三方代理服务；与API、Worker、工作空间访问Gateway共享平台PostgreSQL，但采用独立最小权限账号。模型入口不访问Docker、身份密码散列、Workspace状态或Redis。
 
-| 对象 | 职责 |
-| --- | --- |
-| modelgateway.Server | Bearer认证、管理与推理权限分离、按连接版本授权、请求体与并发上限、原生路由/运行密钥注册及撤销 |
-| Route / Request / Message / Tool | 明确模型别名、冻结提供商参数、输出上限和文本/工具请求契约；严格拒绝未知字段和不支持的内容 |
-| provider.go / responses.go | Chat Completions、OpenAI Responses及Messages请求转换；工具调用/结果回传、Responses reasoning 无状态续接、SSE解析与顺序化事件、模型映射、截断与异常拒绝 |
-| gemini.go | generateContent请求与流转换、函数声明/调用/结果、非思考参数；不支持跨轮思考签名 |
-| transport.go | 固定官方API根与参数白名单、公共DNS校验、直连拨号、TLS校验、禁止代理/重定向/重试 |
-| settings.ModelSync | Worker持久任务、原生入口路由与运行密钥注册、稳定标识和读回核对；保留原有租约、失联恢复及撤销机制 |
+| 对象                             | 职责                                                                                                                                                   |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| modelgateway.Server              | Bearer认证、管理与推理权限分离、按连接版本授权、请求体与并发上限、原生路由/运行密钥注册及撤销                                                          |
+| Route / Request / Message / Tool | 明确模型别名、冻结提供商参数、输出上限和文本/工具请求契约；严格拒绝未知字段和不支持的内容                                                              |
+| provider.go / responses.go       | Chat Completions、OpenAI Responses及Messages请求转换；工具调用/结果回传、Responses reasoning 无状态续接、SSE解析与顺序化事件、模型映射、截断与异常拒绝 |
+| gemini.go                        | generateContent请求与流转换、函数声明/调用/结果、非思考参数；不支持跨轮思考签名                                                                        |
+| transport.go                     | 固定官方API根与参数白名单、公共DNS校验、直连拨号、TLS校验、禁止代理/重定向/重试                                                                        |
+| settings.ModelSync               | Worker持久任务、原生入口路由与运行密钥注册、稳定标识和读回核对；保留原有租约、失联恢复及撤销机制                                                       |
 
 运行入口仅公开受控HTTPS，管理接口只接受Worker控制凭据。推理端只接受本人连接版本运行密钥，实时核对组织、Owner、权限、连接、目录和凭据状态；直接读取现有提供商密文并按原AAD解密，不复制真实Key到其他数据库。密钥注册必须匹配平台已经签发并加密持久化的运行密钥。
 
@@ -296,12 +324,12 @@ Owner或组织禁用、共享credential撤销时，新授权立即以PG事实拒
 
 retry仅针对该实例最近一次、尚无后续已接受命令的FAILED用户操作；需要reconciled_at和可执行诊断、无活跃操作、当前Owner有效；CREATE/START/CONFIGURE还要求目标配置可用及原卷条件满足，STOP/DELETE不以失效模型或缺卷阻止安全清理。新操作保留原type、target_snapshot、确认名称和外部标识，retry_of关联原操作；expected_instance_version重新取当前锁定版本，不把旧版本计数复制成必然冲突。无body意味着不能借retry换模型或默认项；同Key返回同一个重试操作。此前已确认释放的计算/并发额度须重新预留，仍USED的实例/存储不能重复计账；额度不足明确429。
 
-| 失败类型 | 安全重试动作 | 必须拒绝 |
-| --- | --- | --- |
-| CREATE | 复用已确认资产和Workspace，从尚未完成步骤继续；仅从未分配过资产时允许登记唯一asset UUID并首次准备；已运行只做配置/健康核实 | Unknown、原卷缺失、原目标凭据已撤销，不能换名/补空卷 |
-| START | 原Workspace/原卷，核实最新Build后继续启动 | 仍未知或有运行中的冲突Build |
-| STOP / DELETE | 再撤销入口，按实际残留清理；已完成外部目标时确认而非再次创建 | 未核实外部归属或资产正在恢复/回收 |
-| CONFIGURE | 重用原目标配置与target_desired_state；原目标RUNNING则核实计算后继续受控启动，原目标STOPPED只更新下次启动 | 目标已撤销或实例已有更晚命令 |
+| 失败类型      | 安全重试动作                                                                                                               | 必须拒绝                                             |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| CREATE        | 复用已确认资产和Workspace，从尚未完成步骤继续；仅从未分配过资产时允许登记唯一asset UUID并首次准备；已运行只做配置/健康核实 | Unknown、原卷缺失、原目标凭据已撤销，不能换名/补空卷 |
+| START         | 原Workspace/原卷，核实最新Build后继续启动                                                                                  | 仍未知或有运行中的冲突Build                          |
+| STOP / DELETE | 再撤销入口，按实际残留清理；已完成外部目标时确认而非再次创建                                                               | 未核实外部归属或资产正在恢复/回收                    |
+| CONFIGURE     | 重用原目标配置与target_desired_state；原目标RUNNING则核实计算后继续受控启动，原目标STOPPED只更新下次启动                   | 目标已撤销或实例已有更晚命令                         |
 
 原目标失效时不能用retry暗换配置。对账确认计算不存在、原卷完整后，可将ERROR规范为STOPPED，保留原失败操作/错误审计，允许Owner显式configure新版本再start；无法确认的实例继续ERROR/UNCERTAIN。SYSTEM STOP由后台对账重试，不开放用户重试系统命令。
 
@@ -315,7 +343,6 @@ API普通请求及写响应使用10秒预算，模型校验35秒；Gateway握手
 
 失败操作重试实现使用独立RETRY幂等作用域，target为源operation UUID；新操作的type保持原值，retry_of指向源操作，执行版本和认证代次重取当前值。历史外部build留在源操作，原Workspace/asset UUID由实例保持，新执行先核验最新build再提交新build；不复制已完成的失败build尝试为未知写。停止/删除重试允许维护及模型/Redis失效；需要运行时才调用真实admission。API不因此获得operations UPDATE权限，实例行锁串行命令及Worker终态；FAILED历史作为已对账事实读取。详情增加latest_operation_id，并以当前数据库事实返回retry_allowed；前端未知重试按实例保存原operation与Key，可跨刷新确认。
 
-
 ### 受信运维对象与存储维护
 
 `operations.Rotator` 对模型密钥、Portal CSRF、OIDC PKCE 和原生 Cookie 按原 AAD 分批重加密，事务内追加审计，失败整批回滚；API/Worker/Gateway及原生模型入口加载相同密钥环，新写入只使用当前 key_id。`retention.Cleaner` 每5分钟调用受限 SECURITY DEFINER 函数，单批总量≤500，按 FK 依赖顺序清理，普通 Worker 无 DELETE 权限。
@@ -327,7 +354,6 @@ API普通请求及写响应使用10秒预算，模型校验35秒；Gateway握手
 兼容运行升级由`runtimeapproval.Upgrade`实现：受信CLI复用实际镜像/平台模板源码验证，要求精确上一批准版本、当前维护已协调、旧镜像保留和计算停止。短事务锁住模板/默认项/实例/操作/账本/资产变更，拒绝活跃操作、未释放计算、未知实例状态及存储维护；仅允许镜像/profile/adapter摘要变化且存储、原生、配置格式相同。新增批准并原子切换组织默认项，不改实例快照或旧批准。单启用模板约束继续有效，普通API账号没有修改批准权限；旧实例由私有Worker配置中的有限旧digest集合继续执行。新profile为普通浏览器请求提供4096 tokens默认输出与有界重试，完整任务预算不在首版范围。
 
 兼容运行回滚由`runtimeapproval.VerifyRetained`和`runtimeapproval.Rollback`实现：实际旧镜像六文件摘要、固定npm包和Workspace模板版本源码重新绑定到已批准manifest；helper/Provider/配置/存储/原生认证格式必须兼容。受信CLI核对目标Worker配置、全部保留实例的镜像支持，以及运行Worker实际报告的主镜像和PreviousRuntimeImages。事务锁住同一组业务表，要求desired/observed一致且STOPPED/DELETED、无活动操作/未释放计算/存储维护，只切换已存在的批准标志、递增defaults版本和追加RUNTIME_ROLLBACK。末尾审计失败整笔撤回，精确重放需有相同成功审计。实例冻结数据、模型配置/撤销状态、原卷及存储账本均不改；控制面二进制和DB降级属于独立部署流程。
-
 
 `operations.RecoveryInventory` 在已撤销授权的隔离恢复库执行资源核对；`InventoryObserver` 为小接口，真实适配只读查询内嵌Workspace与受信主机。先核验隔离状态，再以两次稳定外部观察和提交前数据库快照计算差异；短事务以独立运维锁及SHARE表锁阻止并发写入。核对报告和操作者作为一条`RECOVERY_INVENTORY`追加审计原子持久化，摘要相同的重放返回原记录，审计失败无登记。缺失/孤儿/身份不符/活跃计算均保留保守容量；正常磁盘与同身份卷去重，多盘及多容器不合并为单份额度。该模块不改旧账本、不停止或删除外部资源、不生成替代卷，也不授予恢复组织访问权。保留额度通过RecoveryLedger落入统一配额视图；可信检查点接纳通过RecoveryAdoption转换保留，未知资源处置及授权切换仍需后续受控步骤。
 
@@ -457,23 +483,23 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 创建 API `POST /v1/instances` 可传 `skills: [{id, version}]`；去重、本人读取权限与当前版本均在创建事务中校验，不另设选择数量或合计内容上限。选中技能的副本将 `disable-model-invocation` 设为 `false`、`user-invocable` 设为 `true`，保证原生用户目录和模型技能工具可用；保留其余元数据、正文及附属文件，不修改个人库。`workspace_skill_snapshots` 按实例、组织和 owner 保存完整技能包的加密副本，AAD 用途为 `workspace-skills`，纳入密钥轮换。幂等摘要包含所选 ID 和版本，回执重放不依赖技能库是否仍存在。Worker 在 CREATE checkpoint 解密副本，并在原存储盘准备完成后、运行容器创建前，用隔离、无网络的 helper 安装至 `/data/dsh/skills`。原盘标记和快照摘要保护恢复，目录原子重命名；START 不再次复制，保留工作空间内修改。
 
-| 方法与路径 | 用途 / 请求字段 |
-| --- | --- |
-| `GET /v1/skills?q=&page=1&limit=10` | 本人分页列表，不返回正文 |
-| `POST /v1/skills` | 创建：`name`、`description` |
-| `GET /v1/skills/{id}` | 本人正文和资源清单 |
-| `PUT /v1/skills/{id}` | 保存：`content`、`expected_version` |
-| `DELETE /v1/skills/{id}` | 删除：`confirmed_name`、`expected_version` |
-| `GET /v1/skills/{id}:file?path=` | 已有文件文本/二进制状态与整包版本（API-112） |
-| `PUT /v1/skills/{id}:file` | 单文件保存：`path`、`content`、`expected_version`（API-113） |
-| `POST /v1/skills/{id}:file` | 新建文本或脚本文件：`path`、`content`、`expected_version`（API-114） |
-| `POST /v1/skills/{id}:policy` | 保留的元数据兼容接口，Portal 不提供此设置 |
-| `POST /v1/skills:preview` | 本地包预览：`filename`、`content_base64` |
-| `POST /v1/skills:source` | 获取链接并预览：`url` |
-| `POST /v1/skills/{id}:check-update` | 来源更新预览：`expected_version` |
-| `POST /v1/skills:apply` | 确认应用：`token`、`mode`（`skip` / `replace`） |
-| `POST /v1/skills:export` | 下载本人所选包：`ids`，最多 50 项 |
-| `POST /v1/skills/{id}:previous` | 下载替换前包：空 JSON 对象 |
+| 方法与路径                          | 用途 / 请求字段                                                      |
+| ----------------------------------- | -------------------------------------------------------------------- |
+| `GET /v1/skills?q=&page=1&limit=10` | 本人分页列表，不返回正文                                             |
+| `POST /v1/skills`                   | 创建：`name`、`description`                                          |
+| `GET /v1/skills/{id}`               | 本人正文和资源清单                                                   |
+| `PUT /v1/skills/{id}`               | 保存：`content`、`expected_version`                                  |
+| `DELETE /v1/skills/{id}`            | 删除：`confirmed_name`、`expected_version`                           |
+| `GET /v1/skills/{id}:file?path=`    | 已有文件文本/二进制状态与整包版本（API-112）                         |
+| `PUT /v1/skills/{id}:file`          | 单文件保存：`path`、`content`、`expected_version`（API-113）         |
+| `POST /v1/skills/{id}:file`         | 新建文本或脚本文件：`path`、`content`、`expected_version`（API-114） |
+| `POST /v1/skills/{id}:policy`       | 保留的元数据兼容接口，Portal 不提供此设置                            |
+| `POST /v1/skills:preview`           | 本地包预览：`filename`、`content_base64`                             |
+| `POST /v1/skills:source`            | 获取链接并预览：`url`                                                |
+| `POST /v1/skills/{id}:check-update` | 来源更新预览：`expected_version`                                     |
+| `POST /v1/skills:apply`             | 确认应用：`token`、`mode`（`skip` / `replace`）                      |
+| `POST /v1/skills:export`            | 下载本人所选包：`ids`，最多 50 项                                    |
+| `POST /v1/skills/{id}:previous`     | 下载替换前包：空 JSON 对象                                           |
 
 单文件操作只访问数据库技能包内的安全相对路径，不能访问主机目录。POST 新建 UTF-8 文本或脚本文件，支持嵌套目录；拒绝已有路径（含大小写重名）、文件/目录冲突及不安全路径，不覆盖已有内容，并执行整包版本检查。PUT 只修改已有文件。有效 UTF-8、无 NUL 且 MIME 检测为文本才可编辑；二进制读取返回 `editable=false` 和空 `content`，写入拒绝。空字符串是合法文件内容，缺少或 null 内容拒绝。保存复用整包版本、加密与审计逻辑，其他文件及来源摘要不变；因此附属文件本地修改也会在来源更新预览中提示。
 
@@ -481,11 +507,9 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 外链下载在 API 进程执行，普通来源总时限 12 秒，GitHub 仓库及 skills.sh 归档下载总时限 120 秒；链接导入与检查更新路由时限 125 秒；仅公网 HTTPS 443，不使用环境代理。每跳验证 URL 和全部解析结果，实际连接固定到通过检查的 IP，TLS 仍验证原域名。GitHub 仓库及 `tree` 链接通过官方 `/repos/{owner}/{repo}/zipball/{ref}` API 获取归档，仓库链接省略 ref 读取默认分支；归档跳转仅允许 `api.github.com`、`codeload.github.com`。归档流式写入权限为 0600 的临时文件，只读取指定范围的技能子目录，成功或失败均关闭并删除临时文件；仓库托管元数据（`.gitignore`、`.gitattributes`、`.github/`）不进入技能包。继续验证路径、重复、符号链接和 YAML；多个技能有重名或嵌套时要求指定具体目录。`tree` 的 ref 为一个 URL 路径段，分支名中的 `/` 需编码为 `%2F`。多技能来源检查更新时按原记录名称匹配，只暂存该技能；缺失或更名时保留本地记录并报错。远端包在同一导入校验后加密暂存，绝不执行包内代码或写入 DSH。
 
-
 ## 外接记忆与知识库
 
 控制面由 `services/internal/contextservice` 管理，外部适配在 `deploy/context/bridge`。迁移47保存批准连接、密文凭据、实例绑定和加密操作回执；迁移48向内置管理员和成员授予本人内容权限，自定义角色保持显式授权。API-095～099覆盖Owner范围的连接、内容与核实操作；正文、原文版本和索引由独立外部服务保存。实现与验收边界见[上下文服务部署](../deploy/context/README.md)。
-
 
 ## 工作台连接器（MCP）
 
@@ -503,13 +527,13 @@ API-005除既有`skills`外接受`connectors: [{id,version,catalog_version}]`、
 
 Worker使用批准的原镜像、隔离无网络helper写原生web profile，启用随附准确版本的官方组合并装载`cloud_extensions.mjs`，无需新镜像、监听端口或容器出口。第三方、缺依赖和需额外配置的插件当前禁选，不执行npm安装或构建脚本。CREATE复核当前配置权限及接受时授权代次；快照摘要和原盘身份保护恢复，START沿用持久目录、不覆盖用户修改。
 
-原生工具经已有每实例私有`/run/harness`挂载传送有界请求，Worker复核实例运行状态、Owner代次、功能权限、源版本、工具及范围，再复用connectors/contextservice出站。连接器每次请求DSH原生用户确认，幂等键按实例、会话和工具调用生成，原mcp_calls账本防重复；持久处理中意图用于Worker重启对账。记忆默认开放`search/get`；OpenViking 显式启用 `session_memory` 时，通过独立私有 `session` 通道接入官方 DSH 插件的自动捕获、归档及召回；知识库按连接冻结`permissions: [read,write,delete]`，未指定时只读，工具注册与Worker调用均校验对应权限。知识库提供`cloud_knowledge_submit_*`新增文档工具，先请求`preview`，展示实际标题、正文、范围及数据去向，再经DSH原生单次确认调用`apply`。预览有冲突或警告时拒绝提交；写入复用context_operations加密幂等回执，Worker角色需要SELECT/INSERT/UPDATE权限。新增操作固定`mode=skip`，不覆盖已有文档；`cloud_knowledge_delete_*`按准确文档id读取目标版本，展示标题、正文及不可恢复提示，单次确认后以该版本执行删除。写入和删除另检查当前`knowledge:manage`权限。原文读取重新鉴权，不扩大范围。完整会话采集仅限显式启用的 OpenViking 连接。连接密钥不进入容器；临时请求/结果文件权限0600、限1MiB、拒绝符号/硬链接；知识库写入的待确认意图和幂等回执沿用现有加密存储，日志不记录正文。该通道沿用既有Worker与运行用户UID一致的私有挂载约束，不将同Owner容器Shell视为独立信任主体。
+原生工具经已有每实例私有`/run/harness`挂载传送有界请求，Worker复核实例运行状态、Owner代次、功能权限、源版本、工具及范围，再复用connectors/contextservice出站。连接器每次请求DSH原生用户确认，幂等键按实例、会话和工具调用生成，原mcp_calls账本防重复；持久处理中意图用于Worker重启对账。记忆默认开放`search/get`；三种记忆连接均可在创建时启用 `session_memory`，快照冻结后端及同步选择。OpenViking通过独立私有 `session` 通道接入官方 DSH 插件的自动捕获、归档及召回；Mem0由原生DSH组合包加载、采集及召回，平台扩展只提供随机回环代理，安装包嵌入Worker并按摘要校验后离线解包；Graphiti同样由原生组合包加载技能、MCP工具和会话采集。两种后端通过同一通道的受限消息追加协议同步用户消息、助手回复和工具结果，并在原连接命名空间中检索及导出；知识库按连接冻结`permissions: [read,write,delete]`，未指定时只读，工具注册与Worker调用均校验对应权限。知识库提供`cloud_knowledge_submit_*`新增文档工具，先请求`preview`，展示实际标题、正文、范围及数据去向，再经DSH原生单次确认调用`apply`。预览有冲突或警告时拒绝提交；写入复用context_operations加密幂等回执，Worker角色需要SELECT/INSERT/UPDATE权限。新增操作固定`mode=skip`，不覆盖已有文档；`cloud_knowledge_delete_*`按准确文档id读取目标版本，展示标题、正文及不可恢复提示，单次确认后以该版本执行删除。写入和删除另检查当前`knowledge:manage`权限。原文读取重新鉴权，不扩大范围。完整会话采集仅限创建时启用同步的记忆连接，关闭及旧快照不自动升级。Mem0、Graphiti按稳定消息标识去重，持久化未完成索引后可对账重放，已删除或人工修改的记录不会被重放覆盖。连接密钥不进入容器；临时请求/结果文件权限0600、限1MiB、拒绝符号/硬链接；知识库写入的待确认意图和幂等回执沿用现有加密存储，日志不记录正文。该通道沿用既有Worker与运行用户UID一致的私有挂载约束，不将同Owner容器Shell视为独立信任主体。
+
+Mem0、Graphiti 0.2.0 与 OpenViking 的归档流程对齐：原始用户、助手及工具消息按连接和会话单独持久化，短会话不会直接进入记忆列表或检索。累计约20,000个估算token、开始压缩或会话释放时，调用 Mem0 `infer=true` 或 Graphiti 原生图谱提取长期记忆，再将提取结果以自动生成来源写入平台索引。原始消息及归档回执支持失败重试和稳定去重；已有手动及旧版会话记录保留。管理页按自动生成和手动添加筛选，自动生成项可查看和确认删除；普通记忆导出包含提取结果，不包含原始会话表。Graphiti 通过其配置的原生 LLM 客户端提取结构化长期记忆，包含单实体偏好和发布时间等属性，再由原生 `add_episode` 生成各条记忆的图谱；原始会话不写入 Neo4j。提取回执与最终图谱字段持久化，索引失败重用回执。独立配置的 Mem0 插件仍沿用显式选择的采集设置。
 
 `run-worker`必须与API使用相同的`HC_CONTEXT_ENDPOINTS_FILE`、`HC_CONNECTOR_ENDPOINTS_FILE`及可读私有凭据文件；Makefile已传入既有变量。应用前先执行迁移54/55和对应受限角色授权，不使用生产运行角色执行DDL。
 
-
 2026-10-27：工作空间访问网关的HTTP连接池按实例、运行代次和私有IP隔离；模型提供商切换或重启后，即使Docker复用原IP，也不会复用旧代次连接。转发仍拨号到当前授权的固定IP，原生Host/Cookie保持；不自动重放RPC。Worker发布新运行路由前还使用当前原生授权读取`session/list`，选择`/data/workspace`中的已有会话，调用`workspaceFiles/list`确认目录可读；读取总预算12秒、响应各1MiB，不调用推理或修改工作文件。
-
 
 ## 本人第三方插件目录
 
@@ -517,9 +541,10 @@ Worker使用批准的原镜像、隔离无网络helper写原生web profile，启
 
 当前组织和 Owner 来自事务内复核的身份，写操作要求 `plugins:manage`、同源和 CSRF，读取及本人下载要求 `instances:read`。按 Owner 串行保存，同名按数据库合并目录检查并返回冲突，本人最多新增 100 条，默认模板的个人覆盖不占此额度。元数据、离线 AES-GCM 原包及审计同事务提交；密文 AAD 绑定环境、组织、Owner/插件 ID 和 `plugin-archive` 用途，并接入现有主密钥轮换。下载复核当前身份和 Owner，管理员不能跨 Owner 读取。API 只保存目录和归档，不调用 DSH 或实例安装接口。接口与错误见[API-121～125](api.md#本人插件目录api-121125)。
 
-
-迁移60将默认目录存入 `plugin_catalog_defaults`，SQL种子初始化原有三个第三方条目；迁移61追加本地维护的Mem0条目，形成四个默认插件。GET使用单条查询合并默认与当前Owner的 `personal_plugins`，按包名优先个人条目；无读取时初始化或npm请求。前端从API读取完整目录及展示资料，仅为随平台分发的Mem0包保存准确版本和静态下载路径，不以源码默认值补齐空列表或读取失败。元数据编辑使用独立 `revision` 乐观锁，修改默认条目时创建本人覆盖；重复提交旧默认ID会冲突，不能覆写已生成的个人配置。更新仅允许展示字段，不改包名、归档或归属，受限API角色只获相应列的UPDATE及默认表SELECT权限。编辑的显示版本与离线原始包版本独立，归档下载及主密钥轮换沿用原认证上下文。
+迁移60将默认目录存入 `plugin_catalog_defaults`，SQL种子初始化原有三个第三方条目；迁移61追加本地维护的Mem0条目，形成四个默认插件；迁移64追加Graphiti，默认目录共五个插件。GET使用单条查询合并默认与当前Owner的 `personal_plugins`，按包名优先个人条目；无读取时初始化或npm请求。前端从API读取完整目录及展示资料，仅为随平台分发的Mem0、Graphiti包保存准确版本和静态下载路径，不以源码默认值补齐空列表或读取失败。元数据编辑使用独立 `revision` 乐观锁，修改默认条目时创建本人覆盖；重复提交旧默认ID会冲突，不能覆写已生成的个人配置。更新仅允许展示字段，不改包名、归档或归属，受限API角色只获相应列的UPDATE及默认表SELECT权限。编辑的显示版本与离线原始包版本独立，归档下载及主密钥轮换沿用原认证上下文。
 
 受信运维维护数据库默认模板时同步递增 `revision`；本人覆盖优先于默认模板，模板更新不覆盖个人资料。
 
-`@harness-cloud/dsh-mem0-memory@0.1.0`通过 `apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.1.0.tgz` 分发，未发布到公共npm。目录条目、包下载与工作空间运行分别管理；用户在DSH安装后独立配置工作空间可访问的 `endpoint`、服务 `apiKey` 和固定 `userId`，再显式启用。此插件不继承平台记忆连接的凭据或命名空间，其内容不会自动出现在平台连接管理列表；个人上传的同名离线包继续下载本人加密保存的原包。安装、默认行为及验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)和[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
+`@harness-cloud/dsh-mem0-memory@0.2.0`通过 `apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.2.0.tgz` 分发，未发布到公共npm。开启Mem0完整会话同步的新建工作空间自动安装此原生组合包，Profile依赖引用随附本地归档，支持以后原生插件安装和重启；加载就绪检查原生bundle版本、启用状态和`mem0Memory`服务。与OpenViking相同，组合包通过`dsh-skill-filesystem`加载`mem0-memory`技能，通过`dsh-mcp-client`加载stdio MCP服务，提供`mcp__mem0__search`和`mcp__mem0__status`；不直接注册内置工具，技能和工具随原生插件启停。平台模式通过受控回环代理共用已选连接，无需重填外部凭据。目录条目、包下载与工作空间运行分别管理；手动下载后的独立模式由用户在DSH安装后独立配置工作空间可访问的 `endpoint`、服务 `apiKey` 和固定 `userId`，再显式启用。此插件不继承平台记忆连接的凭据或命名空间，其内容不会自动出现在平台连接管理列表；个人上传的同名离线包继续下载本人加密保存的原包。安装、默认行为及验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)和[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
+
+`@harness-cloud/dsh-graphiti-memory@0.2.0` 随平台分发并按摘要离线安装，Profile保存本地归档依赖。与OpenViking、Mem0相同，原生技能提供器加载 `graphiti-memory`，MCP客户端提供 `mcp__graphiti__search/status`；就绪检查对应bundle及 `graphitiMemory` 服务。平台扩展仅提供受控回环代理，不再加载Graphiti旧会话适配器，也不重复注册内置记忆工具。此版本仅支持平台连接，参见[Graphiti插件说明](../infrastructure/plugins/graphiti/README.md)。

@@ -43,15 +43,24 @@ func randomOAuth() string {
 func oauthAAD(s *Service, p identity.Principal, id string) security.Context {
 	return security.Context{Environment: s.environment, OrganizationID: p.OrganizationID, RecordID: id, Purpose: "connector-oauth"}
 }
-func (s *Service) oauthRedirect() (string, error) {
-	u, err := url.Parse(s.portalOrigin)
+func (s *Service) oauthRedirect(browserOrigin ...string) (string, error) {
+	origin := s.portalOrigin
+	if len(browserOrigin) > 0 && browserOrigin[0] != "" {
+		// This header only selects between explicitly configured callback origins;
+		// it never supplies identity, CSRF authority, or an arbitrary redirect URL.
+		if browserOrigin[0] != s.ipPortalOrigin {
+			return "", invalid("OAuth 回调入口无效")
+		}
+		origin = s.ipPortalOrigin
+	}
+	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "localhost" || u.Hostname() == "127.0.0.1")) {
 		return "", invalid("平台尚未配置有效的 OAuth 回调地址")
 	}
-	return s.portalOrigin + "/v1/connectors/oauth/callback", nil
+	return origin + "/v1/connectors/oauth/callback", nil
 }
-func (s *Service) StartOAuth(ctx context.Context, p identity.Principal, id string, version int64, trace string) (any, error) {
-	redirect, err := s.oauthRedirect()
+func (s *Service) StartOAuth(ctx context.Context, p identity.Principal, id string, version int64, trace string, browserOrigin ...string) (any, error) {
+	redirect, err := s.oauthRedirect(browserOrigin...)
 	if err != nil {
 		return nil, err
 	}

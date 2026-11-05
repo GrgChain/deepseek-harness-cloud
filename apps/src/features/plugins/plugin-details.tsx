@@ -1,10 +1,15 @@
 import { Alert, Button, Descriptions, Drawer, Tag } from 'antd';
-import { Check, Copy, Download, ExternalLink, Pencil } from 'lucide-react';
+import { Check, ChevronDown, Copy, Download, ExternalLink, Pencil } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { hasPermission, type CurrentUser } from '../../api/identity';
 import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { errorMessage } from '../../shared/utils/error-message';
-import { isBundledMem0Plugin, mem0PluginPackage, type CatalogPlugin } from './plugin-catalog';
+import {
+  bundledMemoryPlugin,
+  isLocalMemoryPackage,
+  graphitiPluginPackage,
+  type CatalogPlugin,
+} from './plugin-catalog';
 
 import { client } from './plugin-client';
 
@@ -31,8 +36,10 @@ export function PluginDetails({
     requestAnimationFrame(() => editButton.current?.focus());
   };
   const offline = plugin.additionMethod === 'offline';
-  const bundledMem0 = isBundledMem0Plugin(plugin);
-  const mem0Package = plugin.packageName === mem0PluginPackage.name;
+  const bundled = bundledMemoryPlugin(plugin);
+  const localPackage = isLocalMemoryPackage(plugin.packageName);
+  const graphiti = plugin.packageName === graphitiPluginPackage.name;
+  const downloadable = offline || !!bundled;
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<unknown>(null);
   useExpiredSession(downloadError);
@@ -47,8 +54,8 @@ export function PluginDetails({
     setDownloadError(null);
     try {
       let blob: Blob;
-      if (bundledMem0) {
-        const response = await fetch(mem0PluginPackage.path, {
+      if (bundled) {
+        const response = await fetch(bundled.path, {
           credentials: 'same-origin',
           signal: AbortSignal.timeout(22_000),
         });
@@ -60,7 +67,7 @@ export function PluginDetails({
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = bundledMem0 ? mem0PluginPackage.filename : plugin.filename || 'plugin.tgz';
+      link.download = bundled ? bundled.filename : plugin.filename || 'plugin.tgz';
       document.body.append(link);
       link.click();
       link.remove();
@@ -87,8 +94,9 @@ export function PluginDetails({
   return (
     <Drawer
       className="plugin-detail-drawer"
+      rootClassName="plugin-detail-root"
       title="插件详情"
-      width={620}
+      width={720}
       open
       onClose={onClose}
       keyboard={!editing}
@@ -111,35 +119,27 @@ export function PluginDetails({
         <span className="plugin-card-symbol" aria-hidden="true">
           <Icon size={25} />
         </span>
-        <div>
+        <div className="plugin-detail-identity">
           <h2>{plugin.name}</h2>
-          <Tag>{bundledMem0 ? '本地维护' : '第三方'}</Tag>
-          {offline && <Tag>离线</Tag>}
-          <span className="plugin-detail-category">{plugin.category}</span>
+          <div className="plugin-detail-tags">
+            <Tag>v{plugin.version}</Tag>
+            <Tag>{bundled ? '本地维护' : '第三方'}</Tag>
+            {offline && <Tag>离线</Tag>}
+            <span className="plugin-detail-category">{plugin.category}</span>
+          </div>
         </div>
       </div>
       <p className="plugin-detail-description">{plugin.description}</p>
-      <Descriptions
-        size="small"
-        column={1}
-        items={[
-          { key: 'author', label: '发布方', children: plugin.author },
-          { key: 'version', label: '收录版本', children: plugin.version },
-          { key: 'compatibility', label: '版本要求', children: plugin.compatibility },
-          {
-            key: 'checked',
-            label: '来源核对',
-            children:
-              plugin.checkedAt.slice(0, 10) + (plugin.sourceNote ? ' · ' + plugin.sourceNote : ''),
-          },
-          ...(offline
-            ? [
-                { key: 'filename', label: '原包文件', children: plugin.filename },
-                { key: 'sha256', label: 'SHA-256', children: <code>{plugin.sha256}</code> },
-              ]
-            : []),
-        ]}
-      />
+      <dl className="plugin-detail-facts">
+        <div>
+          <dt>发布方</dt>
+          <dd>{plugin.author}</dd>
+        </div>
+        <div>
+          <dt>版本要求</dt>
+          <dd>{plugin.compatibility}</dd>
+        </div>
+      </dl>
       <div className="plugin-detail-links">
         {plugin.documentation && (
           <a href={plugin.documentation} target="_blank" rel="noopener noreferrer">
@@ -153,7 +153,7 @@ export function PluginDetails({
             <ExternalLink size={14} aria-hidden="true" />
           </a>
         )}
-        {!offline && !mem0Package && (
+        {!offline && !localPackage && (
           <a
             href={'https://www.npmjs.com/package/' + plugin.packageName + '/v/' + plugin.version}
             target="_blank"
@@ -164,105 +164,141 @@ export function PluginDetails({
         )}
       </div>
       <section className="plugin-install-guide" aria-label="使用方式">
-        <h3>在 DSH 中使用</h3>
-        {bundledMem0 ? (
-          <>
-            <p>此插件由 Harness Cloud 维护，非 Mem0 官方插件，通过本地插件包分发。</p>
-            <ol>
-              <li>下载插件包，并将文件传到目标工作空间可读取的位置。</li>
-              <li>
-                在 DSH“插件”页选择“添加插件”，输入工作空间内插件包的绝对路径，按原生提示安装。
-              </li>
-              <li>填写下方连接配置，再启用插件；详细步骤见包内 README。</li>
-            </ol>
-          </>
-        ) : offline ? (
-          <p>下载原包，按插件文档在 DSH 中安装本地插件包。</p>
-        ) : mem0Package ? (
-          <p>此版本没有随平台分发的插件包，请核对版本与来源说明。</p>
-        ) : (
-          <ol>
-            <li>复制下方包名和版本。</li>
-            <li>在 DSH“插件”页选择“添加插件”，粘贴包名。</li>
-            <li>查看版本和依赖检查结果，按原生提示确认后安装。</li>
-          </ol>
-        )}
-        {(offline || bundledMem0) && (
-          <>
-            <Button
-              icon={<Download size={16} aria-hidden="true" />}
-              aria-label="下载插件包"
-              loading={downloading}
-              disabled={downloading}
-              onClick={() => void download()}
-            >
-              下载插件包
-            </Button>
-            {!!downloadError && (
-              <Alert type="error" showIcon message={errorMessage(downloadError)} />
-            )}
-          </>
-        )}
-        {bundledMem0 && (
-          <section aria-label="Mem0 配置说明">
-            <h3>连接与自动记忆</h3>
-            <Descriptions
-              size="small"
-              column={1}
-              items={[
-                {
-                  key: 'endpoint',
-                  label: 'endpoint',
-                  children: '工作空间可访问的 Mem0 OSS REST 服务地址，不使用 Mem0 云平台 API。',
-                },
-                {
-                  key: 'apiKey',
-                  label: 'apiKey',
-                  children: '该服务的 API Key，由你在 DSH 插件配置中填写。',
-                },
-                {
-                  key: 'userId',
-                  label: 'userId',
-                  children: '记忆所属用户的固定标识；同一服务下保持一致可跨会话召回。',
-                },
-                {
-                  key: 'autoCapture',
-                  label: 'autoCapture',
-                  children: '默认关闭，需显式开启；默认只保存用户消息，infer 默认为 false。',
-                },
-              ]}
-            />
-            <p>
-              插件根据当前输入自动召回相关记忆。开启自动记录后，用户消息会发送到所填服务；助手回复需另外开启。连接凭据保存在工作空间插件配置中，与平台记忆连接分别配置；插件保存的内容不会自动出现在平台记忆连接的内容列表。
-            </p>
-          </section>
-        )}
-        <div className="plugin-install-spec">
+        <div className="plugin-detail-section-heading">
+          <h3>安装插件</h3>
+          <span>{downloadable ? '本地插件包' : localPackage ? '版本待核对' : 'npm 安装'}</span>
+        </div>
+        <div className="plugin-install-package">
+          <span className="plugin-detail-label">包名与版本</span>
           <code tabIndex={0} aria-label="插件安装包名">
             {spec}
           </code>
-          <Button
-            icon={
-              copied ? (
-                <Check size={15} aria-hidden="true" />
-              ) : (
-                <Copy size={15} aria-hidden="true" />
-              )
-            }
-            loading={copying}
-            onClick={() => void copy()}
-          >
-            {copied ? '已复制' : '复制包名'}
-          </Button>
+          <div className="plugin-install-actions">
+            {downloadable && (
+              <Button
+                type="primary"
+                icon={<Download size={16} aria-hidden="true" />}
+                aria-label="下载插件包"
+                loading={downloading}
+                disabled={downloading}
+                onClick={() => void download()}
+              >
+                下载插件包
+              </Button>
+            )}
+            <Button
+              type={downloadable || localPackage ? 'default' : 'primary'}
+              icon={
+                copied ? (
+                  <Check size={15} aria-hidden="true" />
+                ) : (
+                  <Copy size={15} aria-hidden="true" />
+                )
+              }
+              loading={copying}
+              onClick={() => void copy()}
+            >
+              {copied ? '已复制' : '复制包名'}
+            </Button>
+            <span className="plugin-copy-status" role="status" aria-live="polite">
+              {copied ? '包名与版本已复制' : ''}
+            </span>
+          </div>
+          {!!downloadError && <Alert type="error" showIcon message={errorMessage(downloadError)} />}
+          {copyError && (
+            <Alert type="warning" showIcon message="复制失败，请手动选择并复制上方包名" />
+          )}
         </div>
-        <span className="plugin-copy-status" role="status" aria-live="polite">
-          {copied ? '包名与版本已复制' : ''}
-        </span>
-        {copyError && (
-          <Alert type="warning" showIcon message="复制失败，请手动选择并复制上方包名" />
+        {bundled && graphiti ? (
+          <>
+            <p>由 Harness Cloud 维护，非 Graphiti 官方插件。</p>
+            <p>新建工作空间选择 Graphiti 记忆并开启完整会话同步后，DSH 会自动安装并启用。</p>
+            <p>
+              包含 graphiti-memory 技能，通过 MCP
+              检索记忆和查看同步状态。此版本使用平台记忆连接，凭据与图谱分组由平台配置。
+            </p>
+          </>
+        ) : bundled ? (
+          <>
+            <p>由 Harness Cloud 维护，非 Mem0 官方插件。</p>
+            <p>
+              新建工作空间选择 Mem0 记忆并开启完整会话同步后，DSH
+              会自动安装并启用。独立安装可按以下步骤操作。
+            </p>
+            <ol className="plugin-install-steps">
+              <li>
+                <strong>下载并上传</strong>
+                <p>将插件包上传到目标工作空间可读取的位置。</p>
+              </li>
+              <li>
+                <strong>在 DSH 中安装</strong>
+                <p>打开“插件 → 添加插件”，输入插件包的绝对路径，按提示安装。</p>
+              </li>
+              <li>
+                <strong>配置后启用</strong>
+                <p>按包内 README 完成配置，再启用插件。</p>
+              </li>
+            </ol>
+          </>
+        ) : offline ? (
+          <ol className="plugin-install-steps">
+            <li>
+              <strong>下载并上传</strong>
+              <p>将原包上传到目标工作空间可读取的位置。</p>
+            </li>
+            <li>
+              <strong>在 DSH 中安装</strong>
+              <p>打开“插件 → 添加插件”，输入插件包的绝对路径，按插件文档完成安装与配置。</p>
+            </li>
+          </ol>
+        ) : localPackage ? (
+          <p>此版本没有随平台分发的插件包，请核对版本与来源说明。</p>
+        ) : (
+          <ol className="plugin-install-steps">
+            <li>
+              <strong>复制包名与版本</strong>
+              <p>使用上方包名，安装当前收录版本。</p>
+            </li>
+            <li>
+              <strong>在 DSH 中安装</strong>
+              <p>打开“插件 → 添加插件”，粘贴包名。</p>
+            </li>
+            <li>
+              <strong>确认并启用</strong>
+              <p>核对版本和依赖检查结果，按提示安装、配置并启用。</p>
+            </li>
+          </ol>
         )}
-        <p className="plugin-install-note">安装与启用由你在 DSH 中完成，插件仅提供目录和说明。</p>
+        <p className="plugin-install-note">
+          {bundled && graphiti
+            ? '旧工作空间需新建后使用原生插件。'
+            : bundled
+              ? '独立安装与启用在 DSH 中完成。'
+              : '安装与启用由你在 DSH 中完成。'}
+        </p>
       </section>
+      <details className="plugin-detail-provenance">
+        <summary>
+          来源与校验
+          <ChevronDown size={16} aria-hidden="true" />
+        </summary>
+        <Descriptions
+          size="small"
+          column={1}
+          items={[
+            { key: 'checked', label: '来源核对', children: plugin.checkedAt.slice(0, 10) },
+            ...(plugin.sourceNote
+              ? [{ key: 'source', label: '来源说明', children: plugin.sourceNote }]
+              : []),
+            ...(offline
+              ? [
+                  { key: 'filename', label: '原包文件', children: plugin.filename },
+                  { key: 'sha256', label: 'SHA-256', children: <code>{plugin.sha256}</code> },
+                ]
+              : []),
+          ]}
+        />
+      </details>
       {editing && (
         <EditPlugin
           user={user}

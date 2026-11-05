@@ -67,6 +67,11 @@ worker-init:
 access-init:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/migrator-dsn $(GO) run ./services/cmd/hcctl dev-access-init
 
+.PHONY: ip-access-init
+ip-access-init:
+	test -n "$$HC_PUBLIC_IP"
+	$(GO_ENV) $(GO) run ./services/cmd/hcctl dev-ip-access-init
+
 run-gateway:
 	$(GO_ENV) HC_DB_DSN_FILE=$(CURDIR)/.local/gateway-dsn HC_REDIS_ADDR=127.0.0.1:56379 HC_REDIS_TLS=false HC_REDIS_PASSWORD_FILE=$(CURDIR)/.local/redis-password HC_ACCESS_CONFIG_FILE=$(CURDIR)/.local/access-config.json $(GO) run ./services/cmd/gateway
 
@@ -116,6 +121,7 @@ test:
 	python3 -m unittest discover -s infrastructure/network -p 'test_*.py'
 	python3 -m unittest discover -s infrastructure/model-gateway -p 'test_*.py'
 	$(MAKE) plugin-mem0-test
+	$(MAKE) plugin-graphiti-test
 
 test-integration:
 	test -n "$$HC_TEST_DB_DSN$$HC_TEST_DB_DSN_FILE"
@@ -219,6 +225,10 @@ plugin-mem0-package:
 
 plugin-mem0-test:
 	cd infrastructure/plugins/mem0 && npm test && npm run check
+
+.PHONY: plugin-graphiti-test
+plugin-graphiti-test:
+	cd infrastructure/plugins/graphiti && npm test && npm run check
 
 context-docling-up: context-init
 	docker compose --env-file .local/context/compose.env -f deploy/context/compose.yaml --profile docling up -d docling
