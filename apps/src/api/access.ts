@@ -13,6 +13,25 @@ interface Handoff extends Challenge {
 }
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
+function isIPPortal(origin: string): boolean {
+  const portal = new URL(origin);
+  return /^\d+\.\d+\.\d+\.\d+$/.test(portal.hostname) || portal.hostname.startsWith('[');
+}
+
+function validateIPInstance(instance: Instance, portalOrigin: string) {
+  const portal = new URL(portalOrigin);
+  if (
+    !uuid.test(instance.id) ||
+    portal.protocol !== 'https:' ||
+    portal.origin !== portalOrigin ||
+    !isIPPortal(portalOrigin) ||
+    typeof instance.access_host !== 'string' ||
+    !instance.access_host.startsWith(`i-${instance.id.replaceAll('-', '')}.`) ||
+    !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(instance.access_host)
+  )
+    throw new Error('工作空间访问地址无效，请刷新实例状态');
+}
+
 export function accessOrigin(instance: Instance, portalOrigin: string): string {
   const portal = new URL(portalOrigin);
   const expected = `i-${instance.id.replaceAll('-', '')}.${portal.hostname.slice('portal.'.length)}`;
@@ -34,6 +53,7 @@ export function accessOrigin(instance: Instance, portalOrigin: string): string {
 class WorkspaceConnectionError extends Error {}
 
 export class AccessClient {
+  private readonly endpoints = new Map<string, { origin: string; canonicalOrigin: string }>();
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   private async response<T>(path: string, init: RequestInit): Promise<T> {
     const response = await this.fetcher(path, {
@@ -51,10 +71,48 @@ export class AccessClient {
     }
     return response.json() as Promise<T>;
   }
+  async workspaceEndpoint(user: CurrentUser, instance: Instance, portalOrigin: string) {
+    if (!isIPPortal(portalOrigin)) {
+      const origin = accessOrigin(instance, portalOrigin);
+      return { origin, canonicalOrigin: origin };
+    }
+    validateIPInstance(instance, portalOrigin);
+    const cacheKey = `${portalOrigin}/${instance.id}/${instance.access_host}`;
+    const cached = this.endpoints.get(cacheKey);
+    if (cached) return cached;
+    const endpoint = await this.response<{
+      canonical_origin: string;
+      ip_origin?: string;
+      ip_base_path?: string;
+    }>(`/v1/instances/${instance.id}:access-endpoint`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
+      body: '{}',
+    });
+    if (!endpoint.ip_origin) throw new Error('工作空间 IP 入口尚未配置，请联系管理员');
+    const canonical = new URL(endpoint.canonical_origin);
+    const ip = new URL(endpoint.ip_origin);
+    const portal = new URL(portalOrigin);
+    if (
+      canonical.origin !== endpoint.canonical_origin ||
+      canonical.protocol !== 'https:' ||
+      canonical.hostname !== instance.access_host ||
+      ip.origin !== endpoint.ip_origin ||
+      ip.protocol !== 'https:' ||
+      ip.hostname !== portal.hostname ||
+      ip.origin !== portal.origin ||
+      endpoint.ip_base_path !== `/dsh/${instance.id}`
+    )
+      throw new Error('工作空间访问地址无效，请刷新实例状态');
+    const result = { origin: ip.origin + endpoint.ip_base_path, canonicalOrigin: canonical.origin };
+    this.endpoints.set(cacheKey, result);
+    return result;
+  }
   async prepare(user: CurrentUser, instance: Instance, portalOrigin: string): Promise<Handoff> {
     if (instance.owner_id !== user.id || !instance.can_enter)
       throw new Error('该工作空间暂不可进入，请刷新实例状态');
-    const origin = accessOrigin(instance, portalOrigin);
+    const { origin, canonicalOrigin } = await this.workspaceEndpoint(user, instance, portalOrigin);
     let challenge: Challenge;
     try {
       challenge = await this.response<Challenge>(origin + '/__dsh/challenge', {
@@ -84,7 +142,7 @@ export class AccessClient {
       body: JSON.stringify({ challenge_id: challenge.challenge_id }),
     });
     if (
-      handoff.handoff_url !== origin + '/__dsh/handoff' ||
+      handoff.handoff_url !== canonicalOrigin + '/__dsh/handoff' ||
       handoff.challenge_id !== challenge.challenge_id ||
       !/^[A-Za-z0-9_-]{43}$/.test(handoff.ticket) ||
       !Number.isFinite(Date.parse(handoff.expires_at)) ||
@@ -93,7 +151,7 @@ export class AccessClient {
         Math.min(Date.parse(challenge.expires_at), Date.now() + 45_000)
     )
       throw new Error('访问交接响应无效，请重新进入');
-    return handoff;
+    return { ...handoff, handoff_url: origin + '/__dsh/handoff' };
   }
   async prepareReady(
     user: CurrentUser,
@@ -121,7 +179,8 @@ export class AccessClient {
         current.active_operation_id
       )
         throw new Error('该工作空间状态已变化，请返回实例详情查看');
-      accessOrigin(current, portalOrigin);
+      if (isIPPortal(portalOrigin)) validateIPInstance(current, portalOrigin);
+      else accessOrigin(current, portalOrigin);
       onWaiting();
       if (Date.now() >= deadline) throw new Error('工作空间仍未就绪，请稍后重试或查看运行检查');
       const delay = [0, 250, 500, 1000][checks++] ?? 2000;
@@ -143,7 +202,8 @@ export class AccessClient {
         !Array.isArray(refreshed.allowed_actions)
       )
         throw new Error('该工作空间状态已变化，请返回实例详情查看');
-      accessOrigin(refreshed, portalOrigin);
+      if (isIPPortal(portalOrigin)) validateIPInstance(refreshed, portalOrigin);
+      else accessOrigin(refreshed, portalOrigin);
       if (refreshed.can_enter && !refreshed.allowed_actions.includes('access'))
         throw new APIError(403, 'FORBIDDEN');
       current = refreshed;
@@ -279,7 +339,8 @@ export async function enterWorkspace(user: CurrentUser, instance: Instance) {
             expires: Date.now() + 120_000,
           }),
         );
-        popup.location.replace(accessOrigin(instance, window.location.origin) + '/__dsh/connect');
+        const endpoint = await client.workspaceEndpoint(user, instance, window.location.origin);
+        popup.location.replace(endpoint.origin + '/__dsh/connect');
         return;
       } catch {
         popup.close();

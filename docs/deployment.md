@@ -1,5 +1,33 @@
 # DSH Cloud 部署与运维设计
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 拓扑与权限](#1-拓扑与权限)
+- [2 配置接口](#2-配置接口)
+- [3 安装与初始化规格](#3-安装与初始化规格)
+- [4 观测与故障处置](#4-观测与故障处置)
+- [5 备份恢复与保留](#5-备份恢复与保留)
+- [6 维护、升级与回滚](#6-维护升级与回滚)
+- [7 运维命令接口](#7-运维命令接口)
+- [8 配置与业务规则基线](#8-配置与业务规则基线)
+- [内嵌工作空间编排](#内嵌工作空间编排)
+- [内置 OIDC 安装与升级](#内置-oidc-安装与升级)
+- [用户资源配额升级（schema26）](#用户资源配额升级schema26)
+- [实例数量统一上限升级（schema31）](#实例数量统一上限升级schema31)
+- [模型提供商账号默认模型升级（schema32）](#模型提供商账号默认模型升级schema32)
+- [DSH账号模型切换运行环境](#dsh账号模型切换运行环境)
+- [默认用户资源配置部署与维护](#默认用户资源配置部署与维护)
+- [默认用户资源配额升级（schema39）](#默认用户资源配额升级schema39)
+- [个人模型工作空间执行升级（schema40）](#个人模型工作空间执行升级schema40)
+- [系统资源默认上限升级（schema41）](#系统资源默认上限升级schema41)
+- [工作空间插件与 Agent 预设](#工作空间插件与-agent-预设)
+- [外接记忆与知识库](#外接记忆与知识库)
+- [工作台连接器（MCP）](#工作台连接器mcp)
+
+</details>
+
 版本：V0.2。已有本地 Docker 初始化、迁移、登录和常驻 Worker 命令；本机加密备份/隔离恢复已演练，正式安装包及完整恢复切换尚未完成。环境输入与数值见 [配置基线](deployment.md#8-配置与业务规则基线)，工程依赖见[实施顺序](requirements.md#9-实施顺序)，当前未完成范围见[测试验收](testing.md)。
 
 ## 1 拓扑与权限
@@ -10,39 +38,37 @@
 
 控制面预留至少4vCPU/8GiB；默认系统额度为20个实例、40vCPU/80GiB、200GiB持久存储。宿主机按实际同时运行的实例配置容量；创建预检按所选CPU/内存判断，不以旧的2CPU/4GiB构建并发单位阻断1CPU/2GiB规格。数据可用量至少覆盖承诺存储+20%余量，另有控制面/镜像/日志容量。主机不足允许收紧组织限额，不能超卖内存/存储或默默改变实例冻结规格。
 
-
-
 ## 2 配置接口
 
 下面是完整业务实现必须支持的配置接口。API 已读取数据库/Redis、OIDC/BFF、加密主密钥、模型允许列表及维护配置；Worker 通过 HC_WORKER_CONFIG_FILE 读取已实现的执行配置。Gateway/API 通过 HC_ACCESS_CONFIG_FILE 读取受控访问配置；本地密钥环/备份配置与运维CLI已实现，本机日备份与定时器已实现，独立故障域部署待完成；实例命令接口已接入；完整运行 manifest 未批准时创建和启动被拒绝。Secret引用首版固定为只读文件路径，不能把Secret值放普通.env或前端构建变量；非秘密可通过受控环境文件提供。
 
-| 配置 | 必填/默认 | 校验与消费者 |
-| --- | --- | --- |
-| HC_HTTP_ADDR | API 127.0.0.1:18080、Worker :18081、Gateway :18082 | 基础进程监听host:port；本地主机端口均大于10000，Portal 42013，PG 55432，Redis 56379 |
-| HC_PUBLIC_URL | 必填 | HTTPS Portal根、无query；API/Portal |
-| HC_INSTANCE_DOMAIN | 必填 | 受控实例域后缀，Wildcard DNS/TLS；Gateway/Worker |
-| HC_ORGANIZATION_ID | 必填 | 固定UUID v4；所有控制面 |
-| HC_AUTH_MODE | oidc | 首版只允许oidc；API |
-| HC_OIDC_ISSUER / HC_OIDC_CLIENT_ID | 必填 | issuer精确等于HC_PUBLIC_URL/oidc、固定平台受众；API |
-| HC_OIDC_CLIENT_SECRET_FILE | 必填 | 0600客户端秘密文件；API |
-| HC_OIDC_SIGNING_KEY_FILE | 必填 | 0600 RSA PKCS8私钥，2048～4096位；API，独立于TLS/数据Key |
-| HC_IDENTITY_ACCOUNTS_FILE | 账号导入时必填 | 0600初始化账号散列及可信旧主体映射；hcctl identity-import |
-| HC_IDENTITY_MAPPING_FILE | 手工受控映射时 | issuer/subject/role/Workspace Owner UUID（键 workspace_owner_id）；初始化命令 |
-| HC_ACCESS_CA_FILE | 可选 | API 验证实例 HTTPS 入口的额外信任 CA 文件；本地使用开发 CA，禁止跳过证书校验 |
-| HC_ACCESS_CONFIG_FILE | Gateway 必填、API 可选 | 0600/0400 私有 JSON；同站 HTTPS Portal、实例域及内嵌Workspace/组织/密钥引用，API 配置必须与 BFF 一致 |
-| HC_WORKER_CONFIG_FILE | Worker 必填 | 0600/0400 私有 JSON，固定 Workspace 控制身份、镜像及主机资产配置；缺失或不一致拒绝启动 |
-| workspace_engine | Worker/Access 固定配置 | 必须为 embedded；不包含外部服务地址、Token 或 HTTP 开关 |
-| HC_DB_DSN_FILE | 必填 | 各进程独立受限DB身份；API/Worker/工作空间Gateway/模型Gateway |
-| HC_REDIS_ADDR / HC_REDIS_USERNAME / HC_REDIS_PASSWORD_FILE | 必填 | 内网ACL；短期缓存 |
-| HC_REDIS_TLS / HC_REDIS_KEY_PREFIX | true / hc:<env>:<org>: | TLS不能静默降级；可信同主机内网可显式false |
-| HC_DATA_KEY_FILE / HC_DATA_KEY_ID | 必填 | 32-byte当前主密钥文件及版本，不在DB备份；必要可信组件 |
-| HC_DATA_KEYRING_FILE | 轮换时必填 | schema_version=1，key_id→受控只读文件路径，支持读取旧密钥；当前项须与HC_DATA_KEY_FILE一致 |
-| HC_RUNTIME_MANIFEST_FILE | 目标配置 | 完整 commit/npm完整性/三个镜像digest/模板/Provider/profile/适配文件/持久目录；本地 `make runtime-approve` 核对真实归档与镜像后生成0600文件并原子批准，已有契约不可静默覆盖 |
-| HC_RUNTIME_CONTRACT_FILE | 本机回滚 | 0600目标Workspace模板契约文件；必须与显式目标版本、已批准manifest和Worker主镜像一致，不接受仅凭镜像标签回退 |
-| HC_MODEL_ALLOWLIST_FILE | 必填 | 批准endpoint/model，不含Key；API/Worker |
-| HC_STORAGE_ROOT / HC_BACKUP_TARGET | 必填 | 独立数据资产根及不同故障域备份目标；受信运维 |
-| HC_DEFAULT_BACKEND | docker | 其他值启动失败 |
-| HC_MAINTENANCE | false | 按接口第9节限制新命令；查询/退出/撤销/停止/删除继续 |
+| 配置                                                       | 必填/默认                                          | 校验与消费者                                                                                                                                                               |
+| ---------------------------------------------------------- | -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| HC_HTTP_ADDR                                               | API 127.0.0.1:18080、Worker :18081、Gateway :18082 | 基础进程监听host:port；本地主机端口均大于10000，Portal 42013，PG 55432，Redis 56379                                                                                        |
+| HC_PUBLIC_URL                                              | 必填                                               | HTTPS Portal根、无query；API/Portal                                                                                                                                        |
+| HC_INSTANCE_DOMAIN                                         | 必填                                               | 受控实例域后缀，Wildcard DNS/TLS；Gateway/Worker                                                                                                                           |
+| HC_ORGANIZATION_ID                                         | 必填                                               | 固定UUID v4；所有控制面                                                                                                                                                    |
+| HC_AUTH_MODE                                               | oidc                                               | 首版只允许oidc；API                                                                                                                                                        |
+| HC_OIDC_ISSUER / HC_OIDC_CLIENT_ID                         | 必填                                               | issuer精确等于HC_PUBLIC_URL/oidc、固定平台受众；API                                                                                                                        |
+| HC_OIDC_CLIENT_SECRET_FILE                                 | 必填                                               | 0600客户端秘密文件；API                                                                                                                                                    |
+| HC_OIDC_SIGNING_KEY_FILE                                   | 必填                                               | 0600 RSA PKCS8私钥，2048～4096位；API，独立于TLS/数据Key                                                                                                                   |
+| HC_IDENTITY_ACCOUNTS_FILE                                  | 账号导入时必填                                     | 0600初始化账号散列及可信旧主体映射；hcctl identity-import                                                                                                                  |
+| HC_IDENTITY_MAPPING_FILE                                   | 手工受控映射时                                     | issuer/subject/role/Workspace Owner UUID（键 workspace_owner_id）；初始化命令                                                                                              |
+| HC_ACCESS_CA_FILE                                          | 可选                                               | API 验证实例 HTTPS 入口的额外信任 CA 文件；本地使用开发 CA，禁止跳过证书校验                                                                                               |
+| HC_ACCESS_CONFIG_FILE                                      | Gateway 必填、API 可选                             | 0600/0400 私有 JSON；同站 HTTPS Portal、实例域及内嵌Workspace/组织/密钥引用，API 配置必须与 BFF 一致                                                                       |
+| HC_WORKER_CONFIG_FILE                                      | Worker 必填                                        | 0600/0400 私有 JSON，固定 Workspace 控制身份、镜像及主机资产配置；缺失或不一致拒绝启动                                                                                     |
+| workspace_engine                                           | Worker/Access 固定配置                             | 必须为 embedded；不包含外部服务地址、Token 或 HTTP 开关                                                                                                                    |
+| HC_DB_DSN_FILE                                             | 必填                                               | 各进程独立受限DB身份；API/Worker/工作空间Gateway/模型Gateway                                                                                                               |
+| HC_REDIS_ADDR / HC_REDIS_USERNAME / HC_REDIS_PASSWORD_FILE | 必填                                               | 内网ACL；短期缓存                                                                                                                                                          |
+| HC_REDIS_TLS / HC_REDIS_KEY_PREFIX                         | true / hc:<env>:<org>:                             | TLS不能静默降级；可信同主机内网可显式false                                                                                                                                 |
+| HC_DATA_KEY_FILE / HC_DATA_KEY_ID                          | 必填                                               | 32-byte当前主密钥文件及版本，不在DB备份；必要可信组件                                                                                                                      |
+| HC_DATA_KEYRING_FILE                                       | 轮换时必填                                         | schema_version=1，key_id→受控只读文件路径，支持读取旧密钥；当前项须与HC_DATA_KEY_FILE一致                                                                                  |
+| HC_RUNTIME_MANIFEST_FILE                                   | 目标配置                                           | 完整 commit/npm完整性/三个镜像digest/模板/Provider/profile/适配文件/持久目录；本地 `make runtime-approve` 核对真实归档与镜像后生成0600文件并原子批准，已有契约不可静默覆盖 |
+| HC_RUNTIME_CONTRACT_FILE                                   | 本机回滚                                           | 0600目标Workspace模板契约文件；必须与显式目标版本、已批准manifest和Worker主镜像一致，不接受仅凭镜像标签回退                                                                |
+| HC_MODEL_ALLOWLIST_FILE                                    | 必填                                               | 批准endpoint/model，不含Key；API/Worker                                                                                                                                    |
+| HC_STORAGE_ROOT / HC_BACKUP_TARGET                         | 必填                                               | 独立数据资产根及不同故障域备份目标；受信运维                                                                                                                               |
+| HC_DEFAULT_BACKEND                                         | docker                                             | 其他值启动失败                                                                                                                                                             |
+| HC_MAINTENANCE                                             | false                                              | 按接口第9节限制新命令；查询/退出/撤销/停止/删除继续                                                                                                                        |
 
 Worker JSON 使用 `schema_version=1`，字段为 `workspace_engine`、`workspace_organization_id`、`control_user_id`、`environment`、`data_key_file`、`data_key_id`、`model_allowlist_file`、`host`。`host` 使用 `RuntimeRoot`、`AssetRoot`、`RuntimeImage`、`StorageImage`、`NetworkImage`、`Domain`、`StorageBudget`、`PublicPort`及可选`PreviousRuntimeImages`（最多4个不同的旧镜像digest，不能含当前镜像/标签）；根目录必须当前用户所有且 0700，镜像必须为本机固定 sha256 ID。启动核验内嵌工作空间服务身份、Terraform二进制摘要/版本、固定Provider及三个当前镜像和明确保留的旧镜像，readyz同样核验；已接受任务和Worker就绪不依赖Redis。额外必填 `terraform`，包含绝对路径 `binary`、`root`、`cli_config` 和 `binary_sha256`；使用 `make workspace-init` 生成受控本机配置。`make worker-init` 从已导入本地模板及既有私有文件生成配置，不批准模板、不调整配额、不覆盖既有文件。PublicPort 未设置/0 为 HTTPS 默认 443，本地同站入口使用 42013；原生 Host、Origin、Cookie authority 与 public_url 都包含一致的非默认端口。
 
@@ -56,12 +82,17 @@ DSH 运行镜像基于固定 digest 的 Ubuntu 24.04 LTS，预装 Node.js 24.21.
 
 公开技能搜索包含 skills.sh、ClawHub、SkillHub 和 SkillsMP。SkillHub 与 SkillsMP 默认可使用匿名额度；需要密钥时，将 API 进程环境变量 `HC_TENCENT_SKILLHUB_API_KEY_FILE`、`HC_SKILLSMP_API_KEY_FILE` 分别指向模式为 0600 或 0400 的密钥文件。密钥仅由服务端读取，SkillHub 密钥只发送给 `api.skillhub.cn`，SkillsMP 密钥只发送给 `skillsmp.com`，下载跳转不携带市场密钥。SkillsMP 匿名查询存在每日及每分钟限额；前端缓存同一关键词 60 秒且失败不自动重试。网络策略须允许 `api.skillhub.cn`、腾讯 COS 技能包存储及 `skillsmp.com`；来源流量继续复用公开 IP 校验和显式配置的 Skill 来源代理。
 
-
 常驻 Worker 同时运行任务执行、四维健康检查、安全扫描和自动模型探测，退出时统一取消并等待有界调用结束。扫描每10秒处理最多10个未停止实例，保留稳定分页游标，单项失败下轮循环重试。运行健康结果均使用数据库探测开始时间，过期读为UNKNOWN；路由关闭后健康刷新不能重新开放。原生Cookie的服务端续期只更新加密会话且绑定原运行代次。自动模型调度每30秒串行检查最多10个到期版本，处理同步完成的个人模型当前未校验版本，以及已完成校验且仍有引用的配置；持久attempted_at限制自动间隔4分钟，手动校验也更新该时间。模型允许列表以model_allowlist_file引用私有文件，缺失/非法拒绝启动；既有Worker配置须补入该绝对路径。模型探测可能产生费用，个人模型新增和轮换密钥后即使尚无引用也会进行首检，完成后的未引用版本不持续探测。
 
 配额/超时/TTL采用配置基线默认值，配置文件只允许已定义字段和正数范围，启动时校验资源关系。端口/数据库角色/证书挂载由部署清单固定。master key生成/更新需受控Secret工具，禁止示例真实Key。镜像与模板一律固定digest/版本，不启动时下载。
 
 Access JSON 使用 `schema_version=1`，含 `organization_id`、`workspace_organization_id`、`control_user_id`、`workspace_engine`、`environment`、`data_key_file`、`data_key_id`、`portal_origin`、`instance_domain`。Gateway 只读取 Worker 发布的加密原生会话；所有请求在平台PG中核验 Workspace/Build/参数归属和当前平台授权。`make access-init` 在无活跃实例时生成独立站点证书与配置，本地 Vite 开发服务或构建后的静态preview提供同站 HTTPS 和固定回环 Gateway 转发；正式入口部署清单及恢复演练仍待完成。
+
+IP 访问可与域名访问同时启用。更新服务后，在本机运行 `HC_PUBLIC_IP=192.168.20.171 make ip-access-init`，再重启 API 和 Gateway。该命令保留原有身份、域名和运行中工作空间配置，使用现有开发 CA 为指定 IP 签发独立证书；地址须为本机可监听的 IP。控制台入口为 `https://192.168.20.171:42013`，工作空间使用同一入口下的 `/dsh/<实例UUID>/`，静态资源、插件及 WebSocket 均在此路径下转发。可通过 `HC_IP_PORTAL_PORT` 调整统一端口。使用者需信任开发 CA，网络只需放行该 HTTPS 端口。
+
+连接器 OAuth 在 IP 入口发起时使用已批准的 IP 控制台回调；外部 OAuth 应用须登记对应的 `/v1/connectors/oauth/callback` 地址。入口转发保持各 API 自身的长任务和流式预算。使用系统代理的浏览器应将此内网 IP 设为直连；本机已验证系统代理可能使 IP WebSocket 握手超时，直连正常。
+
+正式环境在私有 Access JSON 中配置可选 `ip_access`：`address`、`portal_port`、`certificate_file`、`key_file`、`portal_upstream`，以及自签 CA 时的 `upstream_ca_file`。证书必须包含指定 IP 的 SAN，证书和私钥使用绝对路径、0600/0400 权限。`portal_upstream` 是固定回环 HTTP/HTTPS 控制台入口，TLS 上游按原控制台域名验证证书。IP 入口由 Gateway 终止 TLS，数据库、API、Worker 和模型入口继续使用原来的私有监听。域名 `portal_origin` 和 OIDC issuer 保持稳定；不应为了增加 IP 访问而迁移用户身份或修改运行中实例的原生 authority。旧配置中的 `workspace_port_start/end` 可继续读取，但不再创建端口监听或分配；已应用迁移66的历史端口表保留，当前入口不依赖该表。
 
 Portal 增量构建保留 `apps/dist` 中原有的带摘要静态资源，供已打开页面继续加载 PDF、Office 等按需模块；发布时也须保留这些资源，不能只替换 HTML 后立即清空旧资源。PDF 模块加载失败时检查当前页面与最新 HTML 的入口版本，版本变化自动刷新一次并恢复原文件预览；连续失败不循环刷新，仍提供原文件下载与手动刷新入口。
 
@@ -80,35 +111,35 @@ Worker 的 `GET /internal/preflight` 只接受回环来源、精确内部 Host �
 
 已实现的本地初始化、迁移、登录和 Worker 命令见 README；本机备份/恢复/回收CLI已实现并完成隔离演练；本机日备份/定时器已完成演练，正式安装、独立故障域备份和恢复授权切换仍待完成。DSH原生适配未通过D0时预检明确NATIVE_ADAPTER_UNVERIFIED，阻止创建/进入，不允许关闭原生认证代替。
 
-本地服务的 `make run-auth`、`make run-worker`、`make run-gateway` 和 `make run-model-gateway` 会先执行 `make local-bootstrap`。它使用本地运维身份执行迁移，只补缺失的账号组织、组织配额、工作空间身份和模板；运行环境存在时仍须通过已有源码、固定镜像和契约证据核验，随后补齐默认用户资源配置（1 核、2 GiB、10 GiB、每用户 2 个实例、保留 7 天）。首次创建默认配置时，为无已有占用的初始用户分配默认规格乘以实例数的额度。并发启动串行初始化，重复执行保留已保存的配额、默认值、账号密码和模型配置。清空本地数据库后保留 `.local`，再启动服务即可恢复基础配置；单独修复可执行 `make local-bootstrap`。直接运行服务二进制仍使用受限身份，不执行迁移或运行批准。
+本地服务的 `make run-auth`、`make run-worker`、`make run-gateway` 和 `make run-model-gateway` 会先执行 `make local-bootstrap`。它使用本地运维身份执行迁移，只补缺失的账号组织、组织配额、工作空间身份和模板。系统资源上限先独立初始化为 20 个实例、40 vCPU、80 GiB 内存和 200 GiB 持久存储，后续运行环境校验失败也不阻断配额读取。运行环境存在时仍须通过已有源码、固定镜像和契约证据核验，随后补齐默认用户资源配置（1 核、2 GiB、10 GiB、每用户 2 个实例、保留 7 天）。每次初始化还会为尚未分配配额且无已有占用的初始用户补齐默认规格乘以实例数的额度，已有个人额度保留。并发启动串行初始化，重复执行保留已保存的配额、默认值、账号密码和模型配置。清空本地数据库后保留 `.local`，再启动服务即可恢复基础配置；单独修复可执行 `make local-bootstrap`。直接运行服务二进制仍使用受限身份，不执行迁移或运行批准。
 
 ## 4 观测与故障处置
 
 /livez仅进程存活；/readyz控制面依赖；/metrics仅内网。日志JSON传播request_id/trace_id/operation_id/instance_id，记录阶段/安全错误/耗时；禁Key/Token/Cookie/工作正文，HTTP服务不记录完整query/body。指标使用有限标签：操作类型/状态、依赖名/错误分类，无实例ID标签。
 
-| 告警 | 默认触发 | 首次动作与停止条件 |
-| --- | --- | --- |
+| 告警                | 默认触发                          | 首次动作与停止条件                                            |
+| ------------------- | --------------------------------- | ------------------------------------------------------------- |
 | Outbox积压/操作未知 | 最老待执行>60秒；UNCERTAIN>10分钟 | 查Worker租约与Workspace Owner/name/build，不新建第二Workspace |
-| PG或授权不可用 | 连续30秒 | 拒绝新写/交接，WS立即失败关闭；不沿用缓存许可 |
-| Redis故障 | 命令失败或内存>80% | 停止新建/探测/交接；查询有界回源；撤销/清理继续 |
-| 数据盘空间 | 可用<20%或卷达到90% | 禁止新分配并告警，保护原数据，不自动清空 |
-| 原卷异常 | 单次发现 | 禁止启动、记录asset/文件系统标识，隔离恢复，不补空卷 |
-| 模型失败/探测预算 | 最近探测失败或每日预算达80% | ready=false，修复配置/减少探测，禁止无限重试 |
-| 撤销延迟 | WS超过30秒仍存活 | 关闭相应路由/连接、保留证据，不开放旧会话 |
-| 备份过期 | 最近成功>24小时 | 立即检查备份目标/任务，恢复证据不完整不得声称RPO达标 |
+| PG或授权不可用      | 连续30秒                          | 拒绝新写/交接，WS立即失败关闭；不沿用缓存许可                 |
+| Redis故障           | 命令失败或内存>80%                | 停止新建/探测/交接；查询有界回源；撤销/清理继续               |
+| 数据盘空间          | 可用<20%或卷达到90%               | 禁止新分配并告警，保护原数据，不自动清空                      |
+| 原卷异常            | 单次发现                          | 禁止启动、记录asset/文件系统标识，隔离恢复，不补空卷          |
+| 模型失败/探测预算   | 最近探测失败或每日预算达80%       | ready=false，修复配置/减少探测，禁止无限重试                  |
+| 撤销延迟            | WS超过30秒仍存活                  | 关闭相应路由/连接、保留证据，不开放旧会话                     |
+| 备份过期            | 最近成功>24小时                   | 立即检查备份目标/任务，恢复证据不完整不得声称RPO达标          |
 
 每个Runbook需记录安全可执行命令、预期结果、残留资源及回退条件；运维命令以部署版本提供的hcctl为接口，规格见第7节。不能通过人工UPDATE operation=SUCCEEDED或删除Outbox伪装修复。
 
 ## 5 备份恢复与保留
 
-| 对象 | 策略 | 验证 |
-| --- | --- | --- |
-| 平台PG | 每日一致性逻辑备份，7个日备份，独立故障域加密 | 空库恢复、约束/Owner/配置头/账本一致 |
-| 工作卷 | 每日停止/冻结后快照，7个日备份 | 原资产标识、文件SHA-256、已刷盘会话可读 |
-| 主密钥 | 独立受控Secret备份/恢复演练 | DB/卷备份无权取得主密钥 |
-| 审计/日志 | 90/14天，法律保留优先 | 不含秘密/正文，受控归档不可由普通服务改写 |
-| 软删除卷 | 至少7天，法律保留优先 | 到期不自动删除；独立运维核验后回收 |
-| Redis/短期会话 | Redis可重建；恢复后会话全撤销 | 不恢复旧授权，不以Redis备份代替业务备份 |
+| 对象           | 策略                                          | 验证                                      |
+| -------------- | --------------------------------------------- | ----------------------------------------- |
+| 平台PG         | 每日一致性逻辑备份，7个日备份，独立故障域加密 | 空库恢复、约束/Owner/配置头/账本一致      |
+| 工作卷         | 每日停止/冻结后快照，7个日备份                | 原资产标识、文件SHA-256、已刷盘会话可读   |
+| 主密钥         | 独立受控Secret备份/恢复演练                   | DB/卷备份无权取得主密钥                   |
+| 审计/日志      | 90/14天，法律保留优先                         | 不含秘密/正文，受控归档不可由普通服务改写 |
+| 软删除卷       | 至少7天，法律保留优先                         | 到期不自动删除；独立运维核验后回收        |
+| Redis/短期会话 | Redis可重建；恢复后会话全撤销                 | 不恢复旧授权，不以Redis备份代替业务备份   |
 
 DB与已刷盘工作数据目标RPO≤24h/RTO≤4h。保留原卷不等于备份。备份一致性需要停止DSH、等待30秒正常退出/刷盘后复制，期间显示维护/暂停，不能承诺热备零影响。恢复时先隔离网络，将备份解包到同Owner、正常创建并停止的另一目标实例资产，校验备份来源/Owner/版本/校验和及模型凭据状态；目标和原保留资产分别占用真实额度，额外容量不足先收紧新分配并由受信运维扩容，不通过覆盖原卷绕开额度。恢复命令仅在两实例无活跃操作/无挂载计算且目标非原asset时执行，保留目标原有数据的隔离副本，经确认后写入恢复内容并以恢复授权重写目标asset初始化标记；记录source/target/备份校验和，重新注入目标配置并撤销目标平台/原生会话，通过检查后启用目标路由。原实例保留且禁止自动改绑定。
 
@@ -124,24 +155,24 @@ PG恢复到旧时间点后须全量对账Workspace/卷，按真实存在资源�
 
 已实现命令使用独立运维数据库账户，普通服务不拥有备份、重加密、DDL或物理回收权限。`restore`、`storage-restore`、`storage-reclaim`、`secrets-reencrypt`、`recovery-inventory`、`audit-archive`、`audit-hold` 默认只预览；实际执行需要 `--apply`，并声明 `HC_MAINTENANCE=true`。生产资产变更前须协调 API/Worker 维护状态；隔离数据库恢复不连接生产进程。
 
-| 命令 | 必需输入 | 行为 |
-| --- | --- | --- |
-| hcctl backup | --output、新独立备份密钥、操作者 | 一致性逻辑备份，密文文件排他创建，输出SHA-256并追加审计；支持已知旧schema的升级前备份 |
-| hcctl backup-daily | --directory 专用0700本机仓库 | 默认预览；--apply须维护状态，全部实例STOPPED/DELETED且无活动任务，完整加密DB/原卷备份组校验后登记完成；保留最近7个完成日，法律保留/失败阻止清理 |
-| hcctl recovery-retain | --target-dsn-file、--confirm-database、--inventory-run、--reason-code | 隔离恢复库的已审查核对记录，默认预览；--apply须维护，仅增加真实保留额度并原子审计，不解除隔离/不更改外部资源 |
-| hcctl recovery-adopt | --target-dsn-file、--confirm-database、--metadata-dsn-file、--confirm-metadata-database、--instance、--inventory-run、--reason-code | 从独立隔离检查点接纳已停止的原资源；默认预览，--apply须维护；原实例/操作/预留入库与移除对应保留同事务，总计额不变，授权继续隔离 |
-| hcctl recovery-fence-source | --source-dsn-file、--confirm-source-database、--target-dsn-file、--confirm-database、--inventory-run、--reason-code | 已对账目标保持隔离；默认预览，--apply须维护；原子撤销旧来源授权后关闭旧服务连接，同一意图可继续连接清理 |
-| hcctl dev-runtime-rollback | --from-template-version、--to-template-version、--reason-code | 本机hc_dev兼容运行版本切换，默认预览；--apply须协调维护及运行Worker配置一致，只选择已批准保留版本，原快照/卷/凭据不改 |
-| hcctl restore | --input、--target-dsn-file、--confirm-database | 只允许空的hc_recovery_或hc_test_recovery_库；完整验证后单事务恢复和隔离，拒绝覆盖现有库 |
-| hcctl recovery-inventory | --target-dsn-file、--confirm-database | 只核对已隔离恢复库；默认只读预览，--apply原子登记完整差异与保守容量，不修改外部资源或开放组织 |
-| hcctl storage-backup | --asset、--output、受信Worker配置 | 只备份已停止/软删除保留的原盘；核对卷/计算/挂载/Owner，独立加密保存 |
-| hcctl storage-restore | --input、--asset目标、--preimage、--confirm-asset | 同Owner的另一已停止资产；先备份目标原数据，持久RESTORING，再校验/重绑目标标记/原子替换；失败可按同一摘要继续 |
-| hcctl storage-reclaim | --asset、--reason-code、--confirm-asset | 核对软删除至少7天、保留到期、无法律保留/活动操作/挂载/孤立loop；物理确认后释放存储额度 |
-| hcctl secrets-reencrypt | --from-key、当前/旧密钥环 | 每批1～500条，最多10000批/次；原AAD、条件更新和审计同事务，失败可继续，不复活撤销记录 |
-| hcctl cleanup | --batch 1～500 | 默认回滚事务预览；--apply清理到期临时记录，不删实例/操作/账本/审计 |
-| hcctl audit-archive | --batch 1～500、--output、--confirm-org | 超过90天且无法律保留；加密回读校验并持久发布后，在同一锁表事务删除原行、恢复trigger和追加维护审计 |
-| hcctl audit-hold | --hold-state active/released、--reason-code、--confirm-org | 组织审计法律保留；默认预览，变更和审计同事务，不解除资产保留 |
-| hcctl identity-apply | 受控映射文件/操作者 | 推进身份代次和审计，禁用触发安全停止 |
+| 命令                        | 必需输入                                                                                                                            | 行为                                                                                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| hcctl backup                | --output、新独立备份密钥、操作者                                                                                                    | 一致性逻辑备份，密文文件排他创建，输出SHA-256并追加审计；支持已知旧schema的升级前备份                                                           |
+| hcctl backup-daily          | --directory 专用0700本机仓库                                                                                                        | 默认预览；--apply须维护状态，全部实例STOPPED/DELETED且无活动任务，完整加密DB/原卷备份组校验后登记完成；保留最近7个完成日，法律保留/失败阻止清理 |
+| hcctl recovery-retain       | --target-dsn-file、--confirm-database、--inventory-run、--reason-code                                                               | 隔离恢复库的已审查核对记录，默认预览；--apply须维护，仅增加真实保留额度并原子审计，不解除隔离/不更改外部资源                                    |
+| hcctl recovery-adopt        | --target-dsn-file、--confirm-database、--metadata-dsn-file、--confirm-metadata-database、--instance、--inventory-run、--reason-code | 从独立隔离检查点接纳已停止的原资源；默认预览，--apply须维护；原实例/操作/预留入库与移除对应保留同事务，总计额不变，授权继续隔离                 |
+| hcctl recovery-fence-source | --source-dsn-file、--confirm-source-database、--target-dsn-file、--confirm-database、--inventory-run、--reason-code                 | 已对账目标保持隔离；默认预览，--apply须维护；原子撤销旧来源授权后关闭旧服务连接，同一意图可继续连接清理                                         |
+| hcctl dev-runtime-rollback  | --from-template-version、--to-template-version、--reason-code                                                                       | 本机hc_dev兼容运行版本切换，默认预览；--apply须协调维护及运行Worker配置一致，只选择已批准保留版本，原快照/卷/凭据不改                           |
+| hcctl restore               | --input、--target-dsn-file、--confirm-database                                                                                      | 只允许空的hc_recovery_或hc_test_recovery_库；完整验证后单事务恢复和隔离，拒绝覆盖现有库                                                         |
+| hcctl recovery-inventory    | --target-dsn-file、--confirm-database                                                                                               | 只核对已隔离恢复库；默认只读预览，--apply原子登记完整差异与保守容量，不修改外部资源或开放组织                                                   |
+| hcctl storage-backup        | --asset、--output、受信Worker配置                                                                                                   | 只备份已停止/软删除保留的原盘；核对卷/计算/挂载/Owner，独立加密保存                                                                             |
+| hcctl storage-restore       | --input、--asset目标、--preimage、--confirm-asset                                                                                   | 同Owner的另一已停止资产；先备份目标原数据，持久RESTORING，再校验/重绑目标标记/原子替换；失败可按同一摘要继续                                    |
+| hcctl storage-reclaim       | --asset、--reason-code、--confirm-asset                                                                                             | 核对软删除至少7天、保留到期、无法律保留/活动操作/挂载/孤立loop；物理确认后释放存储额度                                                          |
+| hcctl secrets-reencrypt     | --from-key、当前/旧密钥环                                                                                                           | 每批1～500条，最多10000批/次；原AAD、条件更新和审计同事务，失败可继续，不复活撤销记录                                                           |
+| hcctl cleanup               | --batch 1～500                                                                                                                      | 默认回滚事务预览；--apply清理到期临时记录，不删实例/操作/账本/审计                                                                              |
+| hcctl audit-archive         | --batch 1～500、--output、--confirm-org                                                                                             | 超过90天且无法律保留；加密回读校验并持久发布后，在同一锁表事务删除原行、恢复trigger和追加维护审计                                               |
+| hcctl audit-hold            | --hold-state active/released、--reason-code、--confirm-org                                                                          | 组织审计法律保留；默认预览，变更和审计同事务，不解除资产保留                                                                                    |
+| hcctl identity-apply        | 受控映射文件/操作者                                                                                                                 | 推进身份代次和审计，禁用触发安全停止                                                                                                            |
 
 加密备份格式为HCBK0001：独立32-byte密钥、随机256-bit salt，经HKDF-SHA256派生每份归档的AES-256-GCM密钥；序号、长度、类型和元数据均认证，必须有最终长度/SHA-256，拒绝截断、换序、拼接和损坏。单份明文流上限128GiB，按64KiB分帧；数据库custom dump和压缩完整工作盘都走同一格式。备份密钥不得复用当前或旧数据主密钥；所有输入密钥/连接文件0600，备份和临时恢复目录0700，文件0600，成功/失败均清除本次私有临时明文。工作盘恢复需要与目标盘容量相同的额外临时空间，仍保留控制面和存储余量。
 
@@ -228,52 +259,52 @@ HTTP 管理请求体上限 64KiB；模型 api_key 只接受可见ASCII、长度 
 
 ### 8.2 配额与容量
 
-| 项目 | 默认值 | 计量规则 |
-| --- | --- | --- |
-| 创建资源规格 | CPU 1000/2000/4000/8000/16000 millicores × 内存 2/4/8/16/32/64 GiB；默认 2000 millicores、4 GiB；数据盘默认 10 GiB、管理员可设 1–100 GiB 整数，PID 256 | 选择批准组合，按实际金额计额；Worker 启动前核对 cgroup 限制；每个实例冻结数据盘硬容量，修改默认值不扩缩原盘 |
-| 组织活动实例 | 20 | 包括创建/错误/停止；确认软删除才释放 |
-| 每用户活动实例 | 2 | 同上；不随停止释放 |
-| 组织运行/预留计算 | 40000 millicores、80GiB RAM | 创建/启动原子预留；停止确认才释放 |
-| 组织存储 | 200GiB | 已分配/预留/保留卷均占用，真实回收才释放 |
-| 同时创建/启动 | 2 | ACCEPTED/RUNNING/UNCERTAIN 均占槽 |
-| 主机余量 | 控制面至少 4 vCPU/8GiB；数据盘可用量超过承诺存储 20% | 不足禁止新建，已有数据保护优先 |
+| 项目              | 默认值                                                                                                                                                 | 计量规则                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 创建资源规格      | CPU 1000/2000/4000/8000/16000 millicores × 内存 2/4/8/16/32/64 GiB；默认 2000 millicores、4 GiB；数据盘默认 10 GiB、管理员可设 1–100 GiB 整数，PID 256 | 选择批准组合，按实际金额计额；Worker 启动前核对 cgroup 限制；每个实例冻结数据盘硬容量，修改默认值不扩缩原盘 |
+| 组织活动实例      | 20                                                                                                                                                     | 包括创建/错误/停止；确认软删除才释放                                                                        |
+| 每用户活动实例    | 2                                                                                                                                                      | 同上；不随停止释放                                                                                          |
+| 组织运行/预留计算 | 40000 millicores、80GiB RAM                                                                                                                            | 创建/启动原子预留；停止确认才释放                                                                           |
+| 组织存储          | 200GiB                                                                                                                                                 | 已分配/预留/保留卷均占用，真实回收才释放                                                                    |
+| 同时创建/启动     | 2                                                                                                                                                      | ACCEPTED/RUNNING/UNCERTAIN 均占槽                                                                           |
+| 主机余量          | 控制面至少 4 vCPU/8GiB；数据盘可用量超过承诺存储 20%                                                                                                   | 不足禁止新建，已有数据保护优先                                                                              |
 
 卷采用独立固定容量块设备或文件系统硬配额，见 [运行适配](backend.md#124-存储与模板契约)。普通无限容量 Docker 卷不满足存储规格。到达盘容量返回可识别的存储错误，禁止自动删除用户文件。
 
 ### 8.3 超时、租约与重试
 
-| 项目 | 默认值 | 规则 |
-| --- | --- | --- |
-| API 普通请求 | 10 秒；模型校验 35 秒 | API 超时不取消已经提交的持久命令 |
-| Workspace 元数据调用 | 3/15 秒 | PostgreSQL提交结果未知时按稳定标识重查；Terraform执行上限120秒 |
-| 操作租约/续租 | 60/15 秒 | 过期执行器不得回写；领取后先检查外部资源 |
-| Worker 领取/对账 | 每 2 秒最多 10 项；对账每 10 秒 | 外部调用在事务外；禁止无界并发 |
-| 外部读重试 | 最多 3 次，1/2/4 秒全抖动上限 | 仅无副作用读，遵守总context预算；写操作通过对账恢复 |
-| PG短事务 | 总计5秒、statement 5秒、lock 1秒、idle in transaction 5秒 | 失租/超时回滚；可恢复事务最多重试2次，见后端13.2 |
-| 模型探测租约 | 45秒 | 与30秒模型总预算分离，发布检查token/期限/未撤销 |
-| 执行并发 | 普通2项、安全STOP 1项、健康检查2项 | 独立有界执行槽；只为已开始执行任务领取租约 |
-| 进程退出 | API35秒、Worker30秒、管理器45秒 | 停新请求/领取、关闭WS；未决任务重启先对账 |
-| Gateway Workspace授权检查 | 每HTTP请求/WS握手及10秒周期检查，总超时2秒 | 核对实际Owner/主体状态；不使用普通15秒编排超时或缓存旧许可 |
-| 操作等待预算 | 10 分钟 | 已确认外部失败才 FAILED；仍未知保持 UNCERTAIN 并告警 |
-| 幂等 Key | 16～128 个 ASCII 字母/数字/下划线/连字符 | 同作用域唯一；客户端推荐 UUID v4 |
-| 幂等期限 | 终态后至少 7 天；活跃操作不清理 | 首次响应/快照稳定；过期键再次使用视为新命令，客户端禁止复用 |
-| 控制台轮询 | 2 秒；传输错误退避至 10 秒 | GET 最多 2 次重试；写入不自动重试 |
+| 项目                      | 默认值                                                    | 规则                                                           |
+| ------------------------- | --------------------------------------------------------- | -------------------------------------------------------------- |
+| API 普通请求              | 10 秒；模型校验 35 秒                                     | API 超时不取消已经提交的持久命令                               |
+| Workspace 元数据调用      | 3/15 秒                                                   | PostgreSQL提交结果未知时按稳定标识重查；Terraform执行上限120秒 |
+| 操作租约/续租             | 60/15 秒                                                  | 过期执行器不得回写；领取后先检查外部资源                       |
+| Worker 领取/对账          | 每 2 秒最多 10 项；对账每 10 秒                           | 外部调用在事务外；禁止无界并发                                 |
+| 外部读重试                | 最多 3 次，1/2/4 秒全抖动上限                             | 仅无副作用读，遵守总context预算；写操作通过对账恢复            |
+| PG短事务                  | 总计5秒、statement 5秒、lock 1秒、idle in transaction 5秒 | 失租/超时回滚；可恢复事务最多重试2次，见后端13.2               |
+| 模型探测租约              | 45秒                                                      | 与30秒模型总预算分离，发布检查token/期限/未撤销                |
+| 执行并发                  | 普通2项、安全STOP 1项、健康检查2项                        | 独立有界执行槽；只为已开始执行任务领取租约                     |
+| 进程退出                  | API35秒、Worker30秒、管理器45秒                           | 停新请求/领取、关闭WS；未决任务重启先对账                      |
+| Gateway Workspace授权检查 | 每HTTP请求/WS握手及10秒周期检查，总超时2秒                | 核对实际Owner/主体状态；不使用普通15秒编排超时或缓存旧许可     |
+| 操作等待预算              | 10 分钟                                                   | 已确认外部失败才 FAILED；仍未知保持 UNCERTAIN 并告警           |
+| 幂等 Key                  | 16～128 个 ASCII 字母/数字/下划线/连字符                  | 同作用域唯一；客户端推荐 UUID v4                               |
+| 幂等期限                  | 终态后至少 7 天；活跃操作不清理                           | 首次响应/快照稳定；过期键再次使用视为新命令，客户端禁止复用    |
+| 控制台轮询                | 2 秒；传输错误退避至 10 秒                                | GET 最多 2 次重试；写入不自动重试                              |
 
 幂等作用域 `(org_id, actor_id, action, target_id, key)`；CREATE 的 target_id 固定为组织 ID。请求先严格解码、拒绝重复 JSON 键/未知字段，按字段名递归排序、紧凑 UTF-8 JSON、整数无浮点、字符串不裁剪再 SHA-256；包括确认名称和显式版本，省略字段保持省略。首次解析默认项另存快照，不加入哈希；因此默认项变更后的 `{}` 重放仍返回原操作。
 
 ### 8.4 健康、模型和请求流量
 
-| 项目 | 默认值 | 持久与失败行为 |
-| --- | --- | --- |
-| 应用/存储/配置/访问健康 | 每30秒加0～4秒稳定抖动，四项共享5秒总预算，开始时间+60秒失效 | 元数据写 PostgreSQL；原卷读写仅受控探测目录 |
-| 模型校验 | 总计 30 秒、最多 2 次请求、每次输出上限 128 tokens | 仅合成文本与无副作用工具 schema；非瞬态错误不重试 |
-| 模型校验有效期 | 5 分钟 | 版本绑定；到期 UNKNOWN，可授权诊断 |
-| 自动模型探测 | 按配置版本合并，每 4 分钟最多一次 | 每组织每日最多 1000 次上游请求，PostgreSQL 按配置头→validation→预算锁序预留次数；拿锁后复核lease，失败不退款 |
-| 创建/启动请求流量 | 不设频率限制 | 授权、幂等、业务配额独立校验 |
-| 模型校验流量 | 不设频率限制 | 同时一项/配置版本；持久每日次数仍约束 |
-| 访问票据流量 | 不设频率限制 | 核对当前授权、运行路由和一次性挑战绑定 |
-| 脱敏元数据缓存 | 15 秒；单值 ≤64KiB；合计最多 10000 项 | 不缓存授权决定、秘密或含 can_enter 的跨用户响应 |
-| Redis | 256MiB、noeviction；命令超时 200ms、无命令自动重试 | 只保存可重建短期缓存，不参与请求限流 |
+| 项目                    | 默认值                                                       | 持久与失败行为                                                                                               |
+| ----------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------ |
+| 应用/存储/配置/访问健康 | 每30秒加0～4秒稳定抖动，四项共享5秒总预算，开始时间+60秒失效 | 元数据写 PostgreSQL；原卷读写仅受控探测目录                                                                  |
+| 模型校验                | 总计 30 秒、最多 2 次请求、每次输出上限 128 tokens           | 仅合成文本与无副作用工具 schema；非瞬态错误不重试                                                            |
+| 模型校验有效期          | 5 分钟                                                       | 版本绑定；到期 UNKNOWN，可授权诊断                                                                           |
+| 自动模型探测            | 按配置版本合并，每 4 分钟最多一次                            | 每组织每日最多 1000 次上游请求，PostgreSQL 按配置头→validation→预算锁序预留次数；拿锁后复核lease，失败不退款 |
+| 创建/启动请求流量       | 不设频率限制                                                 | 授权、幂等、业务配额独立校验                                                                                 |
+| 模型校验流量            | 不设频率限制                                                 | 同时一项/配置版本；持久每日次数仍约束                                                                        |
+| 访问票据流量            | 不设频率限制                                                 | 核对当前授权、运行路由和一次性挑战绑定                                                                       |
+| 脱敏元数据缓存          | 15 秒；单值 ≤64KiB；合计最多 10000 项                        | 不缓存授权决定、秘密或含 can_enter 的跨用户响应                                                              |
+| Redis                   | 256MiB、noeviction；命令超时 200ms、无命令自动重试           | 只保存可重建短期缓存，不参与请求限流                                                                         |
 
 模型健康在配置版本上共享探测结果，但实例还必须确认实际注入版本；创建时仅复用有效校验不重复计费。持续上游错误立即使相应模型健康 UNHEALTHY。预算用尽停止自动探测并告警，不阻止用户自有已运行的对话，也不宣称控制全部 DSH 使用费用。这里限制的是平台探测，不增加计费产品。
 
@@ -283,16 +314,16 @@ API、OIDC、Gateway和模型推理入口均不设置请求频率限制；API/Ga
 
 ### 8.5 会话与数据保留
 
-| 项目 | 默认值 | 约束 |
-| --- | --- | --- |
-| Portal 会话 | 8 小时绝对期限、30 分钟空闲 | HttpOnly/Secure/SameSite=Lax、host-only、Path=/ |
-| OIDC state/nonce/PKCE | 5 分钟、一次使用 | 登录回调精确 URL；重放拒绝 |
-| Gateway 挑战/票据 | 60 秒 / 45 秒 | 随机 256 bits；绑定实例/Host/浏览器挑战/主体代次 |
-| Gateway 会话 | 30 分钟；不得超过 Portal 会话到期 | host-only、HttpOnly/Secure/SameSite=Strict、Path=/ |
-| HTTP/WS 撤销检查 | 每请求查 PostgreSQL；WS 每 10 秒 | DB 查询 2 秒超时立即关闭；撤销目标 ≤30 秒 |
-| 软删除卷 | 默认 7 天，可配置 1–365 天 | 永久回收另须软删除至少 7 天、期限到达且无法律保留，不自动清空 |
-| 审计/普通日志 | 90 天 / 14 天 | 不含秘密或工作正文；法律保留优先 |
-| DB 与工作卷备份 | 每日、保留 7 个日备份 | 独立故障域、加密、校验；统一 RPO≤24h/RTO≤4h 目标 |
+| 项目                  | 默认值                            | 约束                                                          |
+| --------------------- | --------------------------------- | ------------------------------------------------------------- |
+| Portal 会话           | 8 小时绝对期限、30 分钟空闲       | HttpOnly/Secure/SameSite=Lax、host-only、Path=/               |
+| OIDC state/nonce/PKCE | 5 分钟、一次使用                  | 登录回调精确 URL；重放拒绝                                    |
+| Gateway 挑战/票据     | 60 秒 / 45 秒                     | 随机 256 bits；绑定实例/Host/浏览器挑战/主体代次              |
+| Gateway 会话          | 30 分钟；不得超过 Portal 会话到期 | host-only、HttpOnly/Secure/SameSite=Strict、Path=/            |
+| HTTP/WS 撤销检查      | 每请求查 PostgreSQL；WS 每 10 秒  | DB 查询 2 秒超时立即关闭；撤销目标 ≤30 秒                     |
+| 软删除卷              | 默认 7 天，可配置 1–365 天        | 永久回收另须软删除至少 7 天、期限到达且无法律保留，不自动清空 |
+| 审计/普通日志         | 90 天 / 14 天                     | 不含秘密或工作正文；法律保留优先                              |
+| DB 与工作卷备份       | 每日、保留 7 个日备份             | 独立故障域、加密、校验；统一 RPO≤24h/RTO≤4h 目标              |
 
 Cookie 名称 Portal=`__Host-hc_session`、Gateway=`__Host-hc_access`、挑战=`__Host-hc_challenge`。不设置 Domain，禁止父域 Cookie。原生 DSH Cookie 仅保存在可信 Gateway 的加密记录中，不传浏览器。
 
@@ -324,14 +355,14 @@ Cookie 名称 Portal=`__Host-hc_session`、Gateway=`__Host-hc_access`、挑战=`
 
 配置示例：[原生入口配置](../deploy/model-gateway/config.example.json)、[平台入口允许列表](../deploy/model-gateway/model-policy.example.json)。所有受控配置及秘密文件0600、目录0700。`HC_DB_DSN_FILE`指向独立`hc_model_gateway`身份，`HC_MODEL_GATEWAY_CONFIG_FILE`指向schema_version=1配置；签名/数据密钥及控制凭据只引用私有文件，不能写入仓库。
 
-| 输入 | 规则 |
-| --- | --- |
-| address | 明确私有或回环IP，禁止任意地址监听；本机10.51.0.1:14000，端口大于10000 |
-| certificate_file / certificate_key_file | 该入口有效TLS证书及私钥，API/Worker与DSH通过受控CA验证 |
-| control_key_file | 至少32bytes；仅Worker与原生模型入口读取，API/Portal/DSH不配置 |
-| data_key_file / data_keyring_file / data_key_id | 与平台提供商密文一致的数据密钥及可选轮换读集合；不使用控制Key替代 |
-| environment | 必须与平台密文AAD环境一致 |
-| HC_MAINTENANCE | true时模型管理与推理全部503；恢复/切换时同其他进程一起停止并围栏 |
+| 输入                                            | 规则                                                                   |
+| ----------------------------------------------- | ---------------------------------------------------------------------- |
+| address                                         | 明确私有或回环IP，禁止任意地址监听；本机10.51.0.1:14000，端口大于10000 |
+| certificate_file / certificate_key_file         | 该入口有效TLS证书及私钥，API/Worker与DSH通过受控CA验证                 |
+| control_key_file                                | 至少32bytes；仅Worker与原生模型入口读取，API/Portal/DSH不配置          |
+| data_key_file / data_keyring_file / data_key_id | 与平台提供商密文一致的数据密钥及可选轮换读集合；不使用控制Key替代      |
+| environment                                     | 必须与平台密文AAD环境一致                                              |
+| HC_MAINTENANCE                                  | true时模型管理与推理全部503；恢复/切换时同其他进程一起停止并围栏       |
 
 本机初始化与运行：
 
@@ -401,7 +432,6 @@ Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置�
 
 新表`user_quota_policies`初始为空，已有用户继承旧额度。API需要该表SELECT/INSERT和version、四项额度、updated_at列UPDATE；Worker及两类Gateway无需新增配额表写权限。管理员在独立“资源配额”页（`/app/quotas`）逐人配置。额度不预留宿主机资源，用户上限与组织池同时限制；降低额度前须处理占用，保留卷须受控回收。配额配置由完整数据库备份保存，日备份前后状态指纹会检测配额变更。
 
-
 提供商页面升级到schema28：先完成加密数据库备份，再协调停止四个Go服务，使用新hcctl执行migrate与dev-grants并重编译重启全部Go服务。重建前端并重启Portal预览进程，确认HTML引用当前资源摘要。新权限包括API对personal_provider_accounts的读/写与受控本人凭据函数执行，以及Worker的提供商状态/模型归档更新；其他进程不需要这组管理权限。原用户/模型/工作空间ID保持，升级不启动模型推理，不自动更换现有工作空间的模型。
 
 资源选择升级包含迁移 29（多组批准规格）与迁移 30（身份锁兼容外键引用）。升级前执行独立密钥加密数据库备份；短暂停止 API、Worker、Gateway 与模型网关，使用新 hcctl migrate 顺序迁移并同步更新四个服务二进制，再恢复服务。迁移保留现有实例快照、默认规格和全部额度。无需重新批准 Terraform 模板或替换实例镜像，Worker 启动前应用冻结资源限制。
@@ -466,14 +496,14 @@ Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置�
 
 以下为2026-10-20本机已批准并验证的版本，其他部署须以自身批准manifest及Worker实际配置为准。此运行更新不新增数据库迁移。
 
-| 项目 | 当前值 |
-| --- | --- |
-| 批准模板 | `9098df09-7e95-4661-92a9-c70b8642dff4` |
-| 运行镜像 | `sha256:969b673d4c83e2a842dd4c9378c1d7288ae453cc6e1096322cf0d116ba5631d0` |
-| DSH / pnpm | `0.2.1-alpha.2` / `11.28.5`，均由锁文件固定 |
-| 必需服务 | 原生PluginManager、configEditor和settings；HMR启用，bootstrap等待必需服务挂载 |
-| 持久目录 | `/data/workspace`存放工作文件；`/data/dsh`存放profile、依赖、锁文件、设置与缓存 |
-| 平台覆盖 | 模型路由、默认模型覆盖和原生认证；非必要遥测与默认会话日志上传关闭 |
+| 项目        | 当前值                                                                                             |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| 批准模板    | `9098df09-7e95-4661-92a9-c70b8642dff4`                                                             |
+| 运行镜像    | `sha256:969b673d4c83e2a842dd4c9378c1d7288ae453cc6e1096322cf0d116ba5631d0`                          |
+| DSH / pnpm  | `0.2.1-alpha.2` / `11.28.5`，均由锁文件固定                                                        |
+| 必需服务    | 原生PluginManager、configEditor和settings；HMR启用，bootstrap等待必需服务挂载                      |
+| 持久目录    | `/data/workspace`存放工作文件；`/data/dsh`存放profile、依赖、锁文件、设置与缓存                    |
+| 平台覆盖    | 模型路由、默认模型覆盖和原生认证；非必要遥测与默认会话日志上传关闭                                 |
 | Office 预览 | 镜像内置 DejaVu、Liberation 和文泉驿正黑字体，供原生 Office 转换服务使用；新工作盘无需另行安装字体 |
 
 Owner可在“插件”页管理内置可选插件和第三方DSH组合包，在“设置 → Agent 预设”保存新任务默认模式。更改作用于同实例全部会话并随原数据盘保留；停止、重启不清空配置。保留原生信任提示、兼容性检查、脚本批准及失败回滚，普通npm库不能作为DSH组合包安装。配置写入边界与第三方代码权限见[安全设计](security.md#6-容器工具与数据)。
@@ -495,14 +525,14 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 ### 常见故障
 
-| 现象 | 检查与处理 |
-| --- | --- |
-| “本部署没有可管理的 profile” | 核对实例冻结镜像是否支持持久profile、PluginManager及HMR，以及锁定pnpm是否可执行；旧实例按批准流程升级 |
-| `settings service is absent` | 核对config-editor与settings均启用，bootstrap必需服务包含configEditor/settings；仅启用插件管理不足以修复此问题 |
-| 安装失败、非组合包或版本不兼容 | 查看原生失败原因，使用兼容的DSH组合包；依赖下载成功不代表实际激活，不自动豁免版本或批准构建脚本 |
-| `settings/conflict` | 重新读取设置和revision，再确认提交，避免覆盖并发修改 |
-| `settings/rejected`，提示平台模型项被覆盖 | 模型提供商与默认模型通过控制台管理；原生预设设置不能覆盖平台模型配置 |
-| Office 预览不可用 | `office-to-pdf` 已挂载也可能因缺少字体而返回 `unavailable`。运行镜像须包含 `fonts-dejavu-core`、`fonts-liberation2`、`fonts-wqy-zenhei`，仅安装系统 LibreOffice 无效。已有实例可在持久目录 `/data/dsh/.local/share/fonts` 安装受信字体及许可文件，再重新打开预览；无需停止工作空间。 |
+| 现象                                      | 检查与处理                                                                                                                                                                                                                                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| “本部署没有可管理的 profile”              | 核对实例冻结镜像是否支持持久profile、PluginManager及HMR，以及锁定pnpm是否可执行；旧实例按批准流程升级                                                                                                                                                                                |
+| `settings service is absent`              | 核对config-editor与settings均启用，bootstrap必需服务包含configEditor/settings；仅启用插件管理不足以修复此问题                                                                                                                                                                        |
+| 安装失败、非组合包或版本不兼容            | 查看原生失败原因，使用兼容的DSH组合包；依赖下载成功不代表实际激活，不自动豁免版本或批准构建脚本                                                                                                                                                                                      |
+| `settings/conflict`                       | 重新读取设置和revision，再确认提交，避免覆盖并发修改                                                                                                                                                                                                                                 |
+| `settings/rejected`，提示平台模型项被覆盖 | 模型提供商与默认模型通过控制台管理；原生预设设置不能覆盖平台模型配置                                                                                                                                                                                                                 |
+| Office 预览不可用                         | `office-to-pdf` 已挂载也可能因缺少字体而返回 `unavailable`。运行镜像须包含 `fonts-dejavu-core`、`fonts-liberation2`、`fonts-wqy-zenhei`，仅安装系统 LibreOffice 无效。已有实例可在持久目录 `/data/dsh/.local/share/fonts` 安装受信字体及许可文件，再重新打开预览；无需停止工作空间。 |
 
 运行镜像的 Office 字体验证：`HC_RUNTIME_IMAGE=hc-dsh-runtime:office-preview node --test infrastructure/runtime/tests/office-integration.test.mjs`。该测试在无网络、只读根文件系统及 noexec 临时目录的全新容器中转换含中英文的 DOCX，检查 PDF 嵌入字体及 Unicode 映射；不依赖已有工作盘字体，也不调用模型。
 
@@ -510,22 +540,19 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 历史首次进入认证间歇失败与新建性能不能仅凭本次插件/设置验收判定已全部解决，验证边界以测试文档为准。
 
-
 ## 外接记忆与知识库
 
 本机外接服务使用独立Compose项目 `hc-context`，部署步骤见[外部服务说明](../deploy/context/README.md)。API通过 `HC_CONTEXT_ENDPOINTS_FILE` 加载0600私有批准策略；`make run-auth` 会识别本机策略文件。所有数据使用独立卷，未修改任何既有DSH容器或数据。OpenViking/Graphiti测试复用用户批准的平台模型配置，单独私有保存；生产须使用专用最小权限服务账号与备份策略。
-
 
 ### 技能包来源出口
 
 来源下载默认直连，忽略环境中的HTTP代理。主机直连公网不稳定时，运维可用0600私有JSON文件配置明确的本机CONNECT代理，设置 `HC_SKILL_SOURCE_PROXY_FILE` 指向该文件；`make run-auth` 自动识别 `.local/skill-source-proxy.json`。
 
 ```json
-{"url":"http://127.0.0.1:20172"}
+{ "url": "http://127.0.0.1:20172" }
 ```
 
 仅接受带端口的HTTP回环IP，不接受代理域名、远端代理、凭据或附加路径。下载器仍自行解析并验证来源的全部DNS答案，代理只收到固定公网IP的443端口；目标TLS证书按原始来源域名验证，逐跳重定向、12秒总时限和4MiB上限不变。浏览器不能设置代理或任意内网目标。本机测试代理须保持运行；移除此配置即可恢复直连。
-
 
 ## 工作台连接器（MCP）
 

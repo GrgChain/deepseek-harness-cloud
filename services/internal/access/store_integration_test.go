@@ -136,6 +136,19 @@ func TestChallengeTicketConsumptionAndLiveSessionWithRestrictedRoles(t *testing.
 	if _, err = apiStore.Prepare(ctx, other, id); code(err) != "NOT_FOUND" {
 		t.Fatal("administrator inherited another owner's workspace")
 	}
+	entry := NewService(apiStore, ownershipFunc(func(context.Context, Target) error { return nil }), nil)
+	entry.ipAccess = &IPOptions{Address: "192.168.1.20", PortalPort: 42013}
+	endpoint, err := entry.Endpoint(ctx, owner, id)
+	if err != nil || endpoint.CanonicalOrigin != rules.URL(host) || endpoint.IPOrigin != "https://192.168.1.20:42013" || endpoint.IPBasePath != ipWorkspacePath(id) {
+		t.Fatal("IP endpoint did not use the shared port and owned workspace mount", err)
+	}
+	if _, err = entry.Endpoint(ctx, other, id); code(err) != "NOT_FOUND" {
+		t.Fatal("administrator discovered another owner's IP endpoint")
+	}
+	var ports int
+	if err = admin.QueryRow(ctx, `SELECT count(*) FROM ip_workspace_ports WHERE instance_id=$1`, id).Scan(&ports); err != nil || ports != 0 {
+		t.Fatal("single-port discovery allocated another listener", err)
+	}
 	challenge, browser, err := gatewayStore.Challenge(ctx, host)
 	if err != nil {
 		t.Fatal(err)

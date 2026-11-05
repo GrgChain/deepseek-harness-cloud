@@ -61,12 +61,24 @@ func fmtID(b []byte) string {
 
 // StrictUnmarshal rejects duplicate keys, nulls, trailing data and unknown fields.
 func StrictUnmarshal(data []byte, target any) error {
+	return strictUnmarshal(data, target, "")
+}
+
+// StrictUnmarshalWithNullableObject retains strict envelope validation while
+// allowing null values inside one named top-level JSON object, such as an
+// opaque archive validated by its own schema. Duplicate keys and depth limits
+// still apply throughout that object, and the object itself cannot be null.
+func StrictUnmarshalWithNullableObject(data []byte, target any, field string) error {
+	return strictUnmarshal(data, target, field)
+}
+
+func strictUnmarshal(data []byte, target any, nullableObject string) error {
 	d := json.NewDecoder(bytes.NewReader(data))
 	first, err := d.Token()
 	if err != nil || first != json.Delim('{') {
 		return errors.New("JSON object required")
 	}
-	if err := object(d, 0); err != nil {
+	if err := object(d, 0, false, nullableObject); err != nil {
 		return err
 	}
 	if _, err := d.Token(); err != io.EOF {
@@ -76,7 +88,7 @@ func StrictUnmarshal(data []byte, target any) error {
 	decoder.DisallowUnknownFields()
 	return decoder.Decode(target)
 }
-func object(d *json.Decoder, depth int) error {
+func object(d *json.Decoder, depth int, allowNull bool, nullableObject string) error {
 	if depth > 32 {
 		return errors.New("JSON nesting exceeds limit")
 	}
@@ -91,7 +103,15 @@ func object(d *json.Decoder, depth int) error {
 			return errors.New("duplicate or invalid JSON key")
 		}
 		keys[name] = true
-		if err := value(d, depth+1); err != nil {
+		if nullableObject != "" && depth == 0 && name == nullableObject {
+			first, err := d.Token()
+			if err != nil || first != json.Delim('{') {
+				return errors.New("JSON object required")
+			}
+			if err := object(d, depth+1, true, ""); err != nil {
+				return err
+			}
+		} else if err := value(d, depth+1, allowNull); err != nil {
 			return err
 		}
 	}
@@ -101,7 +121,7 @@ func object(d *json.Decoder, depth int) error {
 	}
 	return nil
 }
-func value(d *json.Decoder, depth int) error {
+func value(d *json.Decoder, depth int, allowNull bool) error {
 	if depth > 32 {
 		return errors.New("JSON nesting exceeds limit")
 	}
@@ -109,16 +129,16 @@ func value(d *json.Decoder, depth int) error {
 	if err != nil {
 		return err
 	}
-	if token == nil {
+	if token == nil && !allowNull {
 		return errors.New("JSON null is not accepted")
 	}
 	if delim, ok := token.(json.Delim); ok {
 		switch delim {
 		case '{':
-			return object(d, depth)
+			return object(d, depth, allowNull, "")
 		case '[':
 			for d.More() {
-				if err := value(d, depth+1); err != nil {
+				if err := value(d, depth+1, allowNull); err != nil {
 					return err
 				}
 			}

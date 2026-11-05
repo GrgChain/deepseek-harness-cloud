@@ -1,5 +1,32 @@
 # DSH Cloud 接口设计
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 公共协议与认证](#1-公共协议与认证)
+- [2 接口目录](#2-接口目录)
+- [3 请求、分页与并发](#3-请求分页与并发)
+- [4 资源与配置语义](#4-资源与配置语义)
+- [5 用户、角色与权限](#5-用户角色与权限)
+- [6 本地密码重置语义](#6-本地密码重置语义)
+- [7 业务错误与日志](#7-业务错误与日志)
+- [内置 OIDC 协议](#内置-oidc-协议)
+- [平台原生模型接口](#平台原生模型接口)
+- [用户资源配额（REQ-18）](#用户资源配额req-18)
+- [模型提供商账号（REQ-17）](#模型提供商账号req-17)
+- [提供商默认模型与审计扩展](#提供商默认模型与审计扩展)
+- [DSH账号模型目录与推理](#dsh账号模型目录与推理)
+- [默认用户资源配置初始化与修改（API-019、API-020）](#默认用户资源配置初始化与修改api-019api-020)
+- [存储资产查询（REQ-19）](#存储资产查询req-19)
+- [个人 Skill 库（REQ-20）](#个人-skill-库req-20)
+- [外接记忆与知识库（API-095～099、API-120）](#外接记忆与知识库api-095099api-120)
+- [工作台连接器（REQ-23，API-100～111、API-115/116）](#工作台连接器req-23api-100111api-115116)
+- [创建扩展配置（REQ-25；API-005、118～119）](#创建扩展配置req-25api-005118119)
+- [本人插件目录（API-121～125）](#本人插件目录api-121125)
+
+</details>
+
 版本：V0.2。公开契约以 [OpenAPI 3.0.3](../api/openapi.yaml) 为准；本文说明鉴权、事务、错误和开发约束。REQ-01～19 的范围见[功能需求](requirements.md)，数据库字段见[数据设计](data-model.md)。
 
 ## 1 公共协议与认证
@@ -8,94 +35,95 @@
 
 `/auth/login` 建立一次state/nonce/PKCE事务并302到内置OIDC；callback只接受state和code/error二者之一，校验浏览器绑定、一次消费事务、签名与当前授权。return_to仅允许 `/app/` 相对路径白名单。`POST /auth/logout` 需要相同CSRF防护，先撤销Portal/Gateway会话再清Cookie。未配置认证或数据库失效时拒绝认证，不能回退匿名管理。
 
-访问工作空间使用固定实例域和一次交接票据；访问入口仍要求当前Owner及权限，不向浏览器发送DSH原生Token/Cookie。HTTP/WebSocket协议见[安全设计](security.md)，模型Messages协议和Terraform执行是后台适配契约，不作为管理API旁路。
+访问工作空间使用固定实例域和一次交接票据；配置 IP 入口后，也可通过同一 IP 和控制台端口下的 `/dsh/<实例UUID>/` 访问。访问入口仍要求当前Owner及权限，不向浏览器发送DSH原生Token/Cookie。HTTP/WebSocket协议见[安全设计](security.md)，模型Messages协议和Terraform执行是后台适配契约，不作为管理API旁路。
 
 ## 2 接口目录
 
 下表由当前OpenAPI操作登记整理；参数、required/enum、请求体、逐状态响应与权限以同一操作定义为准。
 
-| 编号 | 方法与路径 | 契约职责 |
-|---|---|---|
-| API-001 | `GET /v1/me` | Get current user and organization memberships |
-| API-003 | `GET /v1/templates` | Get the approved fixed template and version |
-| API-004 | `GET /v1/instances` | List authorized instances |
-| API-005 | `POST /v1/instances` | Create an instance asynchronously and idempotently |
-| API-006 | `GET /v1/instances/{id}` | Get instance state, resources and access health |
-| API-007 | `POST /v1/instances/{id}:start` | Start an instance using its original verified storage |
-| API-008 | `POST /v1/instances/{id}:stop` | Stop compute while preserving storage |
-| API-009 | `DELETE /v1/instances/{id}` | Soft-delete instance and revoke compute access |
-| API-010 | `GET /v1/operations/{id}` | Get operation status and error |
-| API-011 | `POST /v1/instances/{id}:access` | Authorize a controlled native-auth session handoff |
-| API-012 | `GET /v1/audit-events` | Query audit events within authorized organization scope |
-| API-013 | `GET /v1/preflight` | Check initial release dependencies and defaults |
-| API-014 | `GET /v1/model-configuration` | Get redacted organization model configuration |
-| API-015 | `PUT /v1/model-configuration` | Save a versioned model configuration |
-| API-016 | `POST /v1/model-configuration:validate` | Validate a model using a bounded real request |
-| API-017 | `POST /v1/instances/{id}:configure` | Apply an explicitly selected validated model configuration |
-| API-018 | `POST /v1/operations/{id}:retry` | Retry only a reconciled, safely retryable failed operation |
-| API-019 | `GET /v1/defaults` | Get approved fixed organization defaults |
-| API-020 | `PUT /v1/defaults` | Update defaults for future instances |
-| API-021 | `POST /v1/model-configuration:revoke` | Revoke use of a model configuration version |
-| API-022 | `GET /auth/login` | login |
-| API-023 | `GET /auth/callback` | Require state and exactly one of code or error. Validate browser binding before handling provider denial. Never log code/state; denial returns a safe au… |
-| API-024 | `POST /auth/logout` | logout |
-| API-025 | `GET /__dsh/challenge` | createBrowserChallenge |
-| API-026 | `POST /__dsh/handoff` | consumeHandoff |
-| API-027 | `GET /__dsh/connect` | confirmWorkspaceConnection |
-| API-028 | `GET /v1/users` | 查询组织用户 |
-| API-029 | `POST /v1/users` | 创建本地账号或绑定已有组织身份 |
-| API-030 | `GET /v1/users/{id}` | 查询用户及身份供应结果 |
-| API-031 | `PUT /v1/users/{id}` | 编辑联系资料 |
-| API-077 | `DELETE /v1/users/{id}` | 确认用户名后软删除用户并撤销登录 |
-| API-032 | `POST /v1/users/{id}:role` | 用户治理动作：role |
-| API-033 | `POST /v1/users/{id}:disable` | 用户治理动作：disable |
-| API-034 | `POST /v1/users/{id}:enable` | 用户治理动作：enable |
-| API-035 | `POST /v1/users/{id}:archive` | 用户治理动作：archive |
-| API-036 | `POST /v1/users/{id}:retry-identity` | 用户治理动作：retry-identity |
-| API-037 | `POST /v1/users/{id}:reset-password` | 用户治理动作：reset-password |
-| API-038 | `GET /v1/roles` | 查询内置及自定义角色 |
-| API-039 | `POST /v1/roles` | 创建自定义角色 |
-| API-040 | `GET /v1/roles/{id}` | 查询角色权限与分配数 |
-| API-041 | `PUT /v1/roles/{id}` | 修改自定义角色与权限 |
-| API-042 | `DELETE /v1/roles/{id}` | 删除未分配的自定义角色 |
-| API-117 | `GET /v1/users/role-options` | 以users:read读取本组织精简角色选项，支持搜索与分页 |
-| API-118 | `GET /v1/workspace-extensions/plugins` | 创建时可选的固定版本插件及禁选原因 |
-| API-119 | `GET /v1/workspace-extensions/{id}` | 本人已选扩展、冻结版本/范围及当前运行代次状态 |
-| API-121 | `GET /v1/plugins` | 数据库默认目录与本人条目合并，个人资料按包名覆盖默认 |
-| API-122 | `POST /v1/plugins` | 重新校验并保存在线固定版本或离线 npm 原包 |
-| API-123 | `POST /v1/plugins:preview` | 读取在线 npm 信息或解析离线原包，不保存或安装 |
-| API-124 | `GET /v1/plugins/{id}/archive` | 下载本人离线添加时保存的原始压缩包 |
-| API-125 | `PUT /v1/plugins/{id}` | 按revision配置默认、在线或离线插件的本人展示资料 |
-| - | `GET /v1/workspace-extensions/{id}/skills` | 本人创建时选择的技能名称与版本，不包含技能内容 |
-| API-043 | `GET /v1/permissions` | 读取固定权限目录、中文名称、用途说明、可分配性及依赖 |
-| API-044 | `GET /v1/model-directory` | 读取已保存配置版本的批准目录 |
-| API-045 | `POST /v1/model-directory:refresh` | 刷新已保存配置版本的批准目录 |
-| API-046 | `GET /v1/model-providers` | 读取启用的提供商 |
-| API-047 | `GET /v1/model-catalog` | 读取组织批准模型目录 |
-| API-048 | `GET /v1/my-models` | 列出本人未归档连接 |
-| API-049 | `POST /v1/my-models` | 添加本人外部模型并排队同步 |
-| API-050 | `GET /v1/my-models/{id}` | 读取本人连接及同步结果 |
-| API-051 | `POST /v1/my-models/{id}:validate` | 本人模型动作：validate |
-| API-052 | `POST /v1/my-models/{id}:revoke` | 本人模型动作：revoke |
-| API-053 | `POST /v1/my-models/{id}:archive` | 本人模型动作：archive |
-| API-054 | `GET /v1/my-model-default` | 读取个人默认及版本 |
-| API-055 | `POST /v1/my-model-default` | 设置通过校验的个人默认 |
-| API-056 | `POST /v1/my-model-default:clear` | 清除个人默认并保留版本防止旧请求覆盖 |
-| API-057 | `PUT /v1/my-models/{id}` | 更新本人连接并冻结新的模型与密钥版本 |
-| API-058 | `GET /v1/model-catalog/manage` | 管理员读取组织全部模型目录（含停用） |
-| API-059 | `POST /v1/model-catalog/manage` | 管理员添加组织批准模型与区域 |
-| API-060 | `PUT /v1/model-catalog/manage/{id}` | 管理员按版本编辑或停用模型目录 |
-| API-061 | `POST /v1/users/{id}:retry-password-reset` | 继续原密码重置，无需重新输入密码 |
-| API-062 | `GET /oidc/.well-known/openid-configuration` | Discovery for the embedded first-party authorization-code provider. |
-| API-063 | `GET /oidc/jwks` | Public signing key only. The RSA private key is never exposed. |
-| API-064 | `GET /oidc/authorize` | Only the configured client and exact HC_PUBLIC_URL/auth/callback are accepted. Duplicate or unsupported parameters are rejected. |
-| API-065 | `POST /oidc/login` | A bounded urlencoded form authenticates the account and consumes its browser-bound authorization challenge. No password or protocol tokens are returned … |
-| API-066 | `POST /oidc/token` | Client secret basic only; code is consumed once and bound to redirect, PKCE, credential version and authority generation. No refresh/password/client-cre… |
-| API-067 | `GET /oidc/userinfo` | Requires the opaque provider access token, not a Portal cookie. Rechecks enabled account, organization, member generation and credential version. |
-| API-068 | `POST /v1/model-providers/{provider}:sync` | 读取官方/自定义服务实时模型列表 |
-| API-069 | `POST /v1/my-models:batch` | 同一提供商多个模型原子保存及完整批次幂等 |
-| API-070 | `GET /v1/users/{id}:quota` | 查询用户有效额度、占用与组织总上限 |
-| API-071 | `PUT /v1/users/{id}:quota` | 按预期版本分配完整四项资源额度 |
+| 编号    | 方法与路径                                   | 契约职责                                                                                                                                                  |
+| ------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| API-001 | `GET /v1/me`                                 | Get current user and organization memberships                                                                                                             |
+| API-003 | `GET /v1/templates`                          | Get the approved fixed template and version                                                                                                               |
+| API-004 | `GET /v1/instances`                          | List authorized instances                                                                                                                                 |
+| API-005 | `POST /v1/instances`                         | Create an instance asynchronously and idempotently                                                                                                        |
+| API-006 | `GET /v1/instances/{id}`                     | Get instance state, resources and access health                                                                                                           |
+| API-007 | `POST /v1/instances/{id}:start`              | Start an instance using its original verified storage                                                                                                     |
+| API-008 | `POST /v1/instances/{id}:stop`               | Stop compute while preserving storage                                                                                                                     |
+| API-009 | `DELETE /v1/instances/{id}`                  | Soft-delete instance and revoke compute access                                                                                                            |
+| API-010 | `GET /v1/operations/{id}`                    | Get operation status and error                                                                                                                            |
+| API-011 | `POST /v1/instances/{id}:access`             | Authorize a controlled native-auth session handoff                                                                                                        |
+| API-126 | `POST /v1/instances/{id}:access-endpoint`    | 校验本人工作空间的当前访问资格，返回固定域名入口，以及可选的同端口 `ip_origin` 和实例挂载 `ip_base_path`；不分配端口，不返回票据或凭据                    |
+| API-012 | `GET /v1/audit-events`                       | Query audit events within authorized organization scope                                                                                                   |
+| API-013 | `GET /v1/preflight`                          | Check initial release dependencies and defaults                                                                                                           |
+| API-014 | `GET /v1/model-configuration`                | Get redacted organization model configuration                                                                                                             |
+| API-015 | `PUT /v1/model-configuration`                | Save a versioned model configuration                                                                                                                      |
+| API-016 | `POST /v1/model-configuration:validate`      | Validate a model using a bounded real request                                                                                                             |
+| API-017 | `POST /v1/instances/{id}:configure`          | Apply an explicitly selected validated model configuration                                                                                                |
+| API-018 | `POST /v1/operations/{id}:retry`             | Retry only a reconciled, safely retryable failed operation                                                                                                |
+| API-019 | `GET /v1/defaults`                           | Get approved fixed organization defaults                                                                                                                  |
+| API-020 | `PUT /v1/defaults`                           | Update defaults for future instances                                                                                                                      |
+| API-021 | `POST /v1/model-configuration:revoke`        | Revoke use of a model configuration version                                                                                                               |
+| API-022 | `GET /auth/login`                            | login                                                                                                                                                     |
+| API-023 | `GET /auth/callback`                         | Require state and exactly one of code or error. Validate browser binding before handling provider denial. Never log code/state; denial returns a safe au… |
+| API-024 | `POST /auth/logout`                          | logout                                                                                                                                                    |
+| API-025 | `GET /__dsh/challenge`                       | createBrowserChallenge                                                                                                                                    |
+| API-026 | `POST /__dsh/handoff`                        | consumeHandoff                                                                                                                                            |
+| API-027 | `GET /__dsh/connect`                         | confirmWorkspaceConnection                                                                                                                                |
+| API-028 | `GET /v1/users`                              | 查询组织用户                                                                                                                                              |
+| API-029 | `POST /v1/users`                             | 创建本地账号或绑定已有组织身份                                                                                                                            |
+| API-030 | `GET /v1/users/{id}`                         | 查询用户及身份供应结果                                                                                                                                    |
+| API-031 | `PUT /v1/users/{id}`                         | 编辑联系资料                                                                                                                                              |
+| API-077 | `DELETE /v1/users/{id}`                      | 确认用户名后软删除用户并撤销登录                                                                                                                          |
+| API-032 | `POST /v1/users/{id}:role`                   | 用户治理动作：role                                                                                                                                        |
+| API-033 | `POST /v1/users/{id}:disable`                | 用户治理动作：disable                                                                                                                                     |
+| API-034 | `POST /v1/users/{id}:enable`                 | 用户治理动作：enable                                                                                                                                      |
+| API-035 | `POST /v1/users/{id}:archive`                | 用户治理动作：archive                                                                                                                                     |
+| API-036 | `POST /v1/users/{id}:retry-identity`         | 用户治理动作：retry-identity                                                                                                                              |
+| API-037 | `POST /v1/users/{id}:reset-password`         | 用户治理动作：reset-password                                                                                                                              |
+| API-038 | `GET /v1/roles`                              | 查询内置及自定义角色                                                                                                                                      |
+| API-039 | `POST /v1/roles`                             | 创建自定义角色                                                                                                                                            |
+| API-040 | `GET /v1/roles/{id}`                         | 查询角色权限与分配数                                                                                                                                      |
+| API-041 | `PUT /v1/roles/{id}`                         | 修改自定义角色与权限                                                                                                                                      |
+| API-042 | `DELETE /v1/roles/{id}`                      | 删除未分配的自定义角色                                                                                                                                    |
+| API-117 | `GET /v1/users/role-options`                 | 以users:read读取本组织精简角色选项，支持搜索与分页                                                                                                        |
+| API-118 | `GET /v1/workspace-extensions/plugins`       | 创建时可选的固定版本插件及禁选原因                                                                                                                        |
+| API-119 | `GET /v1/workspace-extensions/{id}`          | 本人已选扩展、冻结版本/范围及当前运行代次状态                                                                                                             |
+| API-121 | `GET /v1/plugins`                            | 数据库默认目录与本人条目合并，个人资料按包名覆盖默认                                                                                                      |
+| API-122 | `POST /v1/plugins`                           | 重新校验并保存在线固定版本或离线 npm 原包                                                                                                                 |
+| API-123 | `POST /v1/plugins:preview`                   | 读取在线 npm 信息或解析离线原包，不保存或安装                                                                                                             |
+| API-124 | `GET /v1/plugins/{id}/archive`               | 下载本人离线添加时保存的原始压缩包                                                                                                                        |
+| API-125 | `PUT /v1/plugins/{id}`                       | 按revision配置默认、在线或离线插件的本人展示资料                                                                                                          |
+| -       | `GET /v1/workspace-extensions/{id}/skills`   | 本人创建时选择的技能名称与版本，不包含技能内容                                                                                                            |
+| API-043 | `GET /v1/permissions`                        | 读取固定权限目录、中文名称、用途说明、可分配性及依赖                                                                                                      |
+| API-044 | `GET /v1/model-directory`                    | 读取已保存配置版本的批准目录                                                                                                                              |
+| API-045 | `POST /v1/model-directory:refresh`           | 刷新已保存配置版本的批准目录                                                                                                                              |
+| API-046 | `GET /v1/model-providers`                    | 读取启用的提供商                                                                                                                                          |
+| API-047 | `GET /v1/model-catalog`                      | 读取组织批准模型目录                                                                                                                                      |
+| API-048 | `GET /v1/my-models`                          | 列出本人未归档连接                                                                                                                                        |
+| API-049 | `POST /v1/my-models`                         | 添加本人外部模型并排队同步                                                                                                                                |
+| API-050 | `GET /v1/my-models/{id}`                     | 读取本人连接及同步结果                                                                                                                                    |
+| API-051 | `POST /v1/my-models/{id}:validate`           | 本人模型动作：validate                                                                                                                                    |
+| API-052 | `POST /v1/my-models/{id}:revoke`             | 本人模型动作：revoke                                                                                                                                      |
+| API-053 | `POST /v1/my-models/{id}:archive`            | 本人模型动作：archive                                                                                                                                     |
+| API-054 | `GET /v1/my-model-default`                   | 读取个人默认及版本                                                                                                                                        |
+| API-055 | `POST /v1/my-model-default`                  | 设置通过校验的个人默认                                                                                                                                    |
+| API-056 | `POST /v1/my-model-default:clear`            | 清除个人默认并保留版本防止旧请求覆盖                                                                                                                      |
+| API-057 | `PUT /v1/my-models/{id}`                     | 更新本人连接并冻结新的模型与密钥版本                                                                                                                      |
+| API-058 | `GET /v1/model-catalog/manage`               | 管理员读取组织全部模型目录（含停用）                                                                                                                      |
+| API-059 | `POST /v1/model-catalog/manage`              | 管理员添加组织批准模型与区域                                                                                                                              |
+| API-060 | `PUT /v1/model-catalog/manage/{id}`          | 管理员按版本编辑或停用模型目录                                                                                                                            |
+| API-061 | `POST /v1/users/{id}:retry-password-reset`   | 继续原密码重置，无需重新输入密码                                                                                                                          |
+| API-062 | `GET /oidc/.well-known/openid-configuration` | Discovery for the embedded first-party authorization-code provider.                                                                                       |
+| API-063 | `GET /oidc/jwks`                             | Public signing key only. The RSA private key is never exposed.                                                                                            |
+| API-064 | `GET /oidc/authorize`                        | Only the configured client and exact HC_PUBLIC_URL/auth/callback are accepted. Duplicate or unsupported parameters are rejected.                          |
+| API-065 | `POST /oidc/login`                           | A bounded urlencoded form authenticates the account and consumes its browser-bound authorization challenge. No password or protocol tokens are returned … |
+| API-066 | `POST /oidc/token`                           | Client secret basic only; code is consumed once and bound to redirect, PKCE, credential version and authority generation. No refresh/password/client-cre… |
+| API-067 | `GET /oidc/userinfo`                         | Requires the opaque provider access token, not a Portal cookie. Rechecks enabled account, organization, member generation and credential version.         |
+| API-068 | `POST /v1/model-providers/{provider}:sync`   | 读取官方/自定义服务实时模型列表                                                                                                                           |
+| API-069 | `POST /v1/my-models:batch`                   | 同一提供商多个模型原子保存及完整批次幂等                                                                                                                  |
+| API-070 | `GET /v1/users/{id}:quota`                   | 查询用户有效额度、占用与组织总上限                                                                                                                        |
+| API-071 | `PUT /v1/users/{id}:quota`                   | 按预期版本分配完整四项资源额度                                                                                                                            |
 
 ## 3 请求、分页与并发
 
@@ -137,14 +165,14 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 
 ## 内置 OIDC 协议
 
-| 编号 | 入口 | 认证/结果 |
-|---|---|---|
-| API-062 | GET /oidc/.well-known/openid-configuration | 公开Discovery，只声明当前授权码/RS256/S256/固定客户端能力 |
-| API-063 | GET /oidc/jwks | 公开RSA公钥及kid，不含私钥 |
-| API-064 | GET /oidc/authorize | 验证客户端、精确redirect_uri、state、nonce、scope、response_type=code、S256；200返回安全登录HTML与临时Cookie |
-| API-065 | POST /oidc/login | 同源Origin、挑战Cookie和表单CSRF；303固定回调+code/state，错误密码401、安全错误403、依赖503 |
-| API-066 | POST /oidc/token | client_secret_basic及urlencoded授权码/PKCE；200 Access/ID Token，invalid_client=401，invalid_grant/unsupported_grant_type=400 |
-| API-067 | GET /oidc/userinfo | Authorization: Bearer随机Access Token；200按scope返回sub/name/email/email_verified=false；失效/撤销/资格变更401 |
+| 编号    | 入口                                       | 认证/结果                                                                                                                     |
+| ------- | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| API-062 | GET /oidc/.well-known/openid-configuration | 公开Discovery，只声明当前授权码/RS256/S256/固定客户端能力                                                                     |
+| API-063 | GET /oidc/jwks                             | 公开RSA公钥及kid，不含私钥                                                                                                    |
+| API-064 | GET /oidc/authorize                        | 验证客户端、精确redirect_uri、state、nonce、scope、response_type=code、S256；200返回安全登录HTML与临时Cookie                  |
+| API-065 | POST /oidc/login                           | 同源Origin、挑战Cookie和表单CSRF；303固定回调+code/state，错误密码401、安全错误403、依赖503                                   |
+| API-066 | POST /oidc/token                           | client_secret_basic及urlencoded授权码/PKCE；200 Access/ID Token，invalid_client=401，invalid_grant/unsupported_grant_type=400 |
+| API-067 | GET /oidc/userinfo                         | Authorization: Bearer随机Access Token；200按scope返回sub/name/email/email_verified=false；失效/撤销/资格变更401               |
 
 这些是OIDC协议入口，错误形状为 `{error: "协议错误码"}`，与业务 `{code,message,request_id}` 区分。只支持固定平台客户端和固定回调；无动态注册、刷新令牌、密码grant、隐式流或外部身份联邦。`/oidc/login.css`和`/oidc/login.js`分别提供登录页本地样式与表单交互；不引用第三方资源。密码登录401返回HTML错误表单，保留邮箱但不回显密码。协议完整参数与响应见[OpenAPI](../api/openapi.yaml)，期限/散列/密钥规则见[安全设计](security.md#内置-oidc-provider)。
 
@@ -154,15 +182,15 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 
 模型入口为独立Go进程，公开路径使用受控HTTPS。它不属于Portal BFF的Cookie接口，不接受用户任意代理请求。提供商真Key只供服务端解密，DSH运行密钥只能访问绑定连接版本。
 
-| 接口 | 凭据与行为 |
-| --- | --- |
-| GET /v1/models | 运行密钥；只返回一个绑定别名，不触发推理 |
-| POST /v1/messages | 运行密钥；文本/工具流，model必须为绑定别名，max_tokens不超过冻结上限，未知字段/多模态拒绝 |
-| GET /v2/model/info | Worker控制凭据；modelId稳定UUID，返回冻结provider_params，不含api_key |
-| POST /model/new、/model/delete | Worker控制凭据；仅注册数据库已批准的连接版本，原标识重复操作安全；撤销同时关闭关联运行密钥 |
-| GET /key/info | Worker控制凭据；只以SHA-256摘要查询，不把明文Key放URL |
-| POST /key/generate、/key/delete | Worker控制凭据；注册必须匹配平台已签发密钥，绑定唯一别名和两个使用路径；已撤销Key不得重开 |
-| GET /readyz | 不含秘密的进程/数据库就绪；不证明提供商真实推理能力 |
+| 接口                            | 凭据与行为                                                                                 |
+| ------------------------------- | ------------------------------------------------------------------------------------------ |
+| GET /v1/models                  | 运行密钥；只返回一个绑定别名，不触发推理                                                   |
+| POST /v1/messages               | 运行密钥；文本/工具流，model必须为绑定别名，max_tokens不超过冻结上限，未知字段/多模态拒绝  |
+| GET /v2/model/info              | Worker控制凭据；modelId稳定UUID，返回冻结provider_params，不含api_key                      |
+| POST /model/new、/model/delete  | Worker控制凭据；仅注册数据库已批准的连接版本，原标识重复操作安全；撤销同时关闭关联运行密钥 |
+| GET /key/info                   | Worker控制凭据；只以SHA-256摘要查询，不把明文Key放URL                                      |
+| POST /key/generate、/key/delete | Worker控制凭据；注册必须匹配平台已签发密钥，绑定唯一别名和两个使用路径；已撤销Key不得重开  |
+| GET /readyz                     | 不含秘密的进程/数据库就绪；不证明提供商真实推理能力                                        |
 
 管理凭据访问推理和目录返回403；运行密钥访问管理返回403；无效/撤销/失权运行密钥401，跨模型/不支持请求400，并发容量已满429，传输/协议故障502。上游错误正文不透传，流开始后失败发送安全error事件而不宣告成功结束。稳定参数、费用及超时见[模型需求](requirements.md#67-平台模型网关外部模型接入规则req-16)。
 
@@ -174,16 +202,15 @@ PENDING_IDENTITY表示凭据供应尚未确认，不能登录/创建资源；重
 
 调整低于已占用返回 `409 QUOTA_BELOW_USAGE`，预期版本不符返回 `409 VERSION_CONFLICT`，高于组织上限或缺字段返回 `422 IDENTITY_INVALID`。跨组织目标返回404，归档目标409，普通成员403；审计失败整体回滚。创建、启动和运行重试同时检查组织及用户配额，超额429且不写入资源/操作；停止、删除和原请求幂等重放不重复扣额。实例数量同时决定可运行数量，不接受独立运行数量字段；启动已有实例不重复扣减实例数。CPU、内存等资源仍按组织和用户上限校验。额度是共享池的使用上限，不表示宿主机容量承诺。
 
-
 ## 模型提供商账号（REQ-17）
 
-| API编号 | 方法与路径 | 模型提供商账号操作 |
-|---|---|---|
-| API-072 | GET /v1/my-provider-accounts | 本人连接及已选模型/工作空间使用数量 |
-| API-073 | POST /v1/my-provider-accounts | 整组原子创建，Idempotency-Key，expected_version=0 |
-| API-074 | PUT /v1/my-provider-accounts/{id} | 整组修改名称/Key/选择集合，固定提供商及API根、预期版本 |
+| API编号 | 方法与路径                                | 模型提供商账号操作                                     |
+| ------- | ----------------------------------------- | ------------------------------------------------------ |
+| API-072 | GET /v1/my-provider-accounts              | 本人连接及已选模型/工作空间使用数量                    |
+| API-073 | POST /v1/my-provider-accounts             | 整组原子创建，Idempotency-Key，expected_version=0      |
+| API-074 | PUT /v1/my-provider-accounts/{id}         | 整组修改名称/Key/选择集合，固定提供商及API根、预期版本 |
 | API-075 | POST /v1/my-provider-accounts/{id}:delete | 检查实例引用、撤销整组及清空默认；异步DELETING→DELETED |
-| API-076 | POST /v1/my-provider-accounts/{id}:sync | 以已保存本人Key或本次临时替换Key读取官方/自定义列表 |
+| API-076 | POST /v1/my-provider-accounts/{id}:sync   | 以已保存本人Key或本次临时替换Key读取官方/自定义列表    |
 
 输入{name,provider,api_base,api_key?,models:ModelSelection[],expected_version}；新增要求api_key，编辑省略保留本人原密钥，1～20个模型须同一提供商/API根。返回ProviderAccount包含独立id、version、status、credential_configured与models；每模型含既有PersonalModel、冻结selection与in_use。Key无回显。写操作均要求Origin/CSRF。读需personal-model:read，新增/修改/目录需write，移除模型和整组删除另需revoke。引用冲突MODEL_IN_USE为409，版本冲突VERSION_CONFLICT为409；失败整批回滚。目录同步共用每Owner 10次/分钟，不调用推理。
 
@@ -227,14 +254,14 @@ API-043 返回当前完整固定权限目录，包含技能包、连接器、记
 
 ## 存储资产查询（REQ-19）
 
-| 编号 | 方法与路径 | 契约职责 |
-| --- | --- | --- |
-| API-077 | GET /v1/storage-assets | 本人资产分页、状态筛选及名称前缀查询 |
-| API-078 | GET /v1/storage-assets/{id} | 本人资产容量、用量观察、保留与维护阻断原因 |
-| API-079 | GET /v1/storage-assets/{id}/backups | 本人资产的安全备份历史分页 |
-| API-081 | GET /v1/storage-assets/{id}/files | 浏览本人运行、停止或软删除数据盘中的固定目录 `/data/workspace` 或 `/data/dsh`，每页最多100项 |
-| API-082 | GET /v1/storage-assets/{id}/file | 预览最多512 KiB纯文本或下载最多64 MiB的普通文件 |
-| - | DELETE /v1/storage-assets/{id} | 删除本人已回收的数据资产列表记录，保留后台关联与备份 |
+| 编号    | 方法与路径                          | 契约职责                                                                                     |
+| ------- | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| API-077 | GET /v1/storage-assets              | 本人资产分页、状态筛选及名称前缀查询                                                         |
+| API-078 | GET /v1/storage-assets/{id}         | 本人资产容量、用量观察、保留与维护阻断原因                                                   |
+| API-079 | GET /v1/storage-assets/{id}/backups | 本人资产的安全备份历史分页                                                                   |
+| API-081 | GET /v1/storage-assets/{id}/files   | 浏览本人运行、停止或软删除数据盘中的固定目录 `/data/workspace` 或 `/data/dsh`，每页最多100项 |
+| API-082 | GET /v1/storage-assets/{id}/file    | 预览最多512 KiB纯文本或下载最多64 MiB的普通文件                                              |
+| -       | DELETE /v1/storage-assets/{id}      | 删除本人已回收的数据资产列表记录，保留后台关联与备份                                         |
 
 `DELETE /v1/storage-assets/{id}` 要求当前 `instances:release-storage` 权限、同源和 CSRF，且目标属于本人。仅 `DELETED` 可删除；其他状态返回 409 `STORAGE_REMOVE_BLOCKED`，不存在或不属于本人返回 404。成功返回 `{"deleted":true}`；重复请求返回成功。操作只隐藏本人列表、详情和备份历史入口，保留数据库资产、备份及审计记录，不触发物理回收。删除与 `STORAGE_OWNER_REMOVE` 审计同事务提交。
 
@@ -254,29 +281,27 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 技能包导入不再设置文件数量、上传或解压大小的固定限额，实际规模受浏览器、服务内存及数据库和磁盘容量约束；技能包其他 JSON 写请求仍有 7 MiB 上限，文本文件编辑仍限 1 MiB。远程来源保留下载超时、重定向和公开网络校验；批量导出仍最多选择 50 项。写操作不设置请求频率限制。`SKILL_INVALID` 返回 422，`SKILL_EXISTS` / `VERSION_CONFLICT` 返回 409，过期预览及他人技能返回 404。源获取失败保留当前包；导出返回 `no-store` 附件。
 
-
 ## 外接记忆与知识库（API-095～099、API-120）
 
 `/v1/context/{memory|knowledge}`提供本人连接列表/创建，`/{id}`更新/移除；`/{id}/{action}`提供验证、list/search/get/export、预览/保存、内容删除/重建、绑定和核实。POST即使只读仍校验Origin及CSRF。`apply/delete/rebuild`使用请求内幂等键；绑定同时检查连接与绑定版本；`reconcile`只接受空对象，重放服务器加密保存的原始操作。移除连接保留外部数据，永久内容删除独立确认。公开字段以[OpenAPI](../api/openapi.yaml)为准，支持程度见[上下文服务部署](../deploy/context/README.md)。
 
 `POST /v1/context/knowledge/parse` 接收一个 multipart 文件并转交配置的 Docling，返回可编辑的 Markdown，不直接写入知识库。知识库 `list` 可提交 `page`、`page_size` 和标题 `query`；`search` 支持 `semantic`、`keyword`、`hybrid`，保留旧客户端的 `exact` 模式。`min_similarity` 可选，适用于语义和混合检索的向量结果；关键词命中不受阈值限制。未提交阈值时保持原有行为。
 
-
 ## 工作台连接器（REQ-23，API-100～111、API-115/116）
 
-| 方法与路径 | 权限及用途 |
-| --- | --- |
-| `GET /v1/connectors` | `connectors:read`；本人连接、工具快照、批准服务及29种内置连接器目录 |
-| `POST /v1/connectors`、`PUT /v1/connectors/{id}` | `connectors:manage`；创建及版本化保存；凭据只写 |
-| `DELETE /v1/connectors/{id}` | 管理权限；`expected_version`、`confirmed_name`确认删除 |
-| `POST /v1/connectors/{id}/sync` | 管理权限；`expected_version`验证并完整同步目录 |
-| `POST /v1/connectors/{id}/tools` | 管理权限；`expected_version`、`enabled_tools`选择工具 |
-| `POST /v1/connectors/{id}/invoke` | `connectors:invoke`；手动确认后调用 |
-| `GET /v1/connectors/{id}/calls`、`GET /v1/connectors/calls/{id}` | 读取权限；分页或按ID读取脱敏状态 |
-| `POST /v1/connectors/calls/{id}/cancel` | 调用权限；尽力取消，不能证明外部操作撤销 |
-| `POST /v1/connectors/export`、`POST /v1/connectors/import` | 管理权限；无秘密JSON配置迁移，导入先预览再确认 |
-| `POST /v1/connectors/{id}/oauth`（API-115） | 管理权限、CSRF及`expected_version`；返回`authorization_url`供当前浏览器跳转，不返回Token或客户端密钥 |
-| `GET /v1/connectors/oauth/callback`（API-116） | 当前组织、Owner及登录会话；单次消费state并交换授权码，保存密文后验证工具；303返回工作台 |
+| 方法与路径                                                       | 权限及用途                                                                                           |
+| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及29种内置连接器目录                                  |
+| `POST /v1/connectors`、`PUT /v1/connectors/{id}`                 | `connectors:manage`；创建及版本化保存；凭据只写                                                      |
+| `DELETE /v1/connectors/{id}`                                     | 管理权限；`expected_version`、`confirmed_name`确认删除                                               |
+| `POST /v1/connectors/{id}/sync`                                  | 管理权限；`expected_version`验证并完整同步目录                                                       |
+| `POST /v1/connectors/{id}/tools`                                 | 管理权限；`expected_version`、`enabled_tools`选择工具                                                |
+| `POST /v1/connectors/{id}/invoke`                                | `connectors:invoke`；手动确认后调用                                                                  |
+| `GET /v1/connectors/{id}/calls`、`GET /v1/connectors/calls/{id}` | 读取权限；分页或按ID读取脱敏状态                                                                     |
+| `POST /v1/connectors/calls/{id}/cancel`                          | 调用权限；尽力取消，不能证明外部操作撤销                                                             |
+| `POST /v1/connectors/export`、`POST /v1/connectors/import`       | 管理权限；无秘密JSON配置迁移，导入先预览再确认                                                       |
+| `POST /v1/connectors/{id}/oauth`（API-115）                      | 管理权限、CSRF及`expected_version`；返回`authorization_url`供当前浏览器跳转，不返回Token或客户端密钥 |
+| `GET /v1/connectors/oauth/callback`（API-116）                   | 当前组织、Owner及登录会话；单次消费state并交换授权码，保存密文后验证工具；303返回工作台              |
 
 所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[连接器后端设计](backend.md#工作台连接器mcp)。
 
@@ -290,13 +315,11 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 API-005支持可空的`skills/connectors/memory/knowledge/plugins`。新四类只提交资源ID、准确版本、连接器目录版本、知识库权限和可选会话同步开关；记忆与知识库固定每连接一份共享内容，不提交个人/工作空间范围，与模型/资源一起原子接受及幂等重放；不接收密钥、任意npm地址或外部命名空间。非空四类需要`instances:configure`，连接器另需read/manage/invoke，记忆和知识库分别需read/manage。新增`GET /v1/workspace-extensions/plugins`（API-118）返回兼容性及禁选原因；`GET /v1/workspace-extensions/{id}`（API-119）返回本人配置及当前代次逐项状态，不返回无当前类型读取权限的名称或引用。原生DSH工具使用私有Worker通道，无新增公网工具调用接口。字段、数量和状态枚举以[OpenAPI](../api/openapi.yaml)为准。
 
-
 ## 本人插件目录（API-121～125）
 
 `GET /v1/plugins` 需 `instances:read`，返回数据库默认目录及本人条目，按包名以个人资料优先合并；前端仅展示该响应，不使用源码静态默认值。默认条目 `custom=false`，个人新增或覆盖条目 `custom=true`，全部记录 `revision>=1`。预览和添加需 `plugins:manage`、精确同源与 CSRF；在线分别提交 `{package_name}` 和 `{package_name,version,category}`，离线分别提交 `{filename,content_base64}` 和 `{filename,content_base64,category}`。两类字段互斥，拒绝未知字段、重复字段及 null。保存会重新从 npm 固定版本读取或重新解析离线原包，不信任预览返回的展示字段。
 
 离线仅接受 npm `.tgz` / `.tar.gz`，原包 5 MiB、展开 20 MiB、1000 项、清单 1 MiB，JSON 请求体 8 MiB；不联网或执行代码，声明的 DSH patch 必须在包内。超限为 `413 PLUGIN_TOO_LARGE`，非法包或请求为 `422 PLUGIN_INVALID`，同名为 `409 PLUGIN_EXISTS`。响应包含 `addition_method`、`filename`、`sha256`，在线后两项为空。`GET /v1/plugins/{id}/archive` 以 `application/gzip` 附件返回本人离线原包及 `X-Checksum-SHA256`，禁止缓存；跨 Owner、在线或不存在记录统一 404。列表不包含包内容或密文，添加不安装或启用插件。
-
 
 `PUT /v1/plugins/{id}` 需 `plugins:manage`、同源和 CSRF，完整提交 `name/summary/description/author/version/category/keywords/repository/documentation/compatibility/checked_at/source_note/expected_revision`。日期必须为真实 `YYYY-MM-DD`，说明、版本要求、来源说明及链接允许清空，链接仅接受无凭据的 HTTPS。版本是展示收录版本，不能据此改变离线原包。请求上限64 KiB，严格拒绝缺失、未知、重复或 null 字段。
 

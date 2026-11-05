@@ -30,7 +30,8 @@ async function fixture(t, options = {}, reply) {
   const handlers = new Map(),
     tools = new Map(),
     cleanups = [],
-    warnings = [];
+    warnings = [],
+    mounts = [];
   const config = {
     endpoint: 'http://127.0.0.1:' + server.address().port,
     apiKey: 'private-test-key',
@@ -51,13 +52,17 @@ async function fixture(t, options = {}, reply) {
     get(key) {
       return this[key];
     },
+    plugin(_plugin, config) {
+      mounts.push(config);
+      return Promise.resolve();
+    },
     tools: {
-      register(tool) {
-        tools.set(tool.name, tool);
+      register() {
+        throw Error('Mem0 must use the MCP bridge');
       },
     },
   };
-  apply(ctx, config);
+  await apply(ctx, config);
   t.after(async () => {
     for (const cleanup of cleanups.reverse()) await cleanup();
   });
@@ -76,7 +81,20 @@ async function fixture(t, options = {}, reply) {
       messages,
       ...extra,
     }));
-  return { ctx, handlers, tools, warnings, requests, config, session, agent, exec, user, preStep };
+  return {
+    ctx,
+    handlers,
+    tools,
+    mounts,
+    warnings,
+    requests,
+    config,
+    session,
+    agent,
+    exec,
+    user,
+    preStep,
+  };
 }
 
 test('bundle metadata and Config are complete; capture is explicit opt-in', async () => {
@@ -191,28 +209,59 @@ test('assistant capture requires opt-in and converts visible assistant text to a
   assert.doesNotMatch(JSON.stringify(f.requests), /must not save/);
 });
 
-test('manual remember requires exactly allowed-once; tool cannot override the configured identity', async (t) => {
+test('bundled skill and MCP server replace direct tools; manual saves require the native approval gate', async (t) => {
   const f = await fixture(t);
-  const tool = f.tools.get('mem0_remember');
-  await assert.rejects(tool.execute({ content: 'Save me' }, f.exec), /cannot request/);
-  f.ctx.approval = { request: async () => 'rejected' };
-  await assert.rejects(tool.execute({ content: 'Save me' }, f.exec), /not confirmed/);
+  const skills = f.mounts.find((config) => config.providerName === 'mem0');
+  assert.equal(skills.includeDefaultRoots, false);
+  assert.equal(skills.watch, false);
+  const guide = await readFile(skills.bundledSkillDir + '/mem0-memory/SKILL.md', 'utf8');
+  assert.match(guide, /name: mem0-memory/);
+  assert.match(guide, /mcp__mem0__search/);
+  const mcp = f.mounts.find((config) => config.serverName === 'mem0');
+  assert.equal(mcp.transport, 'stdio');
+  assert.doesNotMatch(JSON.stringify(mcp), /private-test-key|fixed-owner/);
+  const guard = f.handlers.get('tools/pre-execute');
+  const execution = { ...f.exec, name: 'mcp__mem0__remember', arguments: { content: 'Save me' } };
+  const ask = await guard(execution, async () => ({ kind: 'allow' }));
+  assert.equal(ask.kind, 'ask');
+  assert.match(ask.reason, /Save me/);
+  assert.match(ask.reason, /fixed-owner/);
   assert.equal(f.requests.length, 0);
-  f.ctx.approval = {
-    request: async (args) => {
-      assert.match(args.reason, /Save me/);
-      return 'allowed-once';
-    },
+  const denied = { kind: 'deny', reason: 'another policy' };
+  assert.equal(await guard(execution, async () => denied), denied);
+  assert.equal(
+    (await guard({ ...execution, agent: null }, async () => ({ kind: 'allow' }))).kind,
+    'deny',
+  );
+  assert.equal(
+    (await guard({ ...execution, arguments: { content: '' } }, async () => ({ kind: 'allow' })))
+      .kind,
+    'deny',
+  );
+  const post = async (path, body) => {
+    const response = await fetch(mcp.env.DSH_MEM0_MCP_ENDPOINT + path, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    return response.json();
   };
-  const result = JSON.parse(await tool.execute({ content: 'Save me' }, f.exec));
-  assert.equal(result.saved, true);
-  assert.equal(f.requests.length, 1);
+  const listed = await post('/list', {});
+  assert.deepEqual(
+    listed.tools.map((tool) => tool.name),
+    ['search', 'status', 'remember'],
+  );
+  for (const tool of listed.tools) assert.equal(tool.inputSchema.properties.user_id, undefined);
+  const saved = await post('/call', { name: 'remember', arguments: { content: 'Save me' } });
+  assert.equal(JSON.parse(saved.content[0].text).saved, true);
   assert.equal(f.requests[0].body.user_id, 'fixed-owner');
-  await f.tools.get('mem0_search').execute({ query: 'q', user_id: 'other' }, f.exec);
-  assert.equal(f.requests[1].body.filters.user_id, 'fixed-owner');
-  assert.equal(f.tools.get('mem0_search').parameters.properties.user_id, undefined);
-  const status = await f.tools.get('mem0_status').execute({}, f.exec);
-  assert.doesNotMatch(status, /private-test-key/);
+  const invalid = await post('/call', {
+    name: 'search',
+    arguments: { query: 'q', user_id: 'other' },
+  });
+  assert.equal(invalid.isError, true);
+  assert.equal(f.requests.length, 1);
+  const status = await post('/call', { name: 'status', arguments: {} });
+  assert.doesNotMatch(status.content[0].text, /private-test-key/);
 });
 
 test('failed saves are visible, never retried, and do not claim success', async (t) => {

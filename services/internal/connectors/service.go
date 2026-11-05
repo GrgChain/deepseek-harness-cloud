@@ -18,13 +18,14 @@ import (
 )
 
 type Service struct {
-	pool         *pgxpool.Pool
-	cipher       *security.SecretCipher
-	environment  string
-	maintenance  bool
-	portalOrigin string
-	policy       func() (Policy, error)
-	active       sync.Map
+	pool           *pgxpool.Pool
+	cipher         *security.SecretCipher
+	environment    string
+	maintenance    bool
+	portalOrigin   string
+	ipPortalOrigin string
+	policy         func() (Policy, error)
+	active         sync.Map
 }
 type activeCall struct {
 	owner, connection string
@@ -36,7 +37,11 @@ func NewService(pool *pgxpool.Pool, cipher *security.SecretCipher, environment s
 	if len(portalOrigin) > 0 {
 		origin = strings.TrimRight(portalOrigin[0], "/")
 	}
-	return &Service{pool: pool, cipher: cipher, environment: environment, maintenance: maintenance, portalOrigin: origin, policy: func() (Policy, error) { return LoadPolicy(path) }}
+	ipOrigin := ""
+	if len(portalOrigin) > 1 {
+		ipOrigin = strings.TrimRight(portalOrigin[1], "/")
+	}
+	return &Service{pool: pool, cipher: cipher, environment: environment, maintenance: maintenance, portalOrigin: origin, ipPortalOrigin: ipOrigin, policy: func() (Policy, error) { return LoadPolicy(path) }}
 }
 func invalid(message string) error { return webapi.Fail(422, "CONNECTOR_INVALID", message) }
 func missing() error               { return webapi.Fail(404, "NOT_FOUND", "连接器或调用记录不存在") }

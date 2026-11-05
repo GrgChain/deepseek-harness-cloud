@@ -25,6 +25,7 @@ class Input(BaseModel):
     contract: str
     namespace: str = Field(pattern=r"^[a-f0-9]{64}$")
     session_namespace: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", repr=False)
+    manual_namespace: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$", repr=False)
     kind: str
     session_request: SessionRequest | None = None
     expected_version: int = 1

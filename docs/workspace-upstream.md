@@ -1,5 +1,19 @@
 # Workspace 上游来源与集成边界
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 决策](#1-决策)
+- [2 复用和自有边界](#2-复用和自有边界)
+- [3 数据与执行约束](#3-数据与执行约束)
+- [4 初始化与数据维护](#4-初始化与数据维护)
+- [5 验证](#5-验证)
+- [6 许可](#6-许可)
+- [7 业务命名与上游标识](#7-业务命名与上游标识)
+
+</details>
+
 - 范围：单组织 Docker 部署
 - 关联需求：REQ-01、REQ-02、REQ-04、REQ-08、REQ-11
 
@@ -11,13 +25,13 @@ API、Worker 和 Gateway 通过 Go 方法查询同一平台 PostgreSQL 中的 Wo
 
 ## 2 复用和自有边界
 
-| 能力 | 实现与职责 |
-| --- | --- |
-| Workspace/TemplateVersion/Build、状态转换 | 抽取 Coder SDK 子集并适配 Go 内部模块 |
-| 工作空间与构建持久化 | 改编 Coder 数据实体/查询规则，使用平台 pgx 仓储 |
-| Terraform 执行 | 改编 Coder init/plan/apply/state 与 Provider 元数据协议，由 Worker 调用受控 CLI |
-| 用户登录、组织、授权、配额、Outbox | 平台实现，平台 membership 为唯一授权事实 |
-| DSH 镜像、配置、数据盘、网络、原生访问 | 项目独立构建及受信 Worker/Gateway 实现 |
+| 能力                                      | 实现与职责                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------- |
+| Workspace/TemplateVersion/Build、状态转换 | 抽取 Coder SDK 子集并适配 Go 内部模块                                           |
+| 工作空间与构建持久化                      | 改编 Coder 数据实体/查询规则，使用平台 pgx 仓储                                 |
+| Terraform 执行                            | 改编 Coder init/plan/apply/state 与 Provider 元数据协议，由 Worker 调用受控 CLI |
+| 用户登录、组织、授权、配额、Outbox        | 平台实现，平台 membership 为唯一授权事实                                        |
+| DSH 镜像、配置、数据盘、网络、原生访问    | 项目独立构建及受信 Worker/Gateway 实现                                          |
 
 本决策的源码版本见第1节，复用和修改范围如上表；不引入 `enterprise/` 下的代码。来源清单、文件摘要及许可证原文属于对应版本的发布材料，不在本页另列已移除的本地目录入口。
 
@@ -45,15 +59,15 @@ Coder 开源部分采用 AGPL-3.0。保留原许可证、版权与修改声明�
 
 业务架构、服务接口和错误说明使用 Workspace/TemplateVersion/Build。源码复用不要求删除全部 Coder 字样：
 
-| 引用 | 处理规则 |
-| --- | --- |
-| 独立服务地址、管理登录、用户创建和构建 HTTP 访问 | 不支持；Workspace 客户端直接访问平台 PostgreSQL |
-| Go 业务接口 | 使用 WorkspaceControl、WorkspaceReader、WorkspaceOwnership；包路径为 internal/workspace，跨包引用使用 workspaceengine，内部变量使用 Workspace 语义 |
-| 数据库/API/配置字段、错误码、容器标签 | 使用 workspace_owner_id、workspace_name、workspace_id、workspace_engine、workspace_organization_id、workspace_source_version、workspace_provider_version、WORKSPACE_UNAVAILABLE 及 hc.workspace_owner_id / hc.workspace_id；不提供旧字段别名 |
-| Terraform Provider 与数据源 | 保留 coder/coder、coder_workspace、coder_parameter、CODER_* 元数据协议和 Provider lock；随意改名会破坏固定模板执行 |
-| 上游来源及许可 | 保留 Coder 名称、版本、URL、版权、AGPL 许可证和文件摘要 |
-| 数据与资源迁移 | 已应用迁移 SQL 保持校验和；转换代码和拒绝旧字段的测试需要识别旧名称，不作为当前业务别名 |
-| 浏览器安全拦截 | 保留拦截 coder_session_token / Coder-Session-Token 的规则，防止旧服务凭据进入实例访问链路 |
+| 引用                                             | 处理规则                                                                                                                                                                                                                                     |
+| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 独立服务地址、管理登录、用户创建和构建 HTTP 访问 | 不支持；Workspace 客户端直接访问平台 PostgreSQL                                                                                                                                                                                              |
+| Go 业务接口                                      | 使用 WorkspaceControl、WorkspaceReader、WorkspaceOwnership；包路径为 internal/workspace，跨包引用使用 workspaceengine，内部变量使用 Workspace 语义                                                                                           |
+| 数据库/API/配置字段、错误码、容器标签            | 使用 workspace_owner_id、workspace_name、workspace_id、workspace_engine、workspace_organization_id、workspace_source_version、workspace_provider_version、WORKSPACE_UNAVAILABLE 及 hc.workspace_owner_id / hc.workspace_id；不提供旧字段别名 |
+| Terraform Provider 与数据源                      | 保留 coder/coder、coder_workspace、coder_parameter、CODER_* 元数据协议和 Provider lock；随意改名会破坏固定模板执行                                                                                                                           |
+| 上游来源及许可                                   | 保留 Coder 名称、版本、URL、版权、AGPL 许可证和文件摘要                                                                                                                                                                                      |
+| 数据与资源迁移                                   | 已应用迁移 SQL 保持校验和；转换代码和拒绝旧字段的测试需要识别旧名称，不作为当前业务别名                                                                                                                                                      |
+| 浏览器安全拦截                                   | 保留拦截 coder_session_token / Coder-Session-Token 的规则，防止旧服务凭据进入实例访问链路                                                                                                                                                    |
 
 配置中 workspace_engine 仅允许 embedded；删除服务 Token 与外部 HTTP 开关。schema 10 在原库改名并保持实体 ID、外键和权限；已执行的旧迁移文件保留校验和。容器标签迁移要求全部实例停止、操作及构建终态、路由关闭、计算额度释放。受控命令 workspace-names-migrate 发布新不可变模板版本，原子迁移实例和组织默认绑定、增加实例版本及访问代次并审计；原构建、模板字节和操作日志保持完整。重复执行不重复生成版本。随后使用新模板启动计算容器并复用原数据盘。
 

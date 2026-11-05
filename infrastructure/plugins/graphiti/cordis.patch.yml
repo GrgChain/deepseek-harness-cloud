@@ -1,0 +1,5 @@
+- insert:
+    - id: graphiti-memory-runtime
+      name: '@harness-cloud/dsh-graphiti-memory'
+      disabled: true
+      config: {}

@@ -24,6 +24,7 @@ export interface WorkspacePlugin {
 }
 export interface WorkspaceExtension {
   kind: 'connector' | 'memory' | 'knowledge' | 'plugin';
+  backend?: 'openviking' | 'mem0' | 'graphiti' | 'qdrant' | 'weaviate' | 'milvus';
   id: string;
   name: string;
   version?: number;

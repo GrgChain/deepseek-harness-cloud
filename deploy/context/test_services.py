@@ -132,7 +132,7 @@ class EmbeddingService(unittest.TestCase):
     os.environ.get("HC_CONTEXT_TEST_MEM0_REST") == "true", "local Mem0 REST service required"
 )
 class Mem0RESTService(unittest.TestCase):
-    def test_authentication_and_inference_disabled(self):
+    def test_authentication_and_invalid_inference_flag(self):
         for key in ("", "invalid"):
             request = urllib.request.Request(
                 "http://127.0.0.1:18583/memories?user_id=test", headers={"X-API-Key": key}
@@ -144,11 +144,11 @@ class Mem0RESTService(unittest.TestCase):
             "http://127.0.0.1:18583/memories",
             json.dumps(
                 {
-                    "messages": [{"role": "user", "content": "Must not invoke an LLM"}],
+                    "messages": [{"role": "user", "content": "Invalid requests must not invoke an LLM"}],
                     "user_id": "test",
                     "agent_id": "test",
                     "metadata": {},
-                    "infer": True,
+                    "infer": "invalid",
                 }
             ).encode(),
             {"X-API-Key": KEY, "Content-Type": "application/json"},

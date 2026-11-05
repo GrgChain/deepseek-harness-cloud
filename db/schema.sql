@@ -2298,3 +2298,62 @@ INSERT INTO plugin_catalog_defaults(id,package_name,name,package_version,author,
   '适配 DSH 0.2.1-alpha.2；Node.js >=24。需要可访问的 Mem0 OSS REST 服务。',
   '2026-11-03','本项目维护的离线组合包；源码和 README 位于 infrastructure/plugins/mem0。非 Mem0 官方插件，未发布到 npm。',3)
 ON CONFLICT (package_name) DO NOTHING;
+-- The shipped native bundle supports platform-managed full conversation sync.
+UPDATE plugin_catalog_defaults SET
+ package_version='0.1.1', revision=revision+1,
+ summary='接入 Mem0 记忆，自动同步完整会话并召回相关内容。',
+ description='本项目维护的 DSH 原生记忆插件。创建工作空间选择 Mem0 记忆连接并启用完整会话同步后自动安装、启用，无需在 DSH 重填服务地址和凭据；同步用户消息、助手回复和工具结果，与平台记忆管理共用连接。也支持下载后独立配置 Mem0 OSS REST 服务。',
+ source_note='本项目维护的离线组合包；源码和 README 位于 infrastructure/plugins/mem0。非 Mem0 官方插件，未发布到 npm。'
+WHERE package_name='@harness-cloud/dsh-mem0-memory';
+
+-- Migration 63: Mem0 native MCP tools and bundled skill.
+-- Match OpenViking's native skill provider and MCP client integration.
+UPDATE plugin_catalog_defaults SET
+ package_version='0.1.2', revision=revision+1,
+ summary='通过技能检索 Mem0 记忆，自动同步完整会话。',
+ description='本项目维护的 DSH 原生记忆插件，内含 mem0-memory 技能，通过 MCP 提供记忆检索和同步状态。创建工作空间选择 Mem0 连接并开启完整会话同步后自动安装、启用，与平台记忆管理共用连接。也支持下载后独立配置 Mem0 OSS REST 服务。',
+ keywords=ARRAY['记忆','上下文','memory','Mem0','技能','MCP','自动召回','本地维护','离线']
+WHERE package_name='@harness-cloud/dsh-mem0-memory';
+
+-- Migration 64: Graphiti native memory plugin.
+-- Graphiti uses a native DSH bundle with a skill provider and MCP tools.
+INSERT INTO plugin_catalog_defaults(id,package_name,name,package_version,author,category,summary,description,keywords,repository,documentation,compatibility,checked_at,source_note,sort_order) VALUES
+ ('6e2bccdc-1ae1-4f04-8ddf-6bab763d2635','@harness-cloud/dsh-graphiti-memory','Graphiti 记忆','0.1.0',
+  'Harness Cloud','会话与记忆',
+  '通过技能检索 Graphiti 记忆，自动同步完整会话。',
+  '本项目维护的 DSH 原生记忆插件，内含 graphiti-memory 技能，通过 MCP 提供记忆检索和同步状态。创建工作空间选择 Graphiti 连接并开启完整会话同步后自动安装、启用，与平台记忆管理共用连接；凭据、图谱分组和提取模型由平台接入服务管理。此版本仅支持平台连接。',
+  ARRAY['记忆','图谱','关系','Graphiti','技能','MCP','自动召回','本地维护','离线'],
+  '','',
+  '适配 DSH 0.2.1-alpha.2；Node.js 24。需要平台 Graphiti 记忆连接。',
+  '2026-11-03','本项目维护的离线组合包；源码和 README 位于 infrastructure/plugins/graphiti。非 Graphiti 官方插件，未发布到 npm。',4)
+ON CONFLICT (package_name) DO NOTHING;
+
+-- Raw sessions are separate from extracted memories, matching OpenViking.
+UPDATE plugin_catalog_defaults SET
+ package_version='0.2.0', revision=revision+1,
+ summary='通过技能检索 Mem0 记忆，同步会话并在归档后提取记忆。',
+ description='本项目维护的 DSH 原生记忆插件，内含 mem0-memory 技能和 MCP 工具。创建工作空间选择 Mem0 连接并开启完整会话同步后自动安装、启用。原始会话单独保存，在达到归档阈值、开始压缩或会话释放时通过 Mem0 提取长期记忆，与平台手动记忆共同检索。也支持独立配置 Mem0 OSS REST 服务。'
+WHERE package_name='@harness-cloud/dsh-mem0-memory';
+
+-- Public IP origins need distinct ports for workspace/Portal origin isolation.
+-- Allocations survive process restarts and are released only after deletion.
+CREATE TABLE ip_workspace_ports (
+    instance_id uuid PRIMARY KEY REFERENCES instances(id),
+    slot integer NOT NULL UNIQUE CHECK (slot >= 0 AND slot < 64512)
+);
+REVOKE ALL ON ip_workspace_ports FROM PUBLIC;
+DO $$ BEGIN
+    IF to_regrole('hc_api') IS NOT NULL THEN
+        GRANT SELECT, INSERT, DELETE ON ip_workspace_ports TO hc_api;
+    END IF;
+    IF to_regrole('hc_gateway') IS NOT NULL THEN
+        GRANT SELECT ON ip_workspace_ports TO hc_gateway;
+    END IF;
+END $$;
+
+-- Match OpenViking: raw conversations are staged before long-term extraction.
+UPDATE plugin_catalog_defaults SET
+ package_version='0.2.0', revision=revision+1,
+ summary='通过技能检索 Graphiti 记忆，归档会话后提取长期记忆。',
+ description='本项目维护的 DSH 原生记忆插件，内含 graphiti-memory 技能和 MCP 工具。创建工作空间选择 Graphiti 连接并开启完整会话同步后自动安装、启用。原始会话单独保存，在达到归档阈值、开始压缩或会话释放时通过 Graphiti 提取长期记忆，与平台手动记忆共同检索；凭据、图谱分组和模型由平台管理。此版本仅支持平台连接。'
+WHERE package_name='@harness-cloud/dsh-graphiti-memory';

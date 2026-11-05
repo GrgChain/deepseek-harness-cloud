@@ -188,14 +188,22 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 				if _, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么"}, ""); err != nil || received.Limit != 5 || received.MinSimilarity != nil {
 					t.Fatal("memory search defaults changed", received, err)
 				}
-				before := calls
-				for _, source := range []string{"manual", "automatic"} {
-					if _, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么", MemorySource: source}, ""); !problemIs(err, "CONTEXT_INVALID") {
-						t.Fatal("unsupported native source accepted", source, err)
-					}
+				searchNamespace := namespace
+				request := &SessionRequest{Method: "POST", Path: "/sessions/messages", Body: `{"session_id":"` + strings.Repeat("a", 64) + `","messages":[{"id":"` + strings.Repeat("b", 64) + `","role":"user","content":"周三发布"}]}`}
+				if _, err = service.Session(ctx, owner, connection.ID, connection.Version, "personal", request); err != nil {
+					t.Fatal("managed session sync rejected", backend, err)
 				}
-				if calls != before {
-					t.Fatal("unsupported source reached remote memory service")
+				if namespace != searchNamespace || sessionNamespace != "" || resolvedScope != "personal" || received.SessionRequest == nil || received.SessionRequest.Path != request.Path {
+					t.Fatal("managed session sync used a different corpus or lost its request", received)
+				}
+				if _, err = service.Session(ctx, other, connection.ID, connection.Version, "personal", request); !problemIs(err, "NOT_FOUND") {
+					t.Fatal("foreign memory session sync accepted", err)
+				}
+				for _, source := range []string{"manual", "automatic"} {
+					_, err = service.Call(ctx, owner, "memory", connection.ID, "search", Action{ExpectedVersion: connection.Version, Query: "公司叫什么", MemorySource: source}, "")
+					if err != nil || received.MemorySource != source {
+						t.Fatal("generated/manual source filter was lost", backend, source, err)
+					}
 				}
 				entries := make([]map[string]any, 40)
 				for index := range entries {
@@ -232,7 +240,7 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 		if err := os.WriteFile(keyFile, []byte("viking-bridge-secret-32-characters-long"), 0600); err != nil {
 			t.Fatal(err)
 		}
-		var namespace, resolvedScope, sessionNamespace, lastPath string
+		var namespace, resolvedScope, sessionNamespace, manualReadNamespace, lastPath string
 		var searchOptions Action
 		remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			lastPath = r.URL.Path
@@ -240,6 +248,7 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 				Namespace        string `json:"namespace"`
 				Scope            string `json:"scope"`
 				SessionNamespace string `json:"session_namespace"`
+				ManualNamespace  string `json:"manual_namespace"`
 				Action
 			}
 			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -247,6 +256,7 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 			}
 			namespace, resolvedScope = input.Namespace, input.Scope
 			sessionNamespace = input.SessionNamespace
+			manualReadNamespace = input.ManualNamespace
 			searchOptions = input.Action
 			if r.URL.Path == "/v1/verify" {
 				io.WriteString(w, `{"contract":"hc-context-v1","backend":"openviking","ready":true,"capabilities":{"search":true}}`)
@@ -271,11 +281,20 @@ func TestContextConnectionsWithPostgres(t *testing.T) {
 			t.Fatal("verification unnecessarily exposed the native corpus")
 		}
 		pluginDigest := sha256.Sum256([]byte(owner.OrganizationID + ":" + owner.UserID + ":" + connection.ID + ":dsh-session:personal"))
+		if _, err = service.Session(ctx, owner, connection.ID, connection.Version, "personal", &SessionRequest{Method: "POST", Path: "/api/v1/search/find", Body: `{"query":"项目发布约定"}`}); err != nil {
+			t.Fatal(err)
+		}
+		if namespace != hex.EncodeToString(pluginDigest[:]) || manualReadNamespace != manualNamespace || sessionNamespace != "" {
+			t.Fatal("official plugin cannot read the owner's platform memories")
+		}
+		if _, err = service.Session(ctx, other, connection.ID, connection.Version, "personal", &SessionRequest{Method: "GET", Path: "/health"}); !problemIs(err, "NOT_FOUND") {
+			t.Fatal("another owner accessed the plugin's combined memory corpus", err)
+		}
 		for _, action := range []string{"session-list", "session-get"} {
 			if _, err = service.Call(ctx, owner, "memory", connection.ID, action, Action{ExpectedVersion: connection.Version, Scope: "workspace:" + webapi.ID(), RecordID: "viking://user/owner/memories/profile.md"}, ""); err != nil {
 				t.Fatal(err)
 			}
-			if namespace != hex.EncodeToString(pluginDigest[:]) || namespace == manualNamespace || resolvedScope != "personal" {
+			if namespace != hex.EncodeToString(pluginDigest[:]) || namespace == manualNamespace || resolvedScope != "personal" || manualReadNamespace != "" {
 				t.Fatal("viewer used a different corpus than the plugin")
 			}
 			if _, err = service.Call(ctx, other, "memory", connection.ID, action, Action{ExpectedVersion: connection.Version}, ""); !problemIs(err, "NOT_FOUND") {

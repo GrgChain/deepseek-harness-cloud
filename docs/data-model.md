@@ -1,5 +1,35 @@
 # DSH Cloud 数据与持久化设计
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 关系与命名](#1-关系与命名)
+- [2 表职责](#2-表职责)
+- [3 创建和幂等事务](#3-创建和幂等事务)
+- [4 Worker领取与条件回写](#4-worker领取与条件回写)
+- [5 配额与资源生命周期](#5-配额与资源生命周期)
+- [6 认证、撤销与加密](#6-认证撤销与加密)
+- [7 迁移与备份](#7-迁移与备份)
+- [8 持久JSON与版本语义](#8-持久json与版本语义)
+- [9 保留清理与数据库权限](#9-保留清理与数据库权限)
+- [内嵌 Workspace、模板和构建](#内嵌-workspace模板和构建)
+- [个人模型约束](#个人模型约束)
+- [内置 OIDC 持久化](#内置-oidc-持久化)
+- [原生模型执行元数据](#原生模型执行元数据)
+- [用户资源配额（schema 26）](#用户资源配额schema-26)
+- [schema28：个人模型提供商账号](#schema28个人模型提供商账号)
+- [实例数量统一上限](#实例数量统一上限)
+- [模型提供商账号默认模型（schema32）](#模型提供商账号默认模型schema32)
+- [运行默认值独立初始化（迁移 34）](#运行默认值独立初始化迁移-34)
+- [工作台连接器（迁移49～51）](#工作台连接器迁移4951)
+- [委派治理权限（迁移52）](#委派治理权限迁移52)
+- [创建工作空间的技能副本（schema53）](#创建工作空间的技能副本schema53)
+- [创建工作空间扩展（schema54～55）](#创建工作空间扩展schema5455)
+- [本人插件目录（迁移58～60）](#本人插件目录迁移5860)
+
+</details>
+
 版本：V0.2。物理设计基线见 [PostgreSQL SQL](../db/schema.sql)，对应迁移见独立的db/migrations目录，应用启动只检查版本/校验和。全部业务事实由PostgreSQL持久化；Redis仅缓存/限流。
 
 ## 1 关系与命名
@@ -37,24 +67,25 @@ ID统一uuid v4、时间timestamptz、CPU millicores与容量bytes。API的model
 
 平台数据库为模型管理权威：model_providers、model_catalog_entries维护批准元数据；user_model_connections及versions绑定org/owner；external_provider_secrets保存真实Key的AES-GCM密文；model_sync_operations保存稳定远端ID、租约、结果未知和重试；user_model_defaults保存个人默认及CAS版本。secrets仅保存供DSH使用的虚拟密钥。API可写真实Key密文但不能SELECT其密文字段，Worker与原生模型入口受控读取，工作空间访问Gateway无真实Key权限。原生Go模型入口复用平台提供商密文；执行表仅保存路由元数据与运行密钥摘要，使用独立最小权限数据库角色。
 
-| 表组 | 事实 | 关键约束 |
-| --- | --- | --- |
-| organizations/users/memberships | 单组织、OIDC主体、Workspace Owner映射、角色与代次 | 单组织unique true，issuer+subject唯一，Workspace Owner UUID唯一（workspace_owner_id） |
-| portal_sessions/oidc_transactions | 服务端会话和一次登录事务 | 随机秘密摘要、浏览器state绑定、PKCE密文/12-byte nonce/key_id、过期/撤销 |
-| secrets | AES-GCM密文、nonce、key_id、撤销 | 主密钥外置；应用绑定AAD；无明文 |
-| model_configuration_heads/model_configurations | 单连接当前头与不可变版本 | org唯一头、(id,version)主键、credential org FK |
-| model_validations/probe_budgets | 版本校验、探测租约、每日请求次数 | 每版本一行、每org/UTC日原子计数上限1000 |
-| approved_templates/approved_specs | 锁定模板/manifest/digest与不可变资源规格 | 名称/正容量/digest检查；模板最多一个 enabled；批准 CPU 1000/2000/4000/8000/16000 millicores × 内存 2/4/8/16/32/64 GiB，存储 1–100 GiB 整数的批准组合；具备 bounded-ext4-v1 存储适配器的受控批准事务登记容量组合，业务角色不能插入规格；实例冻结 spec_id 与资源金额，停用不改旧快照 |
-| organization_defaults | 当前默认项与version | 各引用FK，默认项更新仅影响新实例 |
-| instances/instance_health | 快照、状态、Owner、外部标识、五维健康 | 活动名称唯一、Workspace唯一、UUID稳定、维度唯一 |
-| storage_assets | 独立数据盘、卷、初始化、保留 | 不可变归属复合FK、每实例一个原资产 |
-| operations/outbox_events | 持久意图、状态/租约/阶段、待执行任务 | 每实例活跃部分唯一索引、USER/SYSTEM发起类别、每操作一个Outbox |
-| idempotency_records | 作用域、哈希、首次响应、操作 | 复合主键；活跃操作expires_at为空不清理 |
-| quota_policies/quota_reservations | 上限与HELD/USED/RELEASED明细 | 正数/类型检查；每operation/type唯一 |
-| recovery_quota_holds/quota_commitments | 恢复保留额度/统一配额读视图 | 按org/原instance/resource唯一，归属membership；普通服务不能修改保留额度 |
-| access_routes/challenges/tickets/sessions/native_sessions | 固定IP/Host、挑战/票据/平台会话、加密原生Cookie | Host唯一、票据摘要/挑战唯一、实例进程代次 |
-| audit_events | 追加事件与脱敏context | owner_id固定事件所属实例Owner；trigger阻止UPDATE/DELETE，可信保留维护见第9节 |
-| audit_retention_holds | 组织审计法律保留状态、原因、操作者与变更时间 | 独立于到期事件；仅受信维护账户写入，状态变化同事务追加审计 |
+| 表组                                                      | 事实                                              | 关键约束                                                                                                                                                                                                                                                                           |
+| --------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| organizations/users/memberships                           | 单组织、OIDC主体、Workspace Owner映射、角色与代次 | 单组织unique true，issuer+subject唯一，Workspace Owner UUID唯一（workspace_owner_id）                                                                                                                                                                                              |
+| portal_sessions/oidc_transactions                         | 服务端会话和一次登录事务                          | 随机秘密摘要、浏览器state绑定、PKCE密文/12-byte nonce/key_id、过期/撤销                                                                                                                                                                                                            |
+| secrets                                                   | AES-GCM密文、nonce、key_id、撤销                  | 主密钥外置；应用绑定AAD；无明文                                                                                                                                                                                                                                                    |
+| model_configuration_heads/model_configurations            | 单连接当前头与不可变版本                          | org唯一头、(id,version)主键、credential org FK                                                                                                                                                                                                                                     |
+| model_validations/probe_budgets                           | 版本校验、探测租约、每日请求次数                  | 每版本一行、每org/UTC日原子计数上限1000                                                                                                                                                                                                                                            |
+| approved_templates/approved_specs                         | 锁定模板/manifest/digest与不可变资源规格          | 名称/正容量/digest检查；模板最多一个 enabled；批准 CPU 1000/2000/4000/8000/16000 millicores × 内存 2/4/8/16/32/64 GiB，存储 1–100 GiB 整数的批准组合；具备 bounded-ext4-v1 存储适配器的受控批准事务登记容量组合，业务角色不能插入规格；实例冻结 spec_id 与资源金额，停用不改旧快照 |
+| organization_defaults                                     | 当前默认项与version                               | 各引用FK，默认项更新仅影响新实例                                                                                                                                                                                                                                                   |
+| instances/instance_health                                 | 快照、状态、Owner、外部标识、五维健康             | 活动名称唯一、Workspace唯一、UUID稳定、维度唯一                                                                                                                                                                                                                                    |
+| storage_assets                                            | 独立数据盘、卷、初始化、保留                      | 不可变归属复合FK、每实例一个原资产                                                                                                                                                                                                                                                 |
+| operations/outbox_events                                  | 持久意图、状态/租约/阶段、待执行任务              | 每实例活跃部分唯一索引、USER/SYSTEM发起类别、每操作一个Outbox                                                                                                                                                                                                                      |
+| idempotency_records                                       | 作用域、哈希、首次响应、操作                      | 复合主键；活跃操作expires_at为空不清理                                                                                                                                                                                                                                             |
+| quota_policies/quota_reservations                         | 上限与HELD/USED/RELEASED明细                      | 正数/类型检查；每operation/type唯一                                                                                                                                                                                                                                                |
+| recovery_quota_holds/quota_commitments                    | 恢复保留额度/统一配额读视图                       | 按org/原instance/resource唯一，归属membership；普通服务不能修改保留额度                                                                                                                                                                                                            |
+| access_routes/challenges/tickets/sessions/native_sessions | 固定IP/Host、挑战/票据/平台会话、加密原生Cookie   | Host唯一、票据摘要/挑战唯一、实例进程代次                                                                                                                                                                                                                                          |
+| ip_workspace_ports                                        | 迁移66保留的历史 IP 端口槽位                      | instance_id 主键/FK、slot 唯一；当前单端口路径入口不再读写此表                                                                                                                                                                                                                     |
+| audit_events                                              | 追加事件与脱敏context                             | owner_id固定事件所属实例Owner；trigger阻止UPDATE/DELETE，可信保留维护见第9节                                                                                                                                                                                                       |
+| audit_retention_holds                                     | 组织审计法律保留状态、原因、操作者与变更时间      | 独立于到期事件；仅受信维护账户写入，状态变化同事务追加审计                                                                                                                                                                                                                         |
 
 SQL约束处理结构一致性；模板启用、状态合法转换、配额总量和凭据撤销需应用事务检查，不能声称CHECK约束涵盖全部业务规则。config_snapshot/intent/runtime_manifest均需版本化应用schema校验，禁止Key/Token/Cookie等秘密字段。
 
@@ -106,12 +137,12 @@ secret记录不能由普通实例读API解密；服务进程数据库角色按�
 
 ## 8 持久JSON与版本语义
 
-| 字段 | V0.1应用校验与行为 |
-| --- | --- |
-| instances.config_snapshot | schema_version=1；其余字段与OpenAPI ConfigurationSnapshot一致。密钥引用从绑定的model_config_id/version解析，不把Key或原生Cookie写入快照 |
-| operations.intent | schema_version=1、expected_instance_version、target_desired_state、reason（USER_REQUEST/AUTH_REVOKED/CREDENTIAL_REVOKED）、request_id；CREATE/START/CONFIGURE携带冻结的target_snapshot，DELETE保存confirmed_name；Worker 可追加 external_build（schema_version=1、before_build_id、before_build_number、template_version、transition、phase、build_id、completed），模板必须等于冻结快照；发送前持久化，恢复只确认匹配后继而不盲目重发。所有用户操作保存accepted_auth_generation，Worker每检查点重新校验当前身份/配置；代次变化先按当前权限重新鉴权，失权转安全清理，不仅比较旧代次数值 |
-| approved_templates.runtime_manifest | schema_version=1及后端第12.2节全部必填字段；实际commit/digest/Provider/模板/profile/工具策略由D0锁定，未知字段拒绝 |
-| audit_events.details | schema_version=1；仅允许operation_id、instance_id、reason_code、source_asset_id、target_asset_id、backup_sha256、key_id、operator_ref及变更版本等安全元数据，禁止原始请求/上游body |
+| 字段                                | V0.1应用校验与行为                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| instances.config_snapshot           | schema_version=1；其余字段与OpenAPI ConfigurationSnapshot一致。密钥引用从绑定的model_config_id/version解析，不把Key或原生Cookie写入快照                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| operations.intent                   | schema_version=1、expected_instance_version、target_desired_state、reason（USER_REQUEST/AUTH_REVOKED/CREDENTIAL_REVOKED）、request_id；CREATE/START/CONFIGURE携带冻结的target_snapshot，DELETE保存confirmed_name；Worker 可追加 external_build（schema_version=1、before_build_id、before_build_number、template_version、transition、phase、build_id、completed），模板必须等于冻结快照；发送前持久化，恢复只确认匹配后继而不盲目重发。所有用户操作保存accepted_auth_generation，Worker每检查点重新校验当前身份/配置；代次变化先按当前权限重新鉴权，失权转安全清理，不仅比较旧代次数值 |
+| approved_templates.runtime_manifest | schema_version=1及后端第12.2节全部必填字段；实际commit/digest/Provider/模板/profile/工具策略由D0锁定，未知字段拒绝                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| audit_events.details                | schema_version=1；仅允许operation_id、instance_id、reason_code、source_asset_id、target_asset_id、backup_sha256、key_id、operator_ref及变更版本等安全元数据，禁止原始请求/上游body                                                                                                                                                                                                                                                                                                                                                                                                      |
 
 持久JSON由各模块显式类型解码并校验，未知schema_version阻止相关任务且安全告警；升级读取旧版需先提供转换器和fixture，不默认反序列化为任意map。
 
@@ -128,7 +159,6 @@ Instance.version在接受新命令、执行器提交新的状态/快照或安全
 D1迁移必须提供角色GRANT矩阵和测试：API可读授权与业务事实、写用户命令/密文配置/挑战票据；Worker可写操作/健康/配额/存储/路由、读必要模型密文，不能改身份角色；Gateway可读当前授权/路由、仅更新Portal last_seen_at及访问挑战/票据/会话，读取Worker加密发布的原生Cookie，不得读取模型密文或改实例/额度；前三类进程按职责仅追加审计；原生模型Gateway使用hc_model_gateway，仅读必要授权及模型密文、仅写模型执行路由与运行密钥两表。身份初始化和备份/回收/DDL使用独立受控角色。按列或专用数据库函数限制更新，不能简单向全部进程授予整库写权限。
 
 锁与时间依据：[PostgreSQL行锁](https://www.postgresql.org/docs/17/sql-select.html#SQL-FOR-UPDATE-SHARE)、[数据库时间函数](https://www.postgresql.org/docs/17/functions-datetime.html)。
-
 
 隔离恢复资源登记复用追加审计表：action=RECOVERY_INVENTORY，details含schema_version=1、operator_ref及report（run_id、snapshot_sha256、findings、ledger、conservative、blockers、quarantined、promotion_allowed）。元数据只含归属标识/资源状态/容量，不含凭据或工作正文。报告与审计为同一不可变行，不另建可被普通进程修改的资源影子表；精确摘要重放返回原行。conservative只用于恢复阻断与后续账本接管，原quota_reservations不减少，组织保持DISABLED且promotion_allowed恒为false。
 
@@ -147,7 +177,6 @@ DELETED实例的保留盘保持STORAGE承诺；仅存在原ASSET/VOLUME时不补
 schema9新增5张workspace_*表，迁移独立保存在db/migrations/000009_embedded_workspaces.sql。workspace_authority保存固定组织与控制主体；workspace_templates保存模板身份/当前版本；workspace_template_versions保存不可变三文件源码、摘要、file ID和创建者；workspace_workspaces保存Owner、稳定名称、模板和软删除；workspace_builds保存连续构建号、transition、精确模板版本、发起者、Job状态、固定参数、私有Terraform state及时间。每Workspace单个pending/running构建由唯一部分索引保证。
 
 schema 10 将平台业务列改为 users.workspace_owner_id、instances.workspace_name、instances.workspace_id，保留原 ID、外键及列授权；实例 API 对外输出 workspace_id，内部 Owner/name 不从请求覆盖；业务列不提供旧别名。计算容器标签使用 hc.workspace_owner_id 和 hc.workspace_id。Workspace元数据与平台事实共用PostgreSQL并一同加密备份；API/Gateway没有provisioner_state读取权限、没有模板写权限；Worker不能修改模板，只能执行已固定版本。成套恢复保留原Owner、Workspace、TemplateVersion、Build、Job ID、构建时间及Terraform state。
-
 
 Workspace 持久化关系如下；图中 Owner 为 `users.workspace_owner_id`，平台 `users.id` 仍用于 Membership、实例 Owner、会话及审计。
 
@@ -174,12 +203,12 @@ model_connection_registry统一组织共享与用户私有模型的版本引用�
 
 身份迁移独立存放于 `db/migrations/000023_internal_oidc.sql`，新增4张身份表。`db/schema.sql` 汇总当前24个迁移，平台共58个public表/视图（含迁移账本）；应用要求完整版本和校验和。
 
-| 表 | 权威内容与约束 |
-|---|---|
-| identity_accounts | 稳定UUID、固定组织、可选平台user_id、组织内唯一小写登录邮箱、显示名、60-byte bcrypt散列、credential_version、enabled；user_id唯一。无平台映射的受控账号可完成身份验证但不能进入业务 |
-| identity_authorizations | 独立UUID，浏览器/CSRF 32-byte摘要，客户端/回调/state/nonce/S256 challenge/scope，失败次数0～10、5分钟期限和一次消费时间 |
-| identity_codes | 独立UUID与唯一32-byte授权码摘要，账号FK、客户端/回调/nonce/challenge/scope、权限代次、凭据版本、认证时间、60秒期限、消费时间 |
-| identity_access_tokens | 独立UUID与唯一32-byte随机Token摘要，授权码/账号FK、scope、权限代次、凭据版本、5分钟期限和撤销时间；授权码索引支持重放撤销 |
+| 表                      | 权威内容与约束                                                                                                                                                                      |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| identity_accounts       | 稳定UUID、固定组织、可选平台user_id、组织内唯一小写登录邮箱、显示名、60-byte bcrypt散列、credential_version、enabled；user_id唯一。无平台映射的受控账号可完成身份验证但不能进入业务 |
+| identity_authorizations | 独立UUID，浏览器/CSRF 32-byte摘要，客户端/回调/state/nonce/S256 challenge/scope，失败次数0～10、5分钟期限和一次消费时间                                                             |
+| identity_codes          | 独立UUID与唯一32-byte授权码摘要，账号FK、客户端/回调/nonce/challenge/scope、权限代次、凭据版本、认证时间、60秒期限、消费时间                                                        |
+| identity_access_tokens  | 独立UUID与唯一32-byte随机Token摘要，授权码/账号FK、scope、权限代次、凭据版本、5分钟期限和撤销时间；授权码索引支持重放撤销                                                           |
 
 账号创建只插入，不因幂等重试替换已存在散列。重置同散列重放不再次推进 credential_version；实际新散列写入推进版本。密码不与模型 secrets 混存，不进入用户详情/审计。API具有上述表读写权限；Worker只有受控清理函数权限，Gateway无账号表权限。
 
@@ -245,12 +274,12 @@ storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模
 
 ## 工作台连接器（迁移49～51）
 
-| 迁移 | 对象与事实 | 约束及边界 |
-| --- | --- | --- |
-| 49 | `mcp_connectors`：个人配置、认证密文、工具目录、配置/目录版本、启用与验证状态 | `org_id/owner_id/id`复合归属，活动连接同Owner名称唯一；凭据只写不读回，软删除保留审计及调用关联 |
-| 49 | `mcp_calls`：工具名、连接/目录版本、请求摘要、幂等键、执行状态及取消标记 | 同组织/Owner幂等键唯一，复合外键绑定本人连接；不保存参数及结果正文，未知外部结果不自动重试 |
-| 50 | `mcp_connectors.endpoint_url/catalog_id`：个人服务地址及目录关联 | URL最多1000字节、目录ID最多64字符；地址/协议合法性及出口策略由应用校验 |
-| 51 | `mcp_oauth_transactions`：一次授权的会话、连接版本、state摘要、过期时间及加密上下文 | state摘要唯一，复合外键绑定组织/Owner/连接，`session_id`引用Portal会话，nonce为12字节；回调按有效会话及期限单次消费 |
+| 迁移 | 对象与事实                                                                          | 约束及边界                                                                                                          |
+| ---- | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| 49   | `mcp_connectors`：个人配置、认证密文、工具目录、配置/目录版本、启用与验证状态       | `org_id/owner_id/id`复合归属，活动连接同Owner名称唯一；凭据只写不读回，软删除保留审计及调用关联                     |
+| 49   | `mcp_calls`：工具名、连接/目录版本、请求摘要、幂等键、执行状态及取消标记            | 同组织/Owner幂等键唯一，复合外键绑定本人连接；不保存参数及结果正文，未知外部结果不自动重试                          |
+| 50   | `mcp_connectors.endpoint_url/catalog_id`：个人服务地址及目录关联                    | URL最多1000字节、目录ID最多64字符；地址/协议合法性及出口策略由应用校验                                              |
+| 51   | `mcp_oauth_transactions`：一次授权的会话、连接版本、state摘要、过期时间及加密上下文 | state摘要唯一，复合外键绑定组织/Owner/连接，`session_id`引用Portal会话，nonce为12字节；回调按有效会话及期限单次消费 |
 
 迁移49新增`connectors:read/manage/invoke`权限，管理和调用均依赖读取；内置角色默认获得本人权限。迁移51扩展`auth_type`为`none/bearer/oauth2`。服务端事务仍须核对当前角色、Owner、配置版本、启用状态及授权目标，数据库外键不代替业务授权。
 
@@ -274,16 +303,22 @@ Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使�
 
 API仅SELECT/INSERT快照，Worker仅SELECT及更新应用时间/代次；既有membership列读取额外开放auth_generation用于CREATE执行前复核，不授予身份写权限。`hc_extensions_lock_authority`为固定search_path的SECURITY DEFINER函数，PUBLIC无执行权；受限Worker以匹配组织、Owner、实例和授权代次校验活动身份及RUNNING意图并加锁，返回当前角色。内部WorkspacePrincipal不接受HTTP输入，不伪造Portal会话；每次受控调用仍检查当前功能权限、连接及范围，旧快照不恢复撤销授权。
 
-
 ## 本人插件目录（迁移58～60）
 
 迁移58的 `personal_plugins` 保存组织、Owner、固定包名/版本、分类和展示元数据，`(org_id,owner_id,package_name)` 唯一。`plugins:manage` 依赖 `instances:read`，内置 ADMIN/MEMBER 默认拥有；自定义角色显式分配。保存按 Owner 加锁以执行最多 100 条限制，与 `PLUGIN_ADD` 审计原子提交。运行角色 `hc_api` 保留 SELECT/INSERT，并由迁移60配套授权限定展示列 UPDATE；Worker/Gateway 不读取个人目录。
 
 迁移59只新增 `addition_method`、`archive_filename`、`archive_sha256` 和原包 `archive_key_id/archive_nonce/archive_ciphertext`。原有行默认 `online` 且归档字段为空；离线行必须具备完整 SHA-256、12 字节 nonce 和不超过 5 MiB 原包加认证标签的密文。数据库 CHECK 拒绝在线行携带归档、离线行缺少信封。原包使用 `plugin-archive` AAD，记录维度为 `owner_id/id`，纳入受信密钥轮换；列表只读非秘密元数据，附件下载按组织及本人 ID 查询后解密。
 
-
 迁移60新增 `plugin_catalog_defaults`，以固定UUID及包名唯一保存默认展示资料、来源说明、核对日期、排序及revision；默认三个第三方插件仅在此迁移初始化。`personal_plugins` 增加 `source_note`、`revision DEFAULT 1 CHECK(revision>0)` 及可空 `default_id` 外键，旧数据和归档密文保持不变。同Owner的default_id建立非空唯一索引，继续保留包名唯一约束；首次编辑默认项创建个人覆盖，从默认revision递增，后续按个人revision进行CAS更新。`default_id IS NULL` 的个人新增项计入100条限额，模板覆盖不计入。API角色仅能读取默认表、更新个人展示列，不能修改包名、Owner、default_id及归档列；默认目录由受信运维维护，变更时须递增revision。
 
 迁移61只向默认表追加 `@harness-cloud/dsh-mem0-memory@0.1.0` 的展示资料，默认目录成为三个第三方插件及一个本地维护Mem0插件，不增加凭据列或改变上述个人覆盖、归档及授权约束。目录经API从数据库读取；前端仅保存本地分发包的准确版本和下载路径，不静态补齐目录。平台随附的Mem0归档作为静态构建资源分发，不写入个人归档密文；用户离线上传的同名包仍保留本人原始字节及加密信封。
 
-独立Mem0插件在工作空间配置 `endpoint`、`apiKey`、`userId` 后启用；这些运行配置与目录元数据、平台记忆连接及其命名空间分别管理，目录收录不创建连接或自动安装。插件写入内容不会自动出现在平台连接内容列表。配置与验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)及[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
+迁移61对应的早期独立Mem0插件在工作空间配置 `endpoint`、`apiKey`、`userId` 后启用；这些运行配置与目录元数据、平台记忆连接及其命名空间分别管理，目录收录不创建连接或自动安装。插件写入内容不会自动出现在平台连接内容列表。当前版本另支持平台托管模式，配置与验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)及[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
+
+迁移62将Mem0默认目录升级至0.1.1，说明创建时自动安装的原生插件模式；保留个人资料覆盖和离线上传原包。Worker内嵌的组合包和前端下载包字节一致，并固定摘要校验。
+
+迁移63将默认目录升级至0.1.2，补充 `mem0-memory` 技能和 MCP 工具说明；不新增运行配置或改变记忆隔离方式。已有工作空间的原生 Profile 保持原有安装版本。
+
+迁移64向默认目录追加 Graphiti 0.1.0 原生记忆插件，不新增凭据列或改变记忆数据及权限模型。原生技能和MCP服务随工作空间Profile管理，归档仍与前端下载字节一致并固定摘要。
+
+迁移65将Mem0默认插件升级至0.2.0。原始会话保存于伴随服务独立的 `mem0_session_messages`，稳定消息标识去重；`mem0_session_commits` 持久化归档游标及提取回执。只有归档提取后的事实写入现有内容索引，标为自动生成；原始会话不进入记忆导出。原有内容、命名空间及历史迁移不变。

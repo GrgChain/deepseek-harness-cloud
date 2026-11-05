@@ -162,10 +162,14 @@ func Run(role string) error {
 				configurationService.WithRuntimeChecks(creationGate)
 				commandGate = creationGate
 			}
+			ipPortalOrigin := ""
+			if accessRuntime != nil && accessRuntime.Options.IPAccess != nil {
+				ipPortalOrigin = accessRuntime.Options.IPAccess.Origin(accessRuntime.Options.IPAccess.PortalPort)
+			}
 			handler.WithBusiness(httpserver.BusinessMux{
 				Plugins:       plugins.NewHandler(plugins.NewService(pool, cipher, o.Environment, maintenance == "true"), allowRequests),
 				Extensions:    &workspaceextensions.Handler{Pool: pool, Cipher: cipher, Environment: o.Environment},
-				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL), allowRequests),
+				Connectors:    connectors.NewHandler(connectors.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONNECTOR_ENDPOINTS_FILE"), o.PublicURL, ipPortalOrigin), allowRequests),
 				Context:       contextservice.NewHandler(contextservice.NewService(pool, cipher, o.Environment, maintenance == "true", os.Getenv("HC_CONTEXT_ENDPOINTS_FILE")), allowRequests),
 				Skills:        skills.NewHandler(skillService, allowRequests),
 				Management:    identity.NewManagementHandler(identity.NewManagementService(pool, cursor, o.Issuer, localAccounts, cipher, o.Environment)),
@@ -198,6 +202,14 @@ func Run(role string) error {
 	if role == "gateway" {
 		gateway = access.NewGateway(accessRuntime.Rules, accessRuntime.Options.OrganizationID, accessRuntime.Service, allowRequests)
 		defer gateway.Close()
+		ipEntry, err := access.NewIPEntry(accessRuntime, gateway)
+		if err != nil {
+			return err
+		}
+		if err = ipEntry.Start(ctx); err != nil {
+			return err
+		}
+		defer ipEntry.Close()
 		root = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Host == c.HTTPAddress && (r.URL.Path == "/livez" || r.URL.Path == "/readyz") {
 				handler.ServeHTTP(w, r)

@@ -54,6 +54,28 @@ test(
       });
     const key = 'synthetic-contract-key-no-inference';
     const sessionMemory = process.env.HC_RUNTIME_SESSION_MEMORY === 'true';
+    const memoryBackend = process.env.HC_RUNTIME_MEMORY_BACKEND ?? 'openviking';
+    const localMemory = memoryBackend !== 'openviking';
+    const memoryRuntime = {
+      mem0: {
+        package: '@harness-cloud/dsh-mem0-memory',
+        version: '0.2.0',
+        archive: '../../plugins/mem0-dist/harness-cloud-dsh-mem0-memory-0.2.0.tgz',
+        skills: ['mem0-memory'],
+      },
+      graphiti: {
+        package: '@harness-cloud/dsh-graphiti-memory',
+        version: '0.2.0',
+        archive: '../../plugins/graphiti-dist/harness-cloud-dsh-graphiti-memory-0.2.0.tgz',
+        skills: ['graphiti-memory'],
+      },
+      openviking: {
+        package: '@openviking/dsh-memory-plugin',
+        version: '0.5.31',
+        archive: '../../plugins/openviking/openviking-dsh-memory-plugin-0.5.31.tgz',
+        skills: ['openviking-memory', 'openviking-skills', 'ov-experience-memory'],
+      },
+    }[memoryBackend];
     for (const [path, value] of [
       [join(data, '.hc-initialized'), JSON.stringify({ ...config, schema_version: 1 })],
       [join(run, 'config.json'), JSON.stringify(config)],
@@ -71,6 +93,7 @@ test(
           items: [
             {
               kind: 'memory',
+              backend: memoryBackend,
               id: randomUUID(),
               name: 'Native memory',
               version: 1,
@@ -88,14 +111,9 @@ test(
           new URL('../workspace-assets/openviking_session.mjs', import.meta.url),
           'utf8',
         ),
-        session_plugin: (
-          await readFile(
-            new URL(
-              '../../plugins/openviking/openviking-dsh-memory-plugin-0.5.31.tgz',
-              import.meta.url,
-            ),
-          )
-        ).toString('base64'),
+        session_plugin: (await readFile(new URL(memoryRuntime.archive, import.meta.url))).toString(
+          'base64',
+        ),
       };
       await new Promise((resolve, reject) => {
         const child = execFile(
@@ -135,6 +153,21 @@ test(
             await readFile(join(run, '.hc-extension-request.json'), 'utf8'),
           );
           await rm(join(run, '.hc-extension-request.json'));
+          if (localMemory) {
+            assert.ok(['session', 'search'].includes(request.action));
+            const result =
+              request.action === 'search'
+                ? { items: [] }
+                : request.session_request.path === '/sessions/commit'
+                  ? { committed: false, memories: 0, pending_messages: 0 }
+                  : { accepted: JSON.parse(request.session_request.body).messages.length };
+            await writeFile(
+              join(run, '.hc-extension-response.json'),
+              JSON.stringify({ id: request.id, result }),
+              { mode: 0o600 },
+            );
+            return;
+          }
           assert.equal(request.action, 'session');
           const native = request.session_request;
           const payload = native.body ? JSON.parse(native.body) : {};
@@ -288,7 +321,9 @@ test(
             socket.destroy();
             resolve({ status: response.statusCode, headers: response.headers });
           });
-        req.on('timeout', () => req.destroy(new Error('Runtime request timed out')));
+        req.on('timeout', () =>
+          req.destroy(new Error('Runtime request timed out: ' + path.split('?')[0])),
+        );
         req.on('error', reject);
         req.end();
       });
@@ -403,12 +438,12 @@ test(
     assert.equal(inventory.value.managementAvailable, true);
     const bundles = await rpc('pluginManager/listBundles');
     assert.equal(bundles.ok, true, 'The persistent profile manager must be available');
-    const memoryBundle = '@openviking/dsh-memory-plugin';
-    const memorySkills = ['openviking-memory', 'openviking-skills', 'ov-experience-memory'];
+    const memoryBundle = memoryRuntime.package;
+    const memorySkills = memoryRuntime.skills;
     if (sessionMemory) {
       const bundle = bundles.value.find((row) => row.name === memoryBundle);
-      assert.ok(bundle, 'The official OpenViking bundle must be managed by the native profile');
-      assert.equal(bundle.version, '0.5.31');
+      assert.ok(bundle, 'The memory bundle must be managed by the native profile');
+      assert.equal(bundle.version, memoryRuntime.version);
       assert.equal(bundle.installed, true);
       assert.equal(bundle.enabled, true);
       assert.equal(bundle.error, undefined);
@@ -416,16 +451,16 @@ test(
       assert.equal(plugins.ok, true);
       assert.ok(
         plugins.value.some(
-          (row) => row.entryId === 'include:openviking-memory-runtime' && row.enabled,
+          (row) => row.entryId === 'include:' + memoryBackend + '-memory-runtime' && row.enabled,
         ),
-        'The native official plugin entry must activate',
+        'The native memory plugin entry must activate',
       );
       const skills = await rpc('skills/list', { request: { sessionId: session.value.sessionId } });
       assert.equal(skills.ok, true, JSON.stringify(skills));
       for (const skill of memorySkills)
         assert.ok(
           skills.value.skills.some((row) => row.name === skill && row.modelInvocable),
-          `The model must see official skill ${skill}`,
+          `The model must see bundled memory skill ${skill}`,
         );
     }
     const builtin = '@deepseek-ai/dsh-experimental-session-search';
@@ -471,7 +506,11 @@ test(
 export const inject = ['tools', 'agents'];
 export function apply(ctx) {
   ctx.provide('hcTestAddon', true);
-  const inspect = () => fs.writeFileSync('/run/harness/openviking-tools-test.json', JSON.stringify(ctx.tools.schemas(ctx.agents.get(${JSON.stringify(session.value.sessionId)})).map(tool => tool.name)), {mode: 0o600});
+  const inspect = () => {
+    const target = '/run/harness/openviking-tools-test.json';
+    fs.writeFileSync(target + '.tmp', JSON.stringify(ctx.tools.schemas(ctx.agents.get(${JSON.stringify(session.value.sessionId)})).map(tool => tool.name)), {mode: 0o600});
+    fs.renameSync(target + '.tmp', target);
+  };
   ctx.on('tools/change', inspect);
   inspect();
 }\n`
@@ -489,18 +528,25 @@ export function apply(ctx) {
     );
     assert.ok(addonRow?.enabled, 'Third-party bundle must actually activate');
     if (sessionMemory) {
-      const memoryTools = ['mcp__openviking__find', 'mcp__openviking__remember'];
+      const memoryTools = localMemory
+        ? [`mcp__${memoryBackend}__search`, `mcp__${memoryBackend}__status`]
+        : ['mcp__openviking__find', 'mcp__openviking__remember'];
       const expectTools = async (enabled) => {
         let tools = [];
         for (let attempt = 0; attempt < 80; attempt++) {
           tools = JSON.parse(await readFile(join(run, 'openviking-tools-test.json'), 'utf8'));
+          assert.equal(
+            tools.some((name) => name.startsWith('cloud_memory_')),
+            false,
+            'Native memory must use its MCP tools rather than duplicate built-in tools',
+          );
           if (memoryTools.every((tool) => tools.includes(tool) === enabled)) return;
           await new Promise((resolve) => setTimeout(resolve, 100));
         }
         assert.equal(
           memoryTools.every((tool) => tools.includes(tool) === enabled),
           true,
-          `Official MCP tool activation must match bundle enabled=${enabled}`,
+          `Memory tool activation must match bundle enabled=${enabled}`,
         );
       };
       await expectTools(true);
@@ -580,7 +626,7 @@ export function apply(ctx) {
     if (sessionMemory) {
       const bundle = afterRestart.value.find((row) => row.name === memoryBundle);
       assert.ok(bundle?.enabled);
-      assert.equal(bundle.version, '0.5.31');
+      assert.equal(bundle.version, memoryRuntime.version);
       assert.equal(bundle.error, undefined);
     }
     const retainedSettings = await rpc('settings/describe');

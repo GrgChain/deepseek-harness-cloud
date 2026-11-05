@@ -26,14 +26,22 @@ func decode(w http.ResponseWriter, r *http.Request, target any) error {
 		return invalid("请求须使用 JSON 对象")
 	}
 	limit := int64(3 << 20)
-	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/context/memory/") && strings.HasSuffix(r.URL.Path, "/preview") {
+	memoryPreview := r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/context/memory/") && strings.HasSuffix(r.URL.Path, "/preview")
+	if memoryPreview {
 		limit = 20 << 20
 	}
 	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		return webapi.Fail(413, "PAYLOAD_TOO_LARGE", "请求超过大小限制")
 	}
-	if webapi.StrictUnmarshal(data, target) != nil {
+	if memoryPreview {
+		// Vendor graph metadata contains legitimate null values. Preserve the
+		// archive bytes for checksum validation by the context companion.
+		err = webapi.StrictUnmarshalWithNullableObject(data, target, "package")
+	} else {
+		err = webapi.StrictUnmarshal(data, target)
+	}
+	if err != nil {
 		return invalid("请求字段或格式不正确")
 	}
 	return nil

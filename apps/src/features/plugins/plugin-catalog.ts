@@ -25,18 +25,31 @@ export interface CatalogPlugin {
 
 export const mem0PluginPackage = {
   name: '@harness-cloud/dsh-mem0-memory',
-  version: '0.1.0',
-  filename: 'harness-cloud-dsh-mem0-memory-0.1.0.tgz',
-  path: '/plugin-packages/harness-cloud-dsh-mem0-memory-0.1.0.tgz',
+  version: '0.2.0',
+  filename: 'harness-cloud-dsh-mem0-memory-0.2.0.tgz',
+  path: '/plugin-packages/harness-cloud-dsh-mem0-memory-0.2.0.tgz',
 };
 
-export function isBundledMem0Plugin(
+export const graphitiPluginPackage = {
+  name: '@harness-cloud/dsh-graphiti-memory',
+  version: '0.2.0',
+  filename: 'harness-cloud-dsh-graphiti-memory-0.2.0.tgz',
+  path: '/plugin-packages/harness-cloud-dsh-graphiti-memory-0.2.0.tgz',
+};
+
+const localMemoryPackages = [mem0PluginPackage, graphitiPluginPackage];
+export function isLocalMemoryPackage(packageName: string) {
+  return localMemoryPackages.some((item) => item.name === packageName);
+}
+
+export function bundledMemoryPlugin(
   plugin: Pick<CatalogPlugin, 'packageName' | 'version' | 'additionMethod'>,
 ) {
-  return (
-    plugin.packageName === mem0PluginPackage.name &&
-    plugin.version === mem0PluginPackage.version &&
-    plugin.additionMethod !== 'offline'
+  return localMemoryPackages.find(
+    (item) =>
+      plugin.packageName === item.name &&
+      plugin.version === item.version &&
+      plugin.additionMethod !== 'offline',
   );
 }
 

@@ -130,17 +130,46 @@
 .plugin-card-footer .ant-btn {
   flex-shrink: 0;
 }
-.plugin-detail-drawer .ant-drawer-content-wrapper {
+.plugin-detail-root.ant-drawer-right > .ant-drawer-content-wrapper {
+  min-width: 0;
   max-width: 100vw;
+}
+.plugin-detail-drawer .ant-drawer-body {
+  padding: 28px 32px;
+}
+.plugin-detail-drawer .ant-drawer-close {
+  min-width: 44px;
+  min-height: 44px;
 }
 .plugin-detail-heading {
   display: flex;
-  align-items: center;
-  gap: 14px;
+  align-items: flex-start;
+  gap: 16px;
+}
+.plugin-detail-heading .plugin-card-symbol {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+}
+.plugin-detail-identity {
+  min-width: 0;
 }
 .plugin-detail-heading h2 {
   margin: 0 0 8px;
-  font-size: 22px;
+  font-size: 24px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.plugin-detail-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+}
+.plugin-detail-tags .ant-tag {
+  margin: 0;
+  max-width: 100%;
+  white-space: normal;
   overflow-wrap: anywhere;
 }
 .plugin-detail-category {
@@ -150,7 +179,26 @@
 .plugin-detail-description {
   color: var(--muted);
   line-height: 1.8;
-  margin: 24px 0;
+  margin: 20px 0;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.plugin-detail-facts {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: 20px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.75;
+}
+.plugin-detail-facts dt,
+.plugin-detail-label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.plugin-detail-facts dd {
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
 }
 .plugin-detail-drawer .ant-descriptions-item-content {
   overflow-wrap: anywhere;
@@ -159,7 +207,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 24px;
-  margin: 10px 0 24px;
+  margin: 12px 0 20px;
 }
 .plugin-install-guide {
   padding-top: 24px;
@@ -170,48 +218,103 @@
   margin: 0 0 16px;
   font-size: 16px;
 }
+.plugin-detail-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.plugin-detail-section-heading h3 {
+  margin: 0;
+}
+.plugin-detail-section-heading > span {
+  color: var(--muted);
+  font-size: 12px;
+}
 .plugin-install-guide p,
 .plugin-install-guide li {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.8;
 }
-.plugin-install-guide ol {
-  padding-left: 20px;
-  margin: 0 0 20px;
+.plugin-install-steps {
+  padding-left: 24px;
+  margin: 20px 0;
 }
-.plugin-install-guide li + li {
-  margin-top: 8px;
+.plugin-install-steps li {
+  padding-left: 6px;
 }
-.plugin-install-spec {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px;
+.plugin-install-steps li::marker {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.plugin-install-steps strong {
+  color: var(--color-foreground);
+  font-weight: 600;
+}
+.plugin-install-steps li + li {
+  margin-top: 14px;
+}
+.plugin-install-steps p {
+  margin: 2px 0 0;
+}
+.plugin-install-package {
+  padding: 18px 20px;
   background: var(--color-background);
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
 }
-.plugin-install-spec code {
-  flex: 1;
-  min-width: 0;
+.plugin-install-package > code {
+  display: block;
+  margin: 6px 0 16px;
   overflow-wrap: anywhere;
   user-select: all;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.8;
 }
-.plugin-install-spec .ant-btn {
-  flex-shrink: 0;
+.plugin-install-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.plugin-install-actions .ant-btn {
+  min-height: 40px;
+}
+.plugin-install-package .ant-alert {
+  margin-top: 14px;
 }
 .plugin-copy-status {
-  display: block;
-  min-height: 24px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--color-primary);
-  margin-top: 8px;
 }
 .plugin-install-note {
-  margin-bottom: 0;
+  margin: 20px 0 0;
+}
+.plugin-detail-provenance {
+  border-top: 1px solid var(--line);
+}
+.plugin-detail-provenance summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+}
+.plugin-detail-provenance summary::-webkit-details-marker {
+  display: none;
+}
+.plugin-detail-provenance[open] summary svg {
+  transform: rotate(180deg);
+}
+.plugin-detail-provenance .ant-descriptions {
+  padding: 8px 0;
 }
 .plugin-add-preview {
   margin-top: 24px;
@@ -231,9 +334,6 @@
 .plugin-detail-drawer .ant-descriptions code {
   word-break: break-all;
   font-size: 12px;
-}
-.plugin-install-guide > .ant-btn {
-  margin-bottom: 16px;
 }
 .plugin-edit-modal .ant-modal-body {
   max-height: 65dvh;
@@ -303,15 +403,18 @@
   .plugin-detail-drawer .ant-drawer-body {
     padding: 24px 16px;
   }
-  .plugin-install-spec {
-    flex-direction: column;
+  .plugin-detail-facts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
   }
-  .plugin-install-spec .ant-btn {
+  .plugin-install-package {
+    padding: 16px;
+  }
+  .plugin-install-actions .ant-btn {
     min-height: 44px;
   }
   .plugin-add-modal .ant-btn,
-  .plugin-add-modal .ant-segmented-item-label,
-  .plugin-install-guide > .ant-btn {
+  .plugin-add-modal .ant-segmented-item-label {
     min-height: 44px;
   }
   .plugin-edit-modal .ant-input,

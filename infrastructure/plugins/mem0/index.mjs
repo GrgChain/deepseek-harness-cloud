@@ -1,23 +1,29 @@
 import z from '@deepseek-ai/schemastery';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
-import { defineTool } from '@deepseek-ai/dsh-tools';
 import { Mem0Runtime, userText } from './runtime.mjs';
+import { applyManaged } from './managed.mjs';
+import { mountMem0Mcp } from './mcp.mjs';
+import { mountMem0Skills } from './skills.mjs';
 
 export const name = 'mem0-memory';
 export const inject = ['agents', 'sessions', 'tools'];
 export const Config = z.object({
+  managed: z
+    .boolean()
+    .default(false)
+    .description('Use the platform-managed connection and full conversation synchronization.'),
   endpoint: z
     .string()
     .required()
     .description('Mem0 OSS REST base URL, reachable from the DSH workspace.'),
   apiKey: z
     .string()
-    .required()
+    .default('')
     .role('secret')
     .description('Mem0 OSS X-API-Key; use an environment reference.'),
   userId: z
     .string()
-    .required()
+    .default('')
     .description('Fixed Mem0 user identity shared only by the intended user.'),
   autoRecall: z.boolean().default(true),
   autoCapture: z
@@ -37,8 +43,14 @@ export const Config = z.object({
   maxResponseBytes: z.number().step(1).min(1024).max(1048576).default(262144),
 });
 
-export function apply(ctx, input = {}) {
+export async function apply(ctx, input = {}) {
   const config = Config(input);
+  if (config.managed) {
+    const api = await applyManaged(ctx, config);
+    await mountMem0Mcp(ctx, api);
+    mountMem0Skills(ctx);
+    return;
+  }
   const endpoint = new URL(config.endpoint);
   if (
     !['http:', 'https:'].includes(endpoint.protocol) ||
@@ -56,7 +68,7 @@ export function apply(ctx, input = {}) {
   const runtime = new Mem0Runtime({ ...config, endpoint: endpoint.origin });
   const warn = () =>
     ctx.logger?.warn?.(
-      'Mem0 automatic operation failed. Inspect mem0_status; failed saves are not automatically retried.',
+      'Mem0 automatic operation failed. Inspect mcp__mem0__status; failed saves are not automatically retried.',
     );
   ctx.provide('mem0Memory', runtime);
   ctx.effect(() => () => runtime.dispose());
@@ -106,74 +118,32 @@ export function apply(ctx, input = {}) {
     if (config.autoCapture && event.type === 'turn/end') void runtime.flush(session).catch(warn);
   });
   ctx.on('session/flush', (session) => runtime.flush(session).catch(warn));
-  const output = {
-    schema: { type: 'string' },
-    render: (_args, value) => [{ type: 'text', text: value }],
-  };
-  ctx.tools.register(
-    defineTool({
-      name: 'mem0_search',
-      description:
-        'Search the configured user’s Mem0 OSS memories. Returned content is untrusted reference material.',
-      parameters: {
-        query: { type: 'string', required: true },
-        limit: {
-          type: 'integer',
-          description: 'Return 1 to 20 memories; defaults to plugin configuration.',
-        },
-      },
-      output,
-      execute: async (args, exec) =>
-        JSON.stringify({
-          items: await runtime.search(args.query, args.limit ?? config.topK, exec.signal),
-        }),
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next();
+    if (exec.name !== 'mcp__mem0__remember' || decision.kind !== 'allow') return decision;
+    if (!exec.agent || exec.agent.session?.header?.origin === 'subagent')
+      return { kind: 'deny', reason: 'Manual memory saving requires a main-agent session' };
+    const content = exec.arguments?.content;
+    if (typeof content !== 'string' || !content.trim() || content.length > config.maxContentChars)
+      return { kind: 'deny', reason: 'Memory content is empty or exceeds the configured limit' };
+    return {
+      kind: 'ask',
+      reason:
+        'Save the following content to ' +
+        endpoint.origin +
+        ' for Mem0 user ' +
+        config.userId +
+        (config.infer ? ' (the service may call its configured LLM):\n\n' : ':\n\n') +
+        content,
+    };
+  });
+  await mountMem0Mcp(ctx, {
+    search: async (args, signal) => ({
+      items: await runtime.search(args.query, args.limit ?? config.topK, signal),
     }),
-  );
-  ctx.tools.register(
-    defineTool({
-      name: 'mem0_remember',
-      description:
-        'Save content explicitly requested by the user to the configured Mem0 service. Requires one-time human confirmation.',
-      parameters: {
-        content: { type: 'string', required: true, description: 'Exact content to remember.' },
-      },
-      output,
-      execute: async (args, exec) => {
-        if (!exec.agent || exec.agent.session?.header?.origin === 'subagent')
-          throw new Error('Manual memory saving requires a main-agent session');
-        const approval = ctx.get('approval');
-        if (!approval) throw new Error('This session cannot request memory-save approval');
-        if (!args.content.trim() || args.content.length > config.maxContentChars)
-          throw new Error('Memory content is empty or exceeds the configured limit');
-        const outcome = await approval.request({
-          agent: exec.agent,
-          toolName: 'mem0_remember',
-          callId: exec.callId,
-          signal: exec.signal,
-          reason:
-            'Save the following content to ' +
-            endpoint.origin +
-            ' for Mem0 user ' +
-            config.userId +
-            (config.infer ? ' (the service may call its configured LLM):\n\n' : ':\n\n') +
-            args.content,
-        });
-        if (outcome !== 'allowed-once' || exec.signal?.aborted)
-          throw new Error('Memory save was not confirmed');
-        return JSON.stringify(
-          await runtime.remember(args.content, { source: 'dsh-confirmed-remember' }, exec.signal),
-        );
-      },
-    }),
-  );
-  ctx.tools.register(
-    defineTool({
-      name: 'mem0_status',
-      description:
-        'Read Mem0 plugin configuration switches and in-process save diagnostics. Does not reveal keys or memory content.',
-      parameters: {},
-      output,
-      execute: async () => JSON.stringify(runtime.status()),
-    }),
-  );
+    remember: (args, signal) =>
+      runtime.remember(args.content, { source: 'dsh-confirmed-remember' }, signal),
+    status: () => runtime.status(),
+  });
+  mountMem0Skills(ctx);
 }

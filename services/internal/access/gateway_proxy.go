@@ -161,7 +161,7 @@ func (g *Gateway) proxy(w http.ResponseWriter, r *http.Request, host string) {
 		p.Out.Trailer = nil
 		p.Out.Header.Set("Cookie", string(a.Cookie))
 	}, ModifyResponse: func(response *http.Response) error {
-		if err := dshadapters.ManagedModelsResponse(response, g.rules.PortalOrigin, a.Target.InstanceID); err != nil {
+		if err := dshadapters.ManagedModelsResponse(response, browserPortal(r, g.rules.PortalOrigin), a.Target.InstanceID); err != nil {
 			return err
 		}
 		response.Header.Del("Set-Cookie")

@@ -18,10 +18,11 @@ type Service struct {
 	store     *Store
 	ownership Ownership
 	native    NativeVerifier
+	ipAccess  *IPOptions
 }
 
 func NewService(store *Store, ownership Ownership, native NativeVerifier) *Service {
-	return &Service{store, ownership, native}
+	return &Service{store: store, ownership: ownership, native: native}
 }
 
 func (s *Service) ReplaceChallenge(ctx context.Context, host, previous string) (Challenge, string, error) {

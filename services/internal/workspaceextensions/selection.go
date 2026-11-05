@@ -36,6 +36,7 @@ type Input struct {
 }
 type Item struct {
 	Kind           string   `json:"kind"`
+	Backend        string   `json:"backend,omitempty"`
 	ID             string   `json:"id"`
 	Name           string   `json:"name"`
 	Version        int64    `json:"version,omitempty"`
@@ -252,15 +253,8 @@ func Save(ctx context.Context, tx pgx.Tx, p identity.Principal, instance string,
 					return invalid("连接器没有已启用的工具")
 				}
 			} else {
-				err = tx.QueryRow(ctx, `SELECT name,version,enabled,status FROM context_connections WHERE org_id=$1 AND owner_id=$2 AND id=$3 AND kind=$4 FOR SHARE`, p.OrganizationID, p.UserID, selection.ID, kind).Scan(&item.Name, &version, &enabled, &status)
+				err = tx.QueryRow(ctx, `SELECT name,version,enabled,status,backend FROM context_connections WHERE org_id=$1 AND owner_id=$2 AND id=$3 AND kind=$4 FOR SHARE`, p.OrganizationID, p.UserID, selection.ID, kind).Scan(&item.Name, &version, &enabled, &status, &item.Backend)
 				if err == nil && selection.SessionMemory {
-					var backend string
-					if err = tx.QueryRow(ctx, `SELECT backend FROM context_connections WHERE id=$1`, selection.ID).Scan(&backend); err != nil {
-						return err
-					}
-					if backend != "openviking" {
-						return invalid("会话同步需要选择 OpenViking 连接")
-					}
 					item.SessionMemory, item.SessionScope = true, "personal"
 				}
 				// Both memory and knowledge have one shared corpus per connection.

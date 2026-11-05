@@ -39,7 +39,7 @@ func (m BusinessMux) ServeAuthenticated(w http.ResponseWriter, r *http.Request, 
 		handler = m.Commands
 	} else if strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && r.Method == http.MethodDelete {
 		handler = m.Commands
-	} else if strings.HasPrefix(r.URL.Path, "/v1/instances/") && strings.HasSuffix(r.URL.Path, ":access") {
+	} else if strings.HasPrefix(r.URL.Path, "/v1/instances/") && (strings.HasSuffix(r.URL.Path, ":access") || strings.HasSuffix(r.URL.Path, ":access-endpoint")) {
 		handler = m.Access
 	} else if (r.URL.Path == "/v1/instances" || strings.HasPrefix(r.URL.Path, "/v1/instances/")) && r.Method != http.MethodGet {
 		handler = m.Commands

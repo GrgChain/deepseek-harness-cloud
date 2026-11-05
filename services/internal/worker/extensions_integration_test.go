@@ -322,89 +322,97 @@ func TestExtensionCreateCheckpointRechecksAcceptedAuthority(t *testing.T) {
 }
 
 func TestWorkspaceNativeSessionMemoryOptInAndRevocation(t *testing.T) {
-	f := newMonitorFixture(t)
-	instance, owner := f.instance(t)
-	source := webapi.ID()
-	f.exec(t, `INSERT INTO role_permissions(role_id,permission_id) SELECT id,'memory:manage' FROM roles WHERE org_id=$1 AND builtin ON CONFLICT DO NOTHING`, f.org)
-	namespaces := []string{}
-	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var input struct {
-			Namespace string `json:"namespace"`
-			contextservice.Action
-		}
-		if json.NewDecoder(r.Body).Decode(&input) != nil || input.SessionRequest == nil {
-			t.Error("missing native request")
-		}
-		if input.Limit < 1 || input.Limit > 20 {
-			t.Error("native request violates the bridge envelope limit")
-		}
-		namespaces = append(namespaces, input.Namespace)
-		if !strings.HasSuffix(r.URL.Path, "/session") {
-			t.Error("wrong native transport")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":200,"body":"{\"status\":\"ok\"}","headers":{"content-type":"application/json"}}`))
-	}))
-	defer remote.Close()
-	directory := t.TempDir()
-	proxyKey := filepath.Join(directory, "proxy-key")
-	if err := os.WriteFile(proxyKey, []byte(strings.Repeat("k", 32)), 0600); err != nil {
-		t.Fatal(err)
-	}
-	policy := filepath.Join(directory, "context.json")
-	raw, _ := json.Marshal(map[string]any{"endpoints": []map[string]any{{"id": "native", "name": "Native", "backend": "openviking", "url": remote.URL, "allow_private_http": true, "data_use": "Native session fixture", "proxy_key_file": proxyKey}}})
-	if err := os.WriteFile(policy, raw, 0600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("HC_CONTEXT_ENDPOINTS_FILE", policy)
-	envelope, err := f.cipher.Encrypt([]byte("native-credential"), security.Context{Environment: "test", OrganizationID: f.org, RecordID: source, Purpose: "context-credential"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.exec(t, `INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,'memory','openviking','native','Native','READY',$4,$5,$6)`, source, f.org, owner, envelope.KeyID, envelope.Nonce, envelope.Ciphertext)
-	item := workspaceextensions.Item{Kind: "memory", ID: source, Name: "Native", Version: 1, Scopes: []string{"personal", "workspace:" + instance}}
-	snapshot := workspaceextensions.Snapshot{Items: []workspaceextensions.Item{item}}
-	f.exec(t, `INSERT INTO workspace_extensions(instance_id,org_id,owner_id,auth_generation,configuration) VALUES($1,$2,$3,1,$4)`, instance, f.org, owner, marshalForTest(snapshot))
-	f.exec(t, `INSERT INTO context_bindings(instance_id,org_id,owner_id,connection_id,scopes) VALUES($1,$2,$3,$4,$5)`, instance, f.org, owner, source, marshalForTest(item.Scopes))
-	broker := NewExtensionBroker(f.pool, directory, f.cipher, "test", false)
-	request := extensionRequest{ID: webapi.ID(), Kind: "memory", SourceID: source, Scope: "personal", Action: "session", SessionRequest: &contextservice.SessionRequest{Method: "POST", Path: "/api/v1/sessions", Body: `{"session_id":"dsh-first"}`}}
-	if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 0 {
-		t.Fatal("legacy selection gained capture", err)
-	}
-	item.SessionMemory = true
-	item.SessionScope = "personal"
-	snapshot.Items[0] = item
-	f.exec(t, `UPDATE workspace_extensions SET configuration=$2 WHERE instance_id=$1`, instance, marshalForTest(snapshot))
-	if _, err = broker.invoke(f.ctx, instance, request); err != nil || len(namespaces) != 1 {
-		t.Fatal("native capture failed", err)
-	}
-	personal := namespaces[0]
-	request.Scope = "workspace:" + instance
-	if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 1 {
-		t.Fatal("native scope expanded", err)
-	}
-	item.SessionScope = request.Scope
-	snapshot.Items[0] = item
-	f.exec(t, `UPDATE workspace_extensions SET configuration=$2 WHERE instance_id=$1`, instance, marshalForTest(snapshot))
-	if _, err = broker.invoke(f.ctx, instance, request); err != nil || len(namespaces) != 2 || namespaces[1] != personal {
-		t.Fatal("legacy session scope split the shared memory corpus", err)
-	}
-	secondInstance, _ := f.instance(t, owner)
-	item.Scopes, item.SessionScope = []string{"personal"}, "personal"
-	snapshot.Items[0] = item
-	f.exec(t, `INSERT INTO workspace_extensions(instance_id,org_id,owner_id,auth_generation,configuration) VALUES($1,$2,$3,1,$4)`, secondInstance, f.org, owner, marshalForTest(snapshot))
-	f.exec(t, `INSERT INTO context_bindings(instance_id,org_id,owner_id,connection_id,scopes) VALUES($1,$2,$3,$4,$5)`, secondInstance, f.org, owner, source, marshalForTest(item.Scopes))
-	request.Scope = "personal"
-	if _, err = broker.invoke(f.ctx, secondInstance, request); err != nil || len(namespaces) != 3 || namespaces[2] != personal {
-		t.Fatal("two authorized workspaces did not share session memory", err)
-	}
-	request.Scope = "workspace:" + instance
-	f.exec(t, `UPDATE context_bindings SET enabled=false WHERE instance_id=$1`, instance)
-	if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 3 {
-		t.Fatal("revoked capture continued", err)
-	}
-	request.Scope = "personal"
-	if _, err = broker.invoke(f.ctx, secondInstance, request); err != nil || len(namespaces) != 4 || namespaces[3] != personal {
-		t.Fatal("revoking one binding affected another workspace", err)
+	for _, backend := range []string{"openviking", "mem0", "graphiti"} {
+		t.Run(backend, func(t *testing.T) {
+			f := newMonitorFixture(t)
+			instance, owner := f.instance(t)
+			source := webapi.ID()
+			f.exec(t, `INSERT INTO role_permissions(role_id,permission_id) SELECT id,'memory:manage' FROM roles WHERE org_id=$1 AND builtin ON CONFLICT DO NOTHING`, f.org)
+			namespaces := []string{}
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var input struct {
+					Namespace string `json:"namespace"`
+					contextservice.Action
+				}
+				if json.NewDecoder(r.Body).Decode(&input) != nil || input.SessionRequest == nil {
+					t.Error("missing native request")
+				}
+				if input.Limit < 1 || input.Limit > 20 {
+					t.Error("native request violates the bridge envelope limit")
+				}
+				namespaces = append(namespaces, input.Namespace)
+				if !strings.HasSuffix(r.URL.Path, "/session") {
+					t.Error("wrong native transport")
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"status":200,"body":"{\"status\":\"ok\"}","headers":{"content-type":"application/json"}}`))
+			}))
+			defer remote.Close()
+			directory := t.TempDir()
+			proxyKey := filepath.Join(directory, "proxy-key")
+			if err := os.WriteFile(proxyKey, []byte(strings.Repeat("k", 32)), 0600); err != nil {
+				t.Fatal(err)
+			}
+			policy := filepath.Join(directory, "context.json")
+			raw, _ := json.Marshal(map[string]any{"endpoints": []map[string]any{{"id": "native", "name": "Native", "backend": backend, "url": remote.URL, "allow_private_http": true, "data_use": "Native session fixture", "proxy_key_file": proxyKey}}})
+			if err := os.WriteFile(policy, raw, 0600); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("HC_CONTEXT_ENDPOINTS_FILE", policy)
+			envelope, err := f.cipher.Encrypt([]byte("native-credential"), security.Context{Environment: "test", OrganizationID: f.org, RecordID: source, Purpose: "context-credential"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			f.exec(t, `INSERT INTO context_connections(id,org_id,owner_id,kind,backend,endpoint_id,name,status,key_id,nonce,ciphertext) VALUES($1,$2,$3,'memory',$7,'native','Native','READY',$4,$5,$6)`, source, f.org, owner, envelope.KeyID, envelope.Nonce, envelope.Ciphertext, backend)
+			item := workspaceextensions.Item{Kind: "memory", ID: source, Name: "Native", Backend: backend, Version: 1, Scopes: []string{"personal", "workspace:" + instance}}
+			snapshot := workspaceextensions.Snapshot{Items: []workspaceextensions.Item{item}}
+			f.exec(t, `INSERT INTO workspace_extensions(instance_id,org_id,owner_id,auth_generation,configuration) VALUES($1,$2,$3,1,$4)`, instance, f.org, owner, marshalForTest(snapshot))
+			f.exec(t, `INSERT INTO context_bindings(instance_id,org_id,owner_id,connection_id,scopes) VALUES($1,$2,$3,$4,$5)`, instance, f.org, owner, source, marshalForTest(item.Scopes))
+			broker := NewExtensionBroker(f.pool, directory, f.cipher, "test", false)
+			request := extensionRequest{ID: webapi.ID(), Kind: "memory", SourceID: source, Scope: "personal", Action: "session", SessionRequest: &contextservice.SessionRequest{Method: "POST", Path: "/api/v1/sessions", Body: `{"session_id":"dsh-first"}`}}
+			if backend != "openviking" {
+				request.SessionRequest = &contextservice.SessionRequest{Method: "POST", Path: "/sessions/messages", Body: `{}`}
+			}
+			if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 0 {
+				t.Fatal("legacy selection gained capture", err)
+			}
+			item.SessionMemory = true
+			item.SessionScope = "personal"
+			snapshot.Items[0] = item
+			f.exec(t, `UPDATE workspace_extensions SET configuration=$2 WHERE instance_id=$1`, instance, marshalForTest(snapshot))
+			if _, err = broker.invoke(f.ctx, instance, request); err != nil || len(namespaces) != 1 {
+				t.Fatal("native capture failed", err)
+			}
+			personal := namespaces[0]
+			request.Scope = "workspace:" + instance
+			if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 1 {
+				t.Fatal("native scope expanded", err)
+			}
+			item.SessionScope = request.Scope
+			snapshot.Items[0] = item
+			f.exec(t, `UPDATE workspace_extensions SET configuration=$2 WHERE instance_id=$1`, instance, marshalForTest(snapshot))
+			if _, err = broker.invoke(f.ctx, instance, request); err != nil || len(namespaces) != 2 || namespaces[1] != personal {
+				t.Fatal("legacy session scope split the shared memory corpus", err)
+			}
+			secondInstance, _ := f.instance(t, owner)
+			item.Scopes, item.SessionScope = []string{"personal"}, "personal"
+			snapshot.Items[0] = item
+			f.exec(t, `INSERT INTO workspace_extensions(instance_id,org_id,owner_id,auth_generation,configuration) VALUES($1,$2,$3,1,$4)`, secondInstance, f.org, owner, marshalForTest(snapshot))
+			f.exec(t, `INSERT INTO context_bindings(instance_id,org_id,owner_id,connection_id,scopes) VALUES($1,$2,$3,$4,$5)`, secondInstance, f.org, owner, source, marshalForTest(item.Scopes))
+			request.Scope = "personal"
+			if _, err = broker.invoke(f.ctx, secondInstance, request); err != nil || len(namespaces) != 3 || namespaces[2] != personal {
+				t.Fatal("two authorized workspaces did not share session memory", err)
+			}
+			request.Scope = "workspace:" + instance
+			f.exec(t, `UPDATE context_bindings SET enabled=false WHERE instance_id=$1`, instance)
+			if _, err = broker.invoke(f.ctx, instance, request); err == nil || len(namespaces) != 3 {
+				t.Fatal("revoked capture continued", err)
+			}
+			request.Scope = "personal"
+			if _, err = broker.invoke(f.ctx, secondInstance, request); err != nil || len(namespaces) != 4 || namespaces[3] != personal {
+				t.Fatal("revoking one binding affected another workspace", err)
+			}
+
+		})
 	}
 }

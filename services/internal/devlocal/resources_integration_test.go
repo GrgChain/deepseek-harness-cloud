@@ -116,6 +116,20 @@ func TestResourceInitializationOnIsolatedPostgres(t *testing.T) {
 		t.Fatal("custom quota overwritten", err)
 	}
 	must(`UPDATE quota_policies SET max_user_instances=3,cpu_millicores=7000,version=7; UPDATE organization_defaults SET retention_days=30,version=4; UPDATE user_quota_policies SET max_instances=1,version=8`)
+	// A previous partial initialization may have saved defaults but missed an
+	// initial account. Replaying fills only that missing quota.
+	late := webapi.ID()
+	must(`INSERT INTO users(id,identity_issuer,identity_subject,workspace_owner_id,status) VALUES($1,'https://test.local/oidc','late',$2,'ACTIVE')`, late, webapi.ID())
+	must(`INSERT INTO memberships(org_id,user_id,role,status) VALUES($1,$2,'MEMBER','ACTIVE')`, org, late)
+	if err = InitResources(ctx, pool, org, "repair", true); err != nil {
+		t.Fatal(err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT max_instances,cpu_millicores,memory_bytes,storage_bytes FROM user_quota_policies WHERE owner_id=$1`, late).Scan(&instances, &cpu, &memory, &storage); err != nil || instances != 3 || cpu != 3000 || memory != 6<<30 || storage != 30<<30 {
+		t.Fatal("missing account quota was not repaired from saved defaults", instances, cpu, memory, storage, err)
+	}
+	if err = pool.QueryRow(ctx, `SELECT version,max_instances FROM user_quota_policies WHERE owner_id=$1`, custom).Scan(&count, &instances); err != nil || count != 8 || instances != 1 {
+		t.Fatal("repair changed existing account quota", count, instances, err)
+	}
 	fingerprint := func() string {
 		t.Helper()
 		var value string

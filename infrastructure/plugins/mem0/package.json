@@ -1,7 +1,7 @@
 {
   "name": "@harness-cloud/dsh-mem0-memory",
-  "version": "0.1.0",
-  "description": "Mem0 OSS memory for DSH: recall, confirmed remember and opt-in conversation capture.",
+  "version": "0.2.0",
+  "description": "Mem0 memory for DSH: bundled skill, MCP tools and full conversation synchronization.",
   "author": "Harness Cloud",
   "license": "MIT",
   "type": "module",
@@ -16,11 +16,17 @@
   "files": [
     "index.mjs",
     "runtime.mjs",
+    "managed.mjs",
+    "session.mjs",
     "cordis.patch.yml",
     "locale",
     "icon.svg",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "mcp.mjs",
+    "skills.mjs",
+    "skills",
+    "servers"
   ],
   "dsh": {
     "bundle": {
@@ -35,12 +41,13 @@
   },
   "peerDependencies": {
     "@deepseek-ai/dsh-llm": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-tools": "0.2.1-alpha.2",
-    "@deepseek-ai/schemastery": "3.18.5-alpha.1"
+    "@deepseek-ai/schemastery": "3.18.5-alpha.1",
+    "@deepseek-ai/dsh-mcp-client": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-skill-filesystem": "0.2.1-alpha.2"
   },
   "scripts": {
     "test": "node --loader ./test-loader.mjs --test test/*.test.mjs",
-    "check": "node --check index.mjs && node --check runtime.mjs"
+    "check": "node --check index.mjs && node --check runtime.mjs && node --check managed.mjs && node --check session.mjs && node --check mcp.mjs && node --check skills.mjs && node --check servers/mcp-server.mjs"
   },
   "keywords": [
     "dsh",

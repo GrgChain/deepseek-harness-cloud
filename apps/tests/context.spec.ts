@@ -111,6 +111,71 @@ async function setup(page: Page, manage = true) {
   );
   await page.route(`**/v1/context/memory/${id}/get`, (r) => r.fulfill({ json: entry }));
 }
+for (const [backend, name] of [
+  ['mem0', 'Mem0'],
+  ['graphiti', 'Graphiti'],
+] as const)
+  test(`${name} memory management shares the table, source filters and current connection reader`, async ({
+    page,
+  }, info) => {
+    await setup(page);
+    await page.route('**/v1/context/memory', (route) =>
+      route.fulfill({ json: { items: [{ ...connection, backend }], endpoints: [], bindings: [] } }),
+    );
+    const generated = {
+      ...entry,
+      id: 'generated-fact',
+      title: '自动提取的发布约定',
+      type: backend === 'graphiti' ? 'conversation' : 'memory',
+      source: backend === 'graphiti' ? 'DSH 自动同步' : 'DSH 自动生成',
+      memory_source: 'automatic',
+    };
+    await page.route(`**/v1/context/memory/${id}/list`, (route) =>
+      route.fulfill({ json: { items: [entry, generated] } }),
+    );
+    let reads = 0;
+    await page.route(`**/v1/context/memory/${id}/get`, (route) => {
+      expect(route.request().postDataJSON().record_id).toBe(generated.id);
+      reads++;
+      return route.fulfill({ json: generated });
+    });
+    await page.goto('/app/memory');
+    await page.getByRole('button', { name: '管理内容', exact: true }).click();
+    const drawer = page.getByRole('dialog', { name: connection.name, exact: true });
+    await expect(
+      drawer.getByText('统一查看会话生成和手动添加的偏好、事实与经验。', { exact: true }),
+    ).toHaveCount(1);
+    await expect(drawer.getByPlaceholder('搜索名称或分类', { exact: true })).toBeVisible();
+    await expect(drawer.getByRole('columnheader', { name: '记忆', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('columnheader', { name: '操作', exact: true })).toBeVisible();
+    await expect(drawer.getByRole('columnheader', { name: '状态', exact: true })).toHaveCount(0);
+    const manual = drawer.getByRole('row').filter({ hasText: entry.title });
+    await expect(manual.getByText('手动添加', { exact: true })).toBeVisible();
+    await expect(manual.getByRole('button', { name: /^编\s*辑$/ })).toBeVisible();
+    const automatic = drawer.getByRole('row').filter({ hasText: generated.title });
+    await expect(automatic.getByText('自动生成', { exact: true })).toBeVisible();
+    await expect(automatic.getByRole('button', { name: /^编\s*辑$/ })).toHaveCount(0);
+    await expect(automatic.getByRole('button', { name: /^删\s*除$/ })).toBeEnabled();
+    await drawer.screenshot({
+      path: info.outputPath(`${backend}-memory-management.png`),
+      animations: 'disabled',
+    });
+    expect(await drawer.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(
+      true,
+    );
+    await drawer.getByRole('radio', { name: '手动添加', exact: true }).locator('..').click();
+    await expect(drawer.getByRole('button', { name: generated.title, exact: true })).toHaveCount(0);
+    await expect(drawer.getByRole('button', { name: entry.title, exact: true })).toBeVisible();
+    await drawer.getByRole('radio', { name: '自动生成', exact: true }).locator('..').click();
+    await expect(drawer.getByRole('button', { name: entry.title, exact: true })).toHaveCount(0);
+    await automatic.getByRole('button', { name: /^查\s*看$/ }).click();
+    const detail = page.getByRole('dialog', { name: generated.title, exact: true });
+    await expect(detail.getByRole('region', { name: '原文内容', exact: true })).toContainText(
+      generated.content,
+    );
+    expect(reads).toBe(1);
+  });
+
 test('OpenViking content management combines automatic and manual memories with their own actions', async ({
   page,
 }, info) => {
@@ -756,7 +821,7 @@ for (const [backend, name] of [
   ['mem0', 'Mem0'],
   ['graphiti', 'Graphiti'],
 ] as const)
-  test(`${name} memory search submits limit and similarity, resets conditions and reads records without native sources`, async ({
+  test(`${name} memory search submits limit and similarity, resets conditions and reads through the current connection`, async ({
     page,
   }, info) => {
     await setup(page, false);
@@ -785,9 +850,12 @@ for (const [backend, name] of [
     await page.goto('/app/memory');
     await page.getByRole('button', { name: '管理内容', exact: true }).click();
     const drawer = page.getByRole('dialog', { name: connection.name, exact: true });
-    await expect(drawer.getByRole('radiogroup', { name: '记忆来源筛选', exact: true })).toHaveCount(
-      0,
-    );
+    await expect(
+      drawer.getByRole('radio', { name: '自动生成', exact: true }).locator('..'),
+    ).toBeVisible();
+    await expect(
+      drawer.getByRole('radio', { name: '手动添加', exact: true }).locator('..'),
+    ).toBeVisible();
     await drawer.getByRole('button', { name: '记忆检索', exact: true }).click();
     const search = page.getByRole('dialog', { name: '记忆检索', exact: true });
     const query = search.getByLabel('检索问题');
@@ -795,7 +863,7 @@ for (const [backend, name] of [
     const similarity = search.getByRole('spinbutton', { name: '最低相关度', exact: true });
     const reset = search.getByRole('button', { name: '重置条件', exact: true });
     const submit = search.getByRole('button', { name: /^检\s*索$/, exact: true });
-    await expect(search.getByRole('combobox', { name: '记忆来源', exact: true })).toHaveCount(0);
+    await expect(search.getByRole('combobox', { name: '记忆来源', exact: true })).toBeVisible();
     await expect(reset).toBeDisabled();
     await expect(similarity).toHaveValue('');
     await query.fill('  发布约定  ');
@@ -822,8 +890,11 @@ for (const [backend, name] of [
       limit: 20,
       min_similarity: 0,
     });
-    for (const label of ['自动生成', '手动添加'])
-      await expect(search.getByText(label, { exact: true })).toHaveCount(0);
+    await expect(
+      search
+        .getByRole('region', { name: '检索结果', exact: true })
+        .getByText('手动添加', { exact: true }),
+    ).toBeVisible();
     await search.getByRole('button', { name: '最低相关度说明', exact: true }).click();
     await expect(
       page.getByText('仅返回相关度达到此值的记忆；数值越高，匹配越严格。', { exact: true }),
@@ -2090,7 +2161,13 @@ for (const [backend, name] of [
     page,
   }, info) => {
     await setup(page);
-    const target = { ...entry, id: 'product-memory', title: '产品', version: 2 };
+    const target = {
+      ...entry,
+      id: 'product-memory',
+      title: '产品',
+      version: 2,
+      memory_source: backend === 'openviking' ? 'manual' : 'automatic',
+    };
     const survivor = { ...entry, id: 'other-memory', title: '保留的记忆' };
     let deleted = false;
     let receiptReady = false;
@@ -2147,11 +2224,15 @@ for (const [backend, name] of [
       await page.goto('/app/memory');
       await page.getByRole('button', { name: '管理内容', exact: true }).click();
       const drawer = page.getByRole('dialog', { name: connection.name, exact: true });
-      await drawer
+      const targetRow = drawer
         .getByRole('row')
-        .filter({ has: page.getByRole('button', { name: target.title, exact: true }) })
-        .getByRole('button', { name: /^删\s*除$/ })
-        .click();
+        .filter({ has: page.getByRole('button', { name: target.title, exact: true }) });
+      if (target.memory_source === 'automatic') {
+        await expect(targetRow.getByText('自动生成', { exact: true })).toBeVisible();
+        await expect(targetRow.getByRole('button', { name: /^查\s*看$/ })).toBeVisible();
+        await expect(targetRow.getByRole('button', { name: /^编\s*辑$/ })).toHaveCount(0);
+      }
+      await targetRow.getByRole('button', { name: /^删\s*除$/ }).click();
       const modal = page.getByRole('dialog', { name: '永久删除此记忆？', exact: true });
       const checkbox = modal.getByRole('checkbox', { name: '我确认永久删除' });
       const submit = modal.getByRole('button', { name: /(永久删除|正在删除|删除中)$/ });
@@ -2284,14 +2365,30 @@ test('memory list filters titles and keeps search separate', async ({ page }, in
 });
 test('read-only connections hide content management and connection editing', async ({ page }) => {
   await setup(page, false);
+  await page.route('**/v1/context/memory', (r) =>
+    r.fulfill({
+      json: { items: [{ ...connection, backend: 'graphiti' }], endpoints: [], bindings: [] },
+    }),
+  );
+  await page.route(`**/v1/context/memory/${id}/list`, (r) =>
+    r.fulfill({
+      json: {
+        items: [
+          entry,
+          { ...entry, id: 'generated', title: '自动生成的记忆', memory_source: 'automatic' },
+        ],
+      },
+    }),
+  );
   await page.goto('/app/memory');
   await expect(page.getByRole('button', { name: '添加记忆', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: '管理内容' }).click();
+  await expect(page.getByRole('button', { name: '自动生成的记忆', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '添加记忆' })).toHaveCount(0);
   await page.getByRole('button', { name: '记忆更多操作', exact: true }).click();
   await expect(page.getByRole('menuitem', { name: '导出整个记忆', exact: true })).toBeVisible();
   await expect(page.getByRole('menuitem', { name: '导入迁移包', exact: true })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '删除', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^删\s*除$/ })).toHaveCount(0);
 });
 
 test('memory service picker filters services and preserves configuration after save failure', async ({

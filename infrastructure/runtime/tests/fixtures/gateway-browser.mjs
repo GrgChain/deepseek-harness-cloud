@@ -155,7 +155,10 @@ try {
   diagnostics.me_after_logout = (await context.request.get(portal.origin + '/v1/me')).status();
   expect(diagnostics.me_after_logout).toBe(401);
   stage = 'logout-login-page';
-  await expect(page).toHaveURL(/\/login$/);
+  // Anonymous sessions now continue from the Portal login route to the BFF.
+  await expect(page).toHaveURL(
+    (url) => url.origin === portal.origin && ['/login', '/auth/login'].includes(url.pathname),
+  );
   stage = 'logout-socket-close';
   await expect
     .poll(

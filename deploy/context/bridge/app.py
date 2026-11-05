@@ -28,6 +28,8 @@ import keyword_search
 import document_chunks
 import memory_archive
 from viking_sessions import relay as relay_viking_session
+from viking_session_memory import ManualMemories, relay_shared, reads_memory
+from memory_sessions import append as append_memory_session
 
 CONTRACT = "hc-context-v1"
 MEMORY = {"mem0", "openviking", "graphiti"}
@@ -162,7 +164,9 @@ def engine(backend, namespace, service=None, embedding_config=None):
 def operation_input(inp):
     # Preserve existing receipt digests. Secrets never enter receipt payloads or
     # digests, so credential rotation cannot invalidate a pending operation.
-    value = inp.model_dump(exclude={"service", "embedding", "session_request", "session_namespace"})
+    value = inp.model_dump(
+        exclude={"service", "embedding", "session_request", "session_namespace", "manual_namespace"}
+    )
     if not inp.search_mode:
         value.pop("search_mode", None)
     if inp.min_similarity is None:
@@ -223,6 +227,13 @@ def active(db, row):
 def public(row, content=True):
     obj = json.loads(row["payload"])
     obj["status"] = row["status"]
+    if row["backend"] in ("mem0", "graphiti"):
+        obj["memory_source"] = (
+            "automatic"
+            if (obj.get("type"), obj.get("source"))
+            in {("memory", "DSH 自动生成"), ("conversation", "DSH 自动同步")}
+            else "manual"
+        )
     if not content:
         obj.pop("content", None)
         obj.pop("graph", None)
@@ -727,7 +738,8 @@ def dispatch(db, backend, action, inp, target, native=None):
             raise HTTPException(422)
         rows = (
             target.search(inp.query, inp.scope, min(100, inp.limit * 5))
-            if mode in ("semantic", "hybrid") and inp.memory_source != "automatic"
+            if mode in ("semantic", "hybrid")
+            and (backend != "openviking" or inp.memory_source != "automatic")
             else []
         )
         hits = []
@@ -844,6 +856,12 @@ def dispatch(db, backend, action, inp, target, native=None):
                 continue
             row = active(db, row)
             if row is None or row["version"] != match["version"]:
+                continue
+            if (
+                backend in ("mem0", "graphiti")
+                and inp.memory_source
+                and public(row, content=False)["memory_source"] != inp.memory_source
+            ):
                 continue
             chunks = json.loads(row["chunks"])
             chunk = match.get("chunk", 0)
@@ -1009,8 +1027,9 @@ def execute(backend: str, action: str, inp: Input):
         raise HTTPException(422)
     if inp.memory_source and (
         action != "search"
-        or backend != "openviking"
+        or backend not in MEMORY
         or inp.memory_source == "automatic"
+        and backend == "openviking"
         and not inp.session_namespace
     ):
         raise HTTPException(422)
@@ -1031,14 +1050,40 @@ def execute(backend: str, action: str, inp: Input):
         or inp.scope != "personal"
     ):
         raise HTTPException(422)
+    if inp.manual_namespace and (
+        backend != "openviking"
+        or action != "session"
+        or inp.scope != "personal"
+        or inp.manual_namespace == inp.namespace
+    ):
+        raise HTTPException(422)
     if action == "session":
-        if backend != "openviking" or inp.session_request is None:
+        if backend not in MEMORY or inp.session_request is None:
             raise HTTPException(422)
         # Native session archives cannot share the tenant used by manual CRUD.
         # The platform derives this namespace from connection, owner and scope.
-        with namespace_lock(backend, inp.namespace):
+        manual_read = inp.manual_namespace and reads_memory(inp.session_request)
+        with ExitStack() as stack:
+            # All operations that span both tenants lock manual first.
+            if manual_read:
+                stack.enter_context(namespace_lock(backend, inp.manual_namespace))
+            stack.enter_context(namespace_lock(backend, inp.namespace))
             target = engine(backend, inp.namespace, inp.service, None)
             try:
+                if backend != "openviking":
+                    with closing(connect()) as db:
+                        return append_memory_session(db, backend, inp, target)
+                if manual_read:
+                    manual = stack.enter_context(
+                        closing(engine(backend, inp.manual_namespace, inp.service, None))
+                    )
+                    db = stack.enter_context(closing(connect()))
+                    selection = inp.model_copy(update={"namespace": inp.manual_namespace})
+                    selected = [active(db, row) for row in records(db, backend, selection)]
+                    memories = ManualMemories(
+                        manual, [json.loads(row["payload"]) for row in selected if row is not None]
+                    )
+                    return relay_shared(target, inp.session_request, memories)
                 return relay_viking_session(target, inp.session_request)
             finally:
                 target.close()

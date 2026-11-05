@@ -9,6 +9,7 @@ export const permissionGroups: { name: string; prefixes: string[]; ids?: string[
   { name: '连接器', prefixes: ['connectors'] },
   { name: '记忆', prefixes: ['memory'] },
   { name: '知识库', prefixes: ['knowledge'] },
+  { name: '插件', prefixes: ['plugins'] },
   { name: '模型提供商', prefixes: ['personal-model', 'model', 'models'] },
   { name: '用户管理', prefixes: ['users'] },
   { name: '角色与权限', prefixes: ['roles'] },

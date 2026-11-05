@@ -87,7 +87,7 @@ func (s *Service) Call(ctx context.Context, p identity.Principal, kind, id, acti
 	if err != nil {
 		return nil, err
 	}
-	if in.MemorySource != "" && (kind != "memory" || v.Backend != "openviking") {
+	if in.MemorySource != "" && (kind != "memory" || v.Backend != "openviking" && v.Backend != "mem0" && v.Backend != "graphiti") {
 		return nil, invalid("此服务不支持记忆来源筛选")
 	}
 	if (action == "session-list" || action == "session-get") && (kind != "memory" || v.Backend != "openviking") {

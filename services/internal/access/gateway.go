@@ -130,7 +130,7 @@ func (g *Gateway) connectionPage(w http.ResponseWriter, r *http.Request, id stri
 	w.Header().Set("X-Frame-Options", "DENY")
 	// Return to the fixed Portal route. Only a recent intent from the original
 	// user click in this tab may resume; this public page grants no access.
-	resume := html.EscapeString(g.rules.PortalOrigin + "/app/instances/" + id + "?resume_workspace=1")
+	resume := html.EscapeString(browserPortal(r, g.rules.PortalOrigin) + "/app/instances/" + id + "?resume_workspace=1")
 	_, _ = io.WriteString(w, strings.NewReplacer("TRANSITION_CSS", connectionStyle, "RESUME_URL", resume).Replace(connectionHTML))
 
 }

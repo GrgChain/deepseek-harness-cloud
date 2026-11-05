@@ -14,34 +14,34 @@
 
 ## 功能特性
 
-| 能力 | 说明 |
-| --- | --- |
-| 工作空间生命周期 | 按需选择 CPU、内存、存储与模型提供商，支持创建、进入、启停和删除工作空间。 |
-| 统一模型接入 | 管理个人提供商账号、密钥、可用模型与默认模型，通过 Go 模型网关接入官方或兼容服务。 |
-| 持久工作数据 | 保留工作目录与 DSH 数据，浏览 `/data/workspace` 和 `/data/dsh`，支持文件、Office / PDF 预览及下载。 |
-| 个人技能库 | 搜索主流技能来源，编辑、导入导出 Markdown / ZIP，并通过公开链接同步技能包。 |
-| 记忆与知识库 | 在工作台维护、迁移和检索个人内容，外接 OpenViking / Mem0 / Graphiti 与 Milvus / Weaviate / Qdrant。 |
-| MCP 连接器 | 内置分类目录，支持自定义 MCP、OAuth 授权、工具选择及手动调用，覆盖 GitHub、Context7 等开发工具。 |
-| 原生扩展 | 启停内置插件、安装第三方 DSH 组合包、保存 Agent 预设。 |
-| 插件库 | 浏览默认及个人插件目录，在线/离线添加、编辑个人资料并下载原包；提供本项目维护的 Mem0 记忆插件。 |
-| 团队管理 | 内置登录与账号管理、角色权限、实例 / CPU / 内存 / 存储额度和操作日志。 |
+| 能力             | 说明                                                                                                       |
+| ---------------- | ---------------------------------------------------------------------------------------------------------- |
+| 工作空间生命周期 | 按需选择 CPU、内存、存储与模型提供商，支持创建、进入、启停和删除工作空间。                                 |
+| 统一模型接入     | 管理个人提供商账号、密钥、可用模型与默认模型，通过 Go 模型网关接入官方或兼容服务。                         |
+| 持久工作数据     | 保留工作目录与 DSH 数据，浏览 `/data/workspace` 和 `/data/dsh`，支持文件、Office / PDF 预览及下载。        |
+| 个人技能库       | 搜索主流技能来源，编辑、导入导出 Markdown / ZIP，并通过公开链接同步技能包。                                |
+| 记忆与知识库     | 在工作台维护、迁移和检索个人内容，外接 OpenViking / Mem0 / Graphiti 与 Milvus / Weaviate / Qdrant。        |
+| MCP 连接器       | 内置分类目录，支持自定义 MCP、OAuth 授权、工具选择及手动调用，覆盖 GitHub、Context7 等开发工具。           |
+| 原生扩展         | 启停内置插件、安装第三方 DSH 组合包、保存 Agent 预设。                                                     |
+| 插件库           | 浏览默认及个人插件目录，在线/离线添加、编辑个人资料并下载原包；提供本项目维护的 Mem0 / Graphiti 记忆插件。 |
+| 团队管理         | 内置登录与账号管理、角色权限、实例 / CPU / 内存 / 存储额度和操作日志。                                     |
 
 停止工作空间会释放计算资源；停止或软删除后仍保留数据并计入存储额度，可在“工作数据”中永久释放已删除工作空间的数据。详见[存储数据管理](docs/requirements.md#612-工作空间存储数据管理req-19)。
 
 工作台管理与创建时的扩展选择分别操作；创建可选技能、连接器、记忆、知识库及兼容插件，运行接入按当前权限验证。连接器需完成相应服务配置或授权，实网验证结果见[连接器实网验证边界](deploy/connectors/README.md#实网验证边界)。
 
-在“插件”中搜索“Mem0 记忆”可下载本项目维护的离线包，在 DSH 安装并配置后启用，自动采集默认关闭。独立插件与平台记忆连接分别配置，内容不自动共享；详见[安装说明](infrastructure/plugins/mem0/README.md)及[插件库规则](docs/requirements.md#618-插件req-24)。
+创建工作空间时选择 Mem0 或 Graphiti 记忆连接并开启“完整会话同步”，平台会安装并启用对应原生插件。两者先保存原始会话，归档后提取长期记忆用于管理和召回；已有工作空间的 Profile 不自动升级。Mem0 另支持独立安装，独立模式默认关闭自动采集，与平台连接分别配置。详见[插件分发总览](infrastructure/plugins/README.md)、[Mem0](infrastructure/plugins/mem0/README.md)、[Graphiti](infrastructure/plugins/graphiti/README.md)及[插件库规则](docs/requirements.md#618-插件req-24)。
 
 ### 技能来源
 
 在工作台的“技能”页面点击“导入”，可搜索以下公开来源，查看技能文件后确认导入：
 
-| 来源 | 导入方式 |
-| --- | --- |
-| [skills.sh](https://skills.sh/) | 搜索技能，从对应 GitHub 仓库预览并导入技能及资源文件。 |
-| [ClawHub](https://clawhub.ai/) | 搜索公开技能并下载技能包；部分条目需要从其 GitHub 来源导入。 |
-| [SkillHub](https://skillhub.cn/) | 搜索公开技能并通过 SkillHub 下载技能包。 |
-| [SkillsMP](https://skillsmp.com/) | 搜索技能，使用结果提供的 GitHub 链接预览并导入。 |
+| 来源                              | 导入方式                                                     |
+| --------------------------------- | ------------------------------------------------------------ |
+| [skills.sh](https://skills.sh/)   | 搜索技能，从对应 GitHub 仓库预览并导入技能及资源文件。       |
+| [ClawHub](https://clawhub.ai/)    | 搜索公开技能并下载技能包；部分条目需要从其 GitHub 来源导入。 |
+| [SkillHub](https://skillhub.cn/)  | 搜索公开技能并通过 SkillHub 下载技能包。                     |
+| [SkillsMP](https://skillsmp.com/) | 搜索技能，使用结果提供的 GitHub 链接预览并导入。             |
 
 也可使用公开链接或本地 Markdown / ZIP 文件导入。搜索结果由各来源提供，可能受到网络、权限或来源配额限制；搜索本身不会保存技能，导入前需预览并确认。详细行为与配置见[技能库说明](docs/frontend.md#个人技能包)和[来源出口配置](docs/deployment.md#技能包来源出口)。
 
@@ -76,7 +76,7 @@ make auth-apply
 make run-auth
 ```
 
-这会启动 PostgreSQL、Redis、API 与内置身份服务。随机密码、密钥和本机配置保存在 Git 忽略的 `.local/` 中；初始化命令拒绝覆盖已有文件。已有环境再次启动时，执行 `make infra-up` 和 `make run-auth` 即可。
+`make infra-up` 启动 PostgreSQL 和 Redis；`make migrate` 执行数据库迁移并更新受限角色授权，`make auth-apply` 导入初始账号。`make run-auth` 在前台运行 API（包含内置身份服务），该终端需保持运行。随机密码、密钥和本机配置保存在 Git 忽略的 `.local/` 中。已有环境再次启动时，执行 `make infra-up` 和 `make run-auth`；后者也会执行迁移、授权更新及本地数据初始化。
 
 ### 3. 启动控制台并登录
 
@@ -88,34 +88,44 @@ make portal
 
 打开 **[控制台登录](https://127.0.0.1:42013/login)**，使用下列本地账号，密码从对应文件读取：
 
-| 角色 | 账号 | 密码文件 |
-| --- | --- | --- |
-| 管理员 | `admin@harness.local` | `.local/auth/admin-password` |
-| 成员 | `member@harness.local` | `.local/auth/member-password` |
+| 角色   | 账号                   | 密码文件                      |
+| ------ | ---------------------- | ----------------------------- |
+| 管理员 | `admin@harness.local`  | `.local/auth/admin-password`  |
+| 成员   | `member@harness.local` | `.local/auth/member-password` |
 
-API 默认地址为 `http://127.0.0.1:18080`，提供 `/livez` 和 `/readyz` 健康检查。依赖就绪后即可登录，无请求限流或启动冷却窗口。
+API 默认地址为 `http://127.0.0.1:18080`，提供 `/livez` 和 `/readyz` 健康检查。以上步骤启动控制台所需的基础服务；Worker、访问网关和模型网关需另行配置与启动。
 
 ### 4. 配置工作空间运行环境
 
 完成以上步骤后即可访问控制台。要创建和进入 DSH 工作空间，还需按[部署运维指南](docs/deployment.md)配置运行镜像、Terraform 模板、持久存储、Worker、访问网关和模型网关。
 
-启用实例访问入口后，通过 **[portal.harness.localhost:42013](https://portal.harness.localhost:42013/)** 访问控制台，并在本机信任 `.local/auth/cert.pem`，以访问实例的独立站点。
+配置域名访问入口后，重启 API 与控制台，启动访问网关，通过 **[portal.harness.localhost:42013](https://portal.harness.localhost:42013/)** 访问控制台。浏览器所在机器需信任 `.local/auth/cert.pem` 开发 CA，以访问工作空间的独立站点。
 
 随后由管理员在“平台配置”设置默认资源和系统上限，成员在“模型提供商”添加账号并完成校验，即可创建工作空间。
 
+### 可选：通过局域网 IP 访问
+
+完成域名访问配置后，可增加 IP 入口。将下面的示例 IP 替换为部署主机实际可监听的局域网 IP，在仓库根目录执行：
+
+```bash
+HC_PUBLIC_IP=192.168.1.100 make ip-access-init
+```
+
+重启 API 和访问网关后，通过 `https://192.168.1.100:42013` 访问控制台；工作空间使用同一入口下的 `/dsh/<实例UUID>/` 路径，静态资源和 WebSocket 也经此入口转发。客户端需信任开发 CA，并能连接该 HTTPS 端口；使用浏览器系统代理时将此 IP 设为直连。端口可通过 `HC_IP_PORTAL_PORT` 调整，OAuth 回调也需登记相应的 IP 入口地址，详见[部署运维](docs/deployment.md)。
+
 ### 常用命令
 
-| 命令 | 用途 |
-| --- | --- |
-| `make portal` | 启动前端开发服务 |
-| `make format` | 统一 Go、Python、前端与嵌入脚本格式 |
-| `make format-check` | 仅检查格式 |
-| `make check` | 格式、静态检查与 TypeScript 类型检查 |
-| `make test` | 运行单元测试与 Go 竞态检查 |
-| `make build` | 构建后端与控制台 |
-| `make ci` | 依次执行检查、测试与构建 |
+| 命令                  | 用途                                      |
+| --------------------- | ----------------------------------------- |
+| `make portal`         | 启动前端开发服务                          |
+| `make format`         | 统一 Go、Python、前端与嵌入脚本格式       |
+| `make format-check`   | 仅检查格式                                |
+| `make check`          | 格式、静态检查与 TypeScript 类型检查      |
+| `make test`           | 运行单元测试与 Go 竞态检查                |
+| `make build`          | 构建后端与控制台                          |
+| `make ci`             | 依次执行检查、测试与构建                  |
 | `make portal-preview` | 预览已构建的控制台，需先执行 `make build` |
-| `make infra-stop` | 停止 PostgreSQL 与 Redis，保留数据卷 |
+| `make infra-stop`     | 停止 PostgreSQL 与 Redis，保留数据卷      |
 
 数据库集成测试、浏览器测试和真实运行验收见[测试验收](docs/testing.md)。
 
@@ -136,7 +146,7 @@ make ci
 <details>
 <summary>浏览器提示证书不受信任</summary>
 
-本地身份服务与控制台使用开发证书。将 `.local/auth/cert.pem` 加入本机信任，启用工作空间访问时使用 `portal.harness.localhost` 地址。证书与访问入口配置见[部署运维](docs/deployment.md)。
+本地控制台和工作空间入口使用开发证书。将部署主机上的 `.local/auth/cert.pem` 开发 CA 加入浏览器所在机器的信任库，使用已配置的域名或 IP 入口访问。只接受一次证书警告可能仍导致工作空间连接失败；证书与访问入口配置见[部署运维](docs/deployment.md)。
 
 </details>
 
@@ -181,15 +191,16 @@ docs/             需求、架构、部署与验收文档
 
 [文档总览](docs/README.md)提供完整阅读顺序，也可以按任务查阅：
 
-| 我想…… | 阅读文档 |
-| --- | --- |
-| 了解产品能力与业务流程 | [功能需求](docs/requirements.md) |
-| 部署、升级或排查问题 | [部署运维](docs/deployment.md) · [安全设计](docs/security.md) |
-| 理解架构并参与开发 | [系统设计](docs/design.md) · [后端](docs/backend.md) · [前端](docs/frontend.md) |
-| 对接 API 或了解数据结构 | [接口说明](docs/api.md) · [OpenAPI](api/openapi.yaml) · [数据设计](docs/data-model.md) |
-| 运行测试、了解验收进度 | [测试验收](docs/testing.md) |
-| 配置记忆与知识库服务 | [独立服务部署](deploy/context/README.md) |
-| 接入 MCP 与 OAuth 服务 | [部署与复验](deploy/connectors/README.md) |
+| 我想……                  | 阅读文档                                                                                                                                             |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 了解产品能力与业务流程  | [功能需求](docs/requirements.md)                                                                                                                     |
+| 部署、升级或排查问题    | [部署运维](docs/deployment.md) · [安全设计](docs/security.md)                                                                                        |
+| 理解架构并参与开发      | [系统设计](docs/design.md) · [后端](docs/backend.md) · [前端](docs/frontend.md)                                                                      |
+| 对接 API 或了解数据结构 | [接口说明](docs/api.md) · [OpenAPI](api/openapi.yaml) · [数据设计](docs/data-model.md)                                                               |
+| 运行测试、了解验收进度  | [测试验收](docs/testing.md) · [Graphiti DSH 专项](docs/testing-graphiti-dsh.md)                                                                      |
+| 配置记忆与知识库服务    | [独立服务部署](deploy/context/README.md)                                                                                                             |
+| 接入 MCP 与 OAuth 服务  | [部署与复验](deploy/connectors/README.md)                                                                                                            |
+| 安装或维护原生记忆插件  | [分发总览](infrastructure/plugins/README.md) · [Mem0](infrastructure/plugins/mem0/README.md) · [Graphiti](infrastructure/plugins/graphiti/README.md) |
 
 ## 参与贡献
 

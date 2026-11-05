@@ -79,7 +79,7 @@ export async function apply(ctx) {
     await mountSessionMemory(ctx, sessionMemory, request);
   }
   for (const item of manifest.items) {
-    if (item.kind === 'plugin') continue;
+    if (item.kind === 'plugin' || (item.kind === 'memory' && item.session_memory)) continue;
     const suffix = item.id.replaceAll('-', '').slice(0, 24);
     if (item.kind === 'connector') {
       const toolName = 'cloud_connector_' + suffix;
@@ -332,16 +332,22 @@ export async function apply(ctx) {
               !bundle.error,
           ),
         );
+      const memoryBundle = {
+        mem0: ['@harness-cloud/dsh-mem0-memory', '0.2.0', 'mem0Memory'],
+        graphiti: ['@harness-cloud/dsh-graphiti-memory', '0.2.0', 'graphitiMemory'],
+        openviking: ['@openviking/dsh-memory-plugin', '0.5.31', 'openvikingMemory'],
+      }[sessionMemory?.backend ?? 'openviking'];
       const memoryReady =
         !sessionMemory ||
-        (bundles.some(
-          (bundle) =>
-            bundle.name === '@openviking/dsh-memory-plugin' &&
-            bundle.version === '0.5.31' &&
-            bundle.enabled &&
-            !bundle.error,
-        ) &&
-          !!ctx.get('openvikingMemory'));
+        (memoryBundle &&
+          bundles.some(
+            (bundle) =>
+              bundle.name === memoryBundle[0] &&
+              bundle.version === memoryBundle[1] &&
+              bundle.enabled &&
+              !bundle.error,
+          ) &&
+          !!ctx.get(memoryBundle[2]));
       if (!valid || !memoryReady) return;
       await fs.writeFile(
         channel + '.hc-extensions-ready.json',

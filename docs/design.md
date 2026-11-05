@@ -1,5 +1,23 @@
 # DSH Cloud 系统设计
 
+<!-- 文档目录：随二级标题更新 -->
+<details>
+<summary>本页目录</summary>
+
+- [1 初始版本架构](#1-初始版本架构)
+- [2 领域与配置](#2-领域与配置)
+- [3 实例与操作状态](#3-实例与操作状态)
+- [4 就绪与进入](#4-就绪与进入)
+- [5 一键创建与可靠执行](#5-一键创建与可靠执行)
+- [6 停止、删除与故障](#6-停止删除与故障)
+- [7 实施依赖](#7-实施依赖)
+- [8 面向对象详细设计](#8-面向对象详细设计)
+- [9 标识、状态与关键时序](#9-标识状态与关键时序)
+- [10 变更与开发检查](#10-变更与开发检查)
+- [内置身份与 BFF 登录时序](#内置身份与-bff-登录时序)
+
+</details>
+
 版本：V0.2。状态：开发设计基线，已有运行实现。范围依据 [功能需求](requirements.md)。
 
 REQ-13～15由用户/角色应用服务、固定权限目录、事务内授权与会话撤销实现，Portal提供用户/角色管理页面；规则见[功能需求](requirements.md#64-用户管理规则req-13)。治理使用版本和追加审计保护并发边界，登录身份由平台内置 AuthorizationServer 与数据库 Accounts 供应。接口实现、模块测试与完整真实验收的边界见[测试设计](testing.md)。
@@ -40,13 +58,13 @@ flowchart LR
 
 配置、同步、真实能力校验、快照及撤销规则见[模型需求](requirements.md#68-用户私有模型与平台统一管理req-17)和[后端适配](backend.md#127-平台模型网关适配)。模块验证不替代TC-61～76完整产品验收。
 
-| 模块 | 初始版本职责 |
-| --- | --- |
-| Portal | 一键创建、列表/详情、管理员配置与诊断 |
-| API/BFF | Go 可信身份、Owner、固定配置、限额、命令、审计 |
-| Redis | 可重建脱敏短期缓存，不作为权限/配额/操作的唯一依据 |
-| Worker/Reconciler | 存储/配置/Workspace Build、健康、超时和配额对账 |
-| Storage | 独立卷登记、归属、保留和受控回收 |
+| 模块               | 初始版本职责                                             |
+| ------------------ | -------------------------------------------------------- |
+| Portal             | 一键创建、列表/详情、管理员配置与诊断                    |
+| API/BFF            | Go 可信身份、Owner、固定配置、限额、命令、审计           |
+| Redis              | 可重建脱敏短期缓存，不作为权限/配额/操作的唯一依据       |
+| Worker/Reconciler  | 存储/配置/Workspace Build、健康、超时和配额对账          |
+| Storage            | 独立卷登记、归属、保留和受控回收                         |
 | 访问模块 / Gateway | 固定路由、浏览器挑战/票据、服务端原生会话、HTTP/WS与撤销 |
 
 Workspace/TemplateVersion/Build 模块内嵌 Go 后端，元数据与业务事实共用平台 PostgreSQL；Terraform/Docker 外部效果仍通过操作记录、Outbox、幂等和对账实现最终一致性。运行后端仅 Docker。
@@ -92,13 +110,13 @@ ERROR 恢复目标由诊断决定，图中不表示所有错误可启动。DELET
 
 ## 4 就绪与进入
 
-| 维度 | 状态 | 依据 |
-| --- | --- | --- |
-| 应用 | UNKNOWN / CHECKING / HEALTHY / UNHEALTHY | DSH 必需检查、Agent、Web/RPC |
-| 存储 | 同上 | 原卷、归属、初始化、读写 |
-| 配置 | 同上 | 已注入且版本符合快照 |
-| 访问 | 同上 | 固定域名、TLS、路由、原生认证可用 |
-| 模型 | 同上 | 指定模型有限真实调用，不只检查连通 |
+| 维度 | 状态                                     | 依据                               |
+| ---- | ---------------------------------------- | ---------------------------------- |
+| 应用 | UNKNOWN / CHECKING / HEALTHY / UNHEALTHY | DSH 必需检查、Agent、Web/RPC       |
+| 存储 | 同上                                     | 原卷、归属、初始化、读写           |
+| 配置 | 同上                                     | 已注入且版本符合快照               |
+| 访问 | 同上                                     | 固定域名、TLS、路由、原生认证可用  |
+| 模型 | 同上                                     | 指定模型有限真实调用，不只检查连通 |
 
 每项保存 checked_at、expires_at 和脱敏原因；过期按 UNKNOWN 判断，探测频率、合并和持久次数预算以 [配置基线](deployment.md#8-配置与业务规则基线) 为准。
 
@@ -124,15 +142,15 @@ ready 要求 RUNNING、上述五项全部健康且结果未过期。can_enter �
 
 CONFIGURE对RUNNING实例固定执行受控重启：接受事务推进access_generation、关闭路由，操作保持desired=RUNNING并进入STOPPING；Worker正常退出/刷盘→应用目标配置→STARTING→检查→RUNNING，计算额度沿用不重复预留，健康通过后才开放入口并提交新快照。STOPPED实例只更新下次启动配置，不启动计算。目标配置在每检查点重新验证未撤销；失败保留数据并关闭入口，仅在旧版本仍有效且兼容时受控恢复，否则ERROR并等待修复。
 
-| 故障 | 必须行为 |
-| --- | --- |
-| Workspace/Terraform 超时 | UNCERTAIN，按 Workspace/操作关联对账 |
-| Worker 中断/重复 Outbox | 新租约先确认外部动作，拒绝旧租约回写 |
-| 建成但 DB 回写失败 | 用不可变资源标签对账，不再创建第二资源 |
-| 原卷缺失/归属错误 | ERROR，拒绝挂载，人工恢复 |
-| 模型配置无效 | ready=false，脱敏诊断和有限重校验 |
-| 访问授权不可用 | 拒绝代理，不把缓存旧许可当成功 |
-| 删除/配额释放失败 | 保留可追踪记录，核实后修复 |
+| 故障                     | 必须行为                               |
+| ------------------------ | -------------------------------------- |
+| Workspace/Terraform 超时 | UNCERTAIN，按 Workspace/操作关联对账   |
+| Worker 中断/重复 Outbox  | 新租约先确认外部动作，拒绝旧租约回写   |
+| 建成但 DB 回写失败       | 用不可变资源标签对账，不再创建第二资源 |
+| 原卷缺失/归属错误        | ERROR，拒绝挂载，人工恢复              |
+| 模型配置无效             | ready=false，脱敏诊断和有限重校验      |
+| 访问授权不可用           | 拒绝代理，不把缓存旧许可当成功         |
+| 删除/配额释放失败        | 保留可追踪记录，核实后修复             |
 
 ## 7 实施依赖
 
@@ -152,21 +170,21 @@ Go 使用 struct、方法、小接口和组合封装规则，React 使用函数�
 
 ### 8.2 对象与职责
 
-| 当前对象/数据实体 | 规则与行为 | 实现位置 |
-| --- | --- | --- |
-| `identity.Principal` / `Service` | OIDC、平台会话、固定组织、角色和 auth_generation；事务内 `LockPrincipal` 重查 | `internal/identity` |
-| `instances.Lifecycle` | `Plan` / `PlanRetry` 返回下一状态；非法状态、活跃操作、缺原卷和版本冲突拒绝 | `internal/instances/lifecycle.go`、`retry.go` |
-| `instances.QuotaPolicy` | `PlanReservation` 计算额度需求；组织行锁内读取统一占用并登记预留 | `internal/instances/quota.go`、`quota_store.go` |
-| `instances.HealthSet` | `Ready` / `CanEnter` 按维度及期限计算；调用方必须另传实时 Owner 授权 | `internal/instances/health.go` |
-| `instances.CommandService` | `Create` / `Command` / `Retry` 接受用例；一次提交实例、操作、预留、Outbox、审计及幂等响应 | `internal/instances` |
-| `instances.QueryService` | `List` / `Get` / `Operation` 输出脱敏投影、能力和签名游标 | `internal/instances/query.go` |
-| `settings.Service` / `AutoValidator` | 模型保存、校验、撤销、默认项和预检；版本绑定、租约、日预算和有限真实请求 | `internal/settings` |
-| `worker.LeaseStore` / `ExecutionStore` | 领取/续租/延后、检查点、稳定构建意图、条件回写和终态事务 | `internal/worker` |
-| `worker.Executor` / `LocalHost` | 按检查点编排 Workspace、原卷、私有配置、网络和原生认证；失租停止后续动作 | `internal/worker` |
-| `workspace.Client` / `Terraform` | 不可变模板、连续 Build、持久 state、排他执行；正常服务只用 `NewEmbedded` | `internal/workspace` |
-| `access.Service` / `Store` / `Gateway` | 挑战、签票、单次消费、精确 Host/Origin、服务端原生 Cookie、HTTP/WS 持续授权 | `internal/access` |
-| `operations` 运维对象 | 加密备份、另盘恢复、资产回收、资源核对/保留/接纳、来源围栏和审计归档 | `internal/operations` |
-| 配置快照 / Operation / StorageAsset | 持久 JSON 或 SQL 实体；由上述用例事务维护，不另造可任意 Save 的聚合包装 | [数据设计](data-model.md) |
+| 当前对象/数据实体                      | 规则与行为                                                                                | 实现位置                                        |
+| -------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `identity.Principal` / `Service`       | OIDC、平台会话、固定组织、角色和 auth_generation；事务内 `LockPrincipal` 重查             | `internal/identity`                             |
+| `instances.Lifecycle`                  | `Plan` / `PlanRetry` 返回下一状态；非法状态、活跃操作、缺原卷和版本冲突拒绝               | `internal/instances/lifecycle.go`、`retry.go`   |
+| `instances.QuotaPolicy`                | `PlanReservation` 计算额度需求；组织行锁内读取统一占用并登记预留                          | `internal/instances/quota.go`、`quota_store.go` |
+| `instances.HealthSet`                  | `Ready` / `CanEnter` 按维度及期限计算；调用方必须另传实时 Owner 授权                      | `internal/instances/health.go`                  |
+| `instances.CommandService`             | `Create` / `Command` / `Retry` 接受用例；一次提交实例、操作、预留、Outbox、审计及幂等响应 | `internal/instances`                            |
+| `instances.QueryService`               | `List` / `Get` / `Operation` 输出脱敏投影、能力和签名游标                                 | `internal/instances/query.go`                   |
+| `settings.Service` / `AutoValidator`   | 模型保存、校验、撤销、默认项和预检；版本绑定、租约、日预算和有限真实请求                  | `internal/settings`                             |
+| `worker.LeaseStore` / `ExecutionStore` | 领取/续租/延后、检查点、稳定构建意图、条件回写和终态事务                                  | `internal/worker`                               |
+| `worker.Executor` / `LocalHost`        | 按检查点编排 Workspace、原卷、私有配置、网络和原生认证；失租停止后续动作                  | `internal/worker`                               |
+| `workspace.Client` / `Terraform`       | 不可变模板、连续 Build、持久 state、排他执行；正常服务只用 `NewEmbedded`                  | `internal/workspace`                            |
+| `access.Service` / `Store` / `Gateway` | 挑战、签票、单次消费、精确 Host/Origin、服务端原生 Cookie、HTTP/WS 持续授权               | `internal/access`                               |
+| `operations` 运维对象                  | 加密备份、另盘恢复、资产回收、资源核对/保留/接纳、来源围栏和审计归档                      | `internal/operations`                           |
+| 配置快照 / Operation / StorageAsset    | 持久 JSON 或 SQL 实体；由上述用例事务维护，不另造可任意 Save 的聚合包装                   | [数据设计](data-model.md)                       |
 
 上表目录均相对 `services/`。跨对象引用使用稳定 ID；`Operation` 不是 Workspace Build，配额与卷也不随计算对象销毁。系统安全停止使用 `actor_kind=SYSTEM`，不伪造 Owner 的用户会话。
 
@@ -219,27 +237,27 @@ classDiagram
 
 ### 8.3 用例与事务边界
 
-| 用例 | 事务内 | 事务外 | 失败处理 |
-| --- | --- | --- | --- |
-| 创建 / 启停 / 配置 / 删除 / 重试 | 重查 Principal；锁配置/配额/实例；保存意图、预留、Outbox、审计、原响应 | Worker 处理原卷、Workspace 和构建 | 接受失败整体回滚；已接受后按 operation_id 追踪 |
-| 保存模型 / 默认项 | 锁配置头、检查 expected_version、密文及新版本、审计 | 不隐式调用模型或改变旧实例 | 409 版本冲突；秘密不读回 |
-| 手动 / 自动模型校验 | 领取版本租约及持久预算；条件发布结果 | 最多两次有界请求，不持有业务行锁 | 旧版本/撤销/失租结果丢弃；费用预算不回退 |
-| 工作台交接 | 绑定挑战/票据；消费时再次校验主体、Host、期限、代次及配置 | Workspace Owner 与原生认证校验 | 失败不发布网关会话；票据不进入 URL |
-| 资源执行 / 持续健康 | 检查点重新校验租约、授权、快照和原资产；条件写回 | Docker/Terraform/原生 HTTP/WS 观察 | 不确定保持占额，旧代次结果不覆盖当前状态 |
-| 运维备份 / 恢复 / 回收 | 受信身份、维护意图和审计；恢复目标保持隔离 | 加密归档、硬容量盘及只读外部扫描 | 中断按同一意图继续；物理消失前不释放存储额度 |
+| 用例                             | 事务内                                                                 | 事务外                             | 失败处理                                       |
+| -------------------------------- | ---------------------------------------------------------------------- | ---------------------------------- | ---------------------------------------------- |
+| 创建 / 启停 / 配置 / 删除 / 重试 | 重查 Principal；锁配置/配额/实例；保存意图、预留、Outbox、审计、原响应 | Worker 处理原卷、Workspace 和构建  | 接受失败整体回滚；已接受后按 operation_id 追踪 |
+| 保存模型 / 默认项                | 锁配置头、检查 expected_version、密文及新版本、审计                    | 不隐式调用模型或改变旧实例         | 409 版本冲突；秘密不读回                       |
+| 手动 / 自动模型校验              | 领取版本租约及持久预算；条件发布结果                                   | 最多两次有界请求，不持有业务行锁   | 旧版本/撤销/失租结果丢弃；费用预算不回退       |
+| 工作台交接                       | 绑定挑战/票据；消费时再次校验主体、Host、期限、代次及配置              | Workspace Owner 与原生认证校验     | 失败不发布网关会话；票据不进入 URL             |
+| 资源执行 / 持续健康              | 检查点重新校验租约、授权、快照和原资产；条件写回                       | Docker/Terraform/原生 HTTP/WS 观察 | 不确定保持占额，旧代次结果不覆盖当前状态       |
+| 运维备份 / 恢复 / 回收           | 受信身份、维护意图和审计；恢复目标保持隔离                             | 加密归档、硬容量盘及只读外部扫描   | 中断按同一意图继续；物理消失前不释放存储额度   |
 
 持久 JSON 的 `schema_version`、公开 DTO 与 SQL 结构各有边界，见[数据版本语义](data-model.md#8-持久json与版本语义)。数据库锁序及时间判定统一使用[数据事务契约](data-model.md#3-创建和幂等事务)，新增流程不得逆序补锁。
 
 ### 8.4 状态转换与错误
 
-| 命令 | 前置条件 | 接受后的目标 | 冲突/失败 |
-| --- | --- | --- | --- |
-| CREATE | active 成员、默认项有效、模型校验未过期、配额可预留 | desired=RUNNING、observed=CREATING | 配置无效 422；额度 429 |
-| START | Owner、STOPPED；或 ERROR 且对账确认无运行计算、原卷完整 | RUNNING / STARTING | 缺卷 STORAGE_MISSING；活跃操作 409 |
-| STOP | Owner、RUNNING；或 ERROR 且已确认存在计算 | STOPPED / STOPPING；立即撤销访问 | 外部未知进入 UNCERTAIN |
-| DELETE | Owner、RUNNING/STOPPED；或已对账 ERROR；确认名称一致 | DELETED / DELETING；立即撤销访问 | 活跃操作阻止；禁止永久删除输入 |
-| CONFIGURE | Owner、RUNNING/STOPPED、实例版本匹配、目标有效 | 原desired保持；运行时撤销入口并STOPPING→STARTING重启；停止时更新下次启动配置 | 失败保留原数据；不恢复撤销凭据 |
-| RETRY | Owner、最近用户操作 FAILED、无后续命令、已对账且安全 | 同实例新关联操作 | UNCERTAIN 不可重试 |
+| 命令      | 前置条件                                                | 接受后的目标                                                                 | 冲突/失败                          |
+| --------- | ------------------------------------------------------- | ---------------------------------------------------------------------------- | ---------------------------------- |
+| CREATE    | active 成员、默认项有效、模型校验未过期、配额可预留     | desired=RUNNING、observed=CREATING                                           | 配置无效 422；额度 429             |
+| START     | Owner、STOPPED；或 ERROR 且对账确认无运行计算、原卷完整 | RUNNING / STARTING                                                           | 缺卷 STORAGE_MISSING；活跃操作 409 |
+| STOP      | Owner、RUNNING；或 ERROR 且已确认存在计算               | STOPPED / STOPPING；立即撤销访问                                             | 外部未知进入 UNCERTAIN             |
+| DELETE    | Owner、RUNNING/STOPPED；或已对账 ERROR；确认名称一致    | DELETED / DELETING；立即撤销访问                                             | 活跃操作阻止；禁止永久删除输入     |
+| CONFIGURE | Owner、RUNNING/STOPPED、实例版本匹配、目标有效          | 原desired保持；运行时撤销入口并STOPPING→STARTING重启；停止时更新下次启动配置 | 失败保留原数据；不恢复撤销凭据     |
+| RETRY     | Owner、最近用户操作 FAILED、无后续命令、已对账且安全    | 同实例新关联操作                                                             | UNCERTAIN 不可重试                 |
 
 对已 STOPPED 再 STOP、已 RUNNING 再 START 返回 STATE_CONFLICT；同 Key 重放先于状态检查。DELETED 不可复活；保留数据恢复为新的隔离资产由运维执行。ERROR 下 allowed_actions 由资源事实计算，页面不自行推断。模型故障保留 observed=RUNNING。
 
@@ -257,13 +275,13 @@ classDiagram
 
 ### 9.1 组织和身份标识
 
-| 标识 | 权威与用途 | 必须核验 |
-| --- | --- | --- |
-| 平台 `organization_id` | 平台唯一组织、Membership、配置、配额、审计 | 来自受控配置和服务端 Principal，不能来自浏览器覆盖 |
-| `workspace_organization_id` | `workspace_authority` 的编排组织、模板和 Workspace | 可与平台组织 UUID 不同；必须匹配编排 authority |
-| `users.id` / `workspace_owner_id` | 平台用户 / 受控映射的 Workspace Owner | 平台角色、代次及成员状态；Workspace 归属及账户状态 |
-| `control_user_id` | Workspace Build 发起者 | 必须是受控 authority，不能使用 Owner 或 ADMIN 代替 |
-| Instance / Workspace / StorageAsset ID | 业务实例 / 计算编排 / 原始数据资产 | 稳定关联、标签、模板参数、文件系统标记共同核验 |
+| 标识                                   | 权威与用途                                         | 必须核验                                           |
+| -------------------------------------- | -------------------------------------------------- | -------------------------------------------------- |
+| 平台 `organization_id`                 | 平台唯一组织、Membership、配置、配额、审计         | 来自受控配置和服务端 Principal，不能来自浏览器覆盖 |
+| `workspace_organization_id`            | `workspace_authority` 的编排组织、模板和 Workspace | 可与平台组织 UUID 不同；必须匹配编排 authority     |
+| `users.id` / `workspace_owner_id`      | 平台用户 / 受控映射的 Workspace Owner              | 平台角色、代次及成员状态；Workspace 归属及账户状态 |
+| `control_user_id`                      | Workspace Build 发起者                             | 必须是受控 authority，不能使用 Owner 或 ADMIN 代替 |
+| Instance / Workspace / StorageAsset ID | 业务实例 / 计算编排 / 原始数据资产                 | 稳定关联、标签、模板参数、文件系统标记共同核验     |
 
 平台 ADMIN 管理配置不代表可以进入其他 Owner 的实例。平台组织和 Workspace 组织在检查模板/构建时不得混用；Owner 映射也不能用 email 或用户名推导。
 
@@ -339,14 +357,14 @@ HTTPS 尚未信任或连接失败时使用无授权副作用的连接确认页�
 
 每项变更先选定 REQ/UC/TC 和成功/失败断言，确认涉及的对象、API、表、外部端口及固定 fixture，再按 Red→Green→Refactor 开发。范围、输入、错误、事务、资源释放和当前未实现部分必须可查；追踪见[测试文档](testing.md#3-需求追踪)。
 
-| 检查点 | 设计依据 | 验证方式 |
-| --- | --- | --- |
-| 输入与首次初始化 | API / OpenAPI、前端首次配置规则 | 严格 JSON、404 初始化、409 版本冲突、未批准依赖拒绝 |
-| 授权与秘密 | 安全设计、Owner/组织映射、最小 DB 角色 | OIDC/CSRF/Host/Origin/跨浏览器/WS、脱敏及权限反例 |
-| 并发与副作用 | 数据锁序、稳定意图、租约/各代次 | 真实 PG 屏障竞争、迟到结果、响应丢失及回滚 |
-| 数据保护 | 独立原卷、维护意图、恢复隔离和保留计额 | 缺卷/磁盘满拒绝、启停保留、另盘密文恢复、审计晚写失败 |
-| 固定运行契约 | 批准模板、镜像/helper 摘要、Provider lock | 真实 Workspace/Terraform/Docker 及浏览器回归 |
-| 当前实施限制 | 测试验收状态与需求质量目标 | 不把局部模块证据或本机恢复演练标为完整验收 |
+| 检查点           | 设计依据                                  | 验证方式                                              |
+| ---------------- | ----------------------------------------- | ----------------------------------------------------- |
+| 输入与首次初始化 | API / OpenAPI、前端首次配置规则           | 严格 JSON、404 初始化、409 版本冲突、未批准依赖拒绝   |
+| 授权与秘密       | 安全设计、Owner/组织映射、最小 DB 角色    | OIDC/CSRF/Host/Origin/跨浏览器/WS、脱敏及权限反例     |
+| 并发与副作用     | 数据锁序、稳定意图、租约/各代次           | 真实 PG 屏障竞争、迟到结果、响应丢失及回滚            |
+| 数据保护         | 独立原卷、维护意图、恢复隔离和保留计额    | 缺卷/磁盘满拒绝、启停保留、另盘密文恢复、审计晚写失败 |
+| 固定运行契约     | 批准模板、镜像/helper 摘要、Provider lock | 真实 Workspace/Terraform/Docker 及浏览器回归          |
+| 当前实施限制     | 测试验收状态与需求质量目标                | 不把局部模块证据或本机恢复演练标为完整验收            |
 
 当前开发重点是未知恢复资源处置、物理缺额释放、恢复目标重新授权与服务切换、正式单机安装/控制面回退，以及完整故障、安全和性能矩阵。目标重新授权尚未实现；恢复核对、接纳或来源围栏成功都不会自动解除目标隔离。本机备份按用户选择用于演练，独立故障域及 RPO/RTO 目标待验证。具体完成条件以[测试验收](testing.md)为准。
 

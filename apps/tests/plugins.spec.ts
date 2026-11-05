@@ -96,7 +96,7 @@ const defaultPlugins = [
     id: 'mem0-memory',
     name: 'Mem0 记忆',
     package_name: '@harness-cloud/dsh-mem0-memory',
-    version: '0.1.0',
+    version: '0.2.0',
     author: 'Harness Cloud',
     category: '会话与记忆',
     summary: '连接自建 Mem0，自动召回并按需记录会话记忆。',
@@ -344,6 +344,13 @@ test('details expose pinned version, provenance, compatibility and manual instal
     'href',
     'https://www.npmjs.com/package/@linxin666/dsh-ssh/v/0.4.11',
   );
+  await expect(drawer.getByRole('button', { name: '复制包名', exact: true })).toBeInViewport();
+  const provenance = drawer.locator('details');
+  await expect(provenance).not.toHaveAttribute('open');
+  await provenance.locator('summary').focus();
+  await page.keyboard.press('Enter');
+  await expect(provenance).toHaveAttribute('open', '');
+  await expect(provenance.getByText('来源核对', { exact: true })).toBeVisible();
   await drawer.getByRole('button', { name: '复制包名', exact: true }).click();
   await expect(drawer.getByRole('status')).toHaveText('包名与版本已复制');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
@@ -396,7 +403,7 @@ test('clipboard failure keeps a selectable package and detail close preserves fi
   await expect(page.getByRole('searchbox', { name: '搜索插件', exact: true })).toHaveValue('');
 });
 
-test('the locally maintained Mem0 plugin explains explicit capture and downloads its pinned bundle without installing', async ({
+test('the locally maintained Mem0 plugin explains manual installation and downloads its pinned bundle without installing', async ({
   page,
 }, info) => {
   await setup(page);
@@ -414,7 +421,7 @@ test('the locally maintained Mem0 plugin explains explicit capture and downloads
       requests.push(path);
     if (!['GET', 'HEAD'].includes(request.method())) writes.push(request.url());
   });
-  const filename = 'harness-cloud-dsh-mem0-memory-0.1.0.tgz';
+  const filename = 'harness-cloud-dsh-mem0-memory-0.2.0.tgz';
   await page.route('**/plugin-packages/' + filename, (route) => {
     downloads++;
     expect(route.request().method()).toBe('GET');
@@ -437,17 +444,10 @@ test('the locally maintained Mem0 plugin explains explicit capture and downloads
   await expect(details.getByRole('link', { name: 'npm 包', exact: true })).toHaveCount(0);
   await expect(details).toContainText('插件包的绝对路径');
   await expect(details).toContainText('包内 README');
-  const config = details.getByRole('region', { name: 'Mem0 配置说明', exact: true });
-  for (const field of ['endpoint', 'apiKey', 'userId', 'autoCapture'])
-    await expect(config).toContainText(field);
-  await expect(config).toContainText('默认关闭，需显式开启');
-  await expect(config).toContainText('默认只保存用户消息');
-  await expect(config).toContainText('infer 默认为 false');
-  await expect(config).toContainText('自动召回');
-  await expect(config).toContainText('与平台记忆连接分别配置');
   await expect(details.getByRole('button', { name: '编辑信息', exact: true })).toHaveCount(0);
   const downloadButton = details.getByRole('button', { name: '下载插件包', exact: true }),
     browserDownloads: string[] = [];
+  await expect(downloadButton).toBeInViewport();
   page.on('download', (download) => browserDownloads.push(download.suggestedFilename()));
   for (let attempt = 0; attempt < 2; attempt++) {
     await downloadButton.click();
@@ -479,7 +479,7 @@ test('an edited Mem0 version cannot download a different bundled version or offe
   await setup(page);
   const mem0 = defaultPlugins[3];
   await page.route('**/v1/plugins', (route) =>
-    route.fulfill({ json: { items: [{ ...mem0, version: '0.2.0' }] } }),
+    route.fulfill({ json: { items: [{ ...mem0, version: '9.0.0' }] } }),
   );
   await page.goto('/app/plugins');
   await page
@@ -492,12 +492,52 @@ test('an edited Mem0 version cannot download a different bundled version or offe
   await expect(details.getByRole('link', { name: 'npm 包', exact: true })).toHaveCount(0);
 });
 
+for (const version of ['0.2.0', '9.0.0']) {
+  test(`Graphiti ${version} explains platform installation and downloads only the matching bundle`, async ({
+    page,
+  }) => {
+    await setup(page);
+    const plugin = {
+      ...defaultPlugins[3],
+      id: 'graphiti-memory',
+      name: 'Graphiti 记忆',
+      package_name: '@harness-cloud/dsh-graphiti-memory',
+      version,
+      description: 'Graphiti 原生记忆插件。',
+    };
+    await page.route('**/v1/plugins', (route) => route.fulfill({ json: { items: [plugin] } }));
+    await page.goto('/app/plugins');
+    await page
+      .getByRole('article', { name: plugin.name, exact: true })
+      .getByRole('button', { name: '查看详情', exact: true })
+      .click();
+    const details = page.getByRole('dialog', { name: '插件详情', exact: true });
+    await expect(details.getByRole('link', { name: 'npm 包', exact: true })).toHaveCount(0);
+    if (version === '0.2.0') {
+      await expect(details).toContainText('graphiti-memory 技能');
+      await expect(details).toContainText('平台记忆连接');
+      await expect(details).toContainText('会自动安装并启用');
+      const waiting = page.waitForEvent('download');
+      await details.getByRole('button', { name: '下载插件包', exact: true }).click();
+      const download = await waiting;
+      const filename = 'harness-cloud-dsh-graphiti-memory-0.2.0.tgz';
+      expect(download.suggestedFilename()).toBe(filename);
+      expect(await readFile((await download.path())!)).toEqual(
+        await readFile('public/plugin-packages/' + filename),
+      );
+    } else {
+      await expect(details.getByRole('button', { name: '下载插件包', exact: true })).toHaveCount(0);
+      await expect(details).toContainText('此版本没有随平台分发的插件包');
+    }
+  });
+}
+
 test('a personally uploaded Mem0 archive retains its original download', async ({ page }) => {
   await setup(page);
   const mem0 = {
     ...offlinePlugin,
     package_name: '@harness-cloud/dsh-mem0-memory',
-    version: '0.1.0',
+    version: '0.2.0',
   };
   let downloads = 0;
   await page.route('**/v1/plugins', (route) => route.fulfill({ json: { items: [mem0] } }));
