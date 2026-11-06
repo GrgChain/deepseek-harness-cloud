@@ -539,7 +539,7 @@ paths:
       x-api-id: API-095
       tags: [Context]
       summary: List own external connections, approved endpoint labels and instance bindings
-      description: Requires current memory:read or knowledge:read. Owner and organization are server selected. URLs, MAC keys and encrypted credentials are never returned. Workbench features do not load into DSH. Integration is a reserved compatibility field.
+      description: Requires current memory:read or knowledge:read. Owner and organization are server selected. URLs, MAC keys and encrypted credentials are never returned. Workbench management does not modify existing DSH profiles; explicit creation selections can enable the native runtime integration. Integration is a reserved compatibility field.
       responses:
         '200':
           description: Connections and approved endpoint labels
@@ -1517,7 +1517,7 @@ paths:
   /v1/platform-checks:
     get:
       operationId: getPlatformChecks
-      x-api-id: API-078
+      x-api-id: API-128
       x-delivery-scope: initial-release
       tags:
         - Preflight
@@ -2122,7 +2122,7 @@ paths:
               $ref: '#/components/schemas/ManagedUserEdit'
     delete:
       operationId: deleteOrganizationUser
-      x-api-id: API-077
+      x-api-id: API-127
       tags:
         - IdentityManagement
       summary: 删除用户并撤销登录权限
@@ -3214,12 +3214,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OIDCProtocolError'
-        '429':
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OIDCProtocolError'
         '503':
           description: Dependency unavailable
           content:
@@ -3333,12 +3327,6 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OIDCProtocolError'
-        '429':
-          description: Rate limited
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OIDCProtocolError'
         '503':
           description: Dependency unavailable
           content:
@@ -3407,12 +3395,6 @@ paths:
                 $ref: '#/components/schemas/OIDCProtocolError'
         '401':
           description: Authentication failed
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/OIDCProtocolError'
-        '429':
-          description: Rate limited
           content:
             application/json:
               schema:
@@ -3735,8 +3717,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
     post:
@@ -3792,8 +3772,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills/{id}:
@@ -3827,8 +3805,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -3881,8 +3857,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -3941,8 +3915,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills/{id}:file:
@@ -3986,8 +3958,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -4047,8 +4017,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
     post:
@@ -4107,8 +4075,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills/{id}:policy:
@@ -4164,8 +4130,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills:preview:
@@ -4216,8 +4180,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -4293,8 +4255,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills:source:
@@ -4347,8 +4307,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills/{id}:check-update:
@@ -4397,8 +4355,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -4467,8 +4423,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills:export:
@@ -4532,8 +4486,6 @@ paths:
           $ref: '#/components/responses/Error'
         '422':
           $ref: '#/components/responses/Error'
-        '429':
-          $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
   /v1/skills/{id}:previous:
@@ -4588,8 +4540,6 @@ paths:
         '413':
           $ref: '#/components/responses/Error'
         '422':
-          $ref: '#/components/responses/Error'
-        '429':
           $ref: '#/components/responses/Error'
         '503':
           $ref: '#/components/responses/Error'
@@ -6113,7 +6063,7 @@ components:
         session_memory:
           type: boolean
           default: false
-          description: Memory connections only. Enable full conversation synchronization and automatic recall for OpenViking, Mem0, and Graphiti. OpenViking uses its official DSH plugin; Mem0 uses the native Harness Cloud DSH memory bundle with a managed loopback proxy; Graphiti uses the managed session adapter. The creation UI enables this for each newly selected memory connection; omitted values and existing configurations remain disabled. At most one connection per workspace.
+          description: Memory connections only. Enable full conversation synchronization and automatic recall for OpenViking, Mem0, and Graphiti. OpenViking uses its official DSH plugin; Mem0 and Graphiti use native Harness Cloud DSH bundles with managed loopback proxies. Raw conversations are persisted separately and only extracted long-term memories enter search and export. Archiving may call each configured service model. The creation UI enables this for each newly selected memory connection; omitted values and existing configurations remain disabled. At most one connection per workspace.
         session_scope:
           type: string
           enum: [personal, workspace]

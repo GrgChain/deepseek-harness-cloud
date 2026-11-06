@@ -26,6 +26,8 @@ MCP 子进程仅接收随机路径回环代理地址，外部凭据及分组由�
 
 ## 开发
 
+先在仓库根目录执行`npm ci --prefix infrastructure/runtime`安装锁定的DSH依赖，再运行：
+
 ```bash
 cd infrastructure/plugins/graphiti
 npm test
