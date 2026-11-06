@@ -69,13 +69,13 @@ export function installExtensions(root, request) {
         ? {
             name: '@harness-cloud/dsh-mem0-memory',
             version: '0.2.0',
-            sha256: 'a0a47d5114d21d6e14e700b28d8ed9b9aa0c5fcc2a6b8209bb299beec80af515',
+            sha256: '8aa1815c30544749b368faa23fa7cb8a090945ead14cf329ce5767cbe184b6fc',
           }
         : memory.backend === 'graphiti'
           ? {
               name: '@harness-cloud/dsh-graphiti-memory',
               version: '0.2.0',
-              sha256: '8822670006e77904234cf29b30f2a0033950ede55f57ff2ff552eb103c5adc29',
+              sha256: 'e13d2456c7c31193cdea162746af8ebfc2fec834ec6de7d12d79ddf280d99d0a',
             }
           : {
               name: '@openviking/dsh-memory-plugin',

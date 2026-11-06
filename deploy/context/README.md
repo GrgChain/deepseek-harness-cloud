@@ -28,11 +28,11 @@ make context-mem0-test            # 经 REST 验证真实读写、检索、更�
 
 在工作台 `/app/memory` 点击“添加记忆”，选择 Mem0，按下表填写，保存后点击“验证”：
 
-| 字段 | 本机测试值 |
-| --- | --- |
-| 连接名称 | `Mem0 本地测试` |
-| Mem0 服务地址 | `http://mem0:8580` |
-| 服务凭据 | 填写 `.local/context/test-key` 文件内容 |
+| 字段          | 本机测试值                              |
+| ------------- | --------------------------------------- |
+| 连接名称      | `Mem0 本地测试`                         |
+| Mem0 服务地址 | `http://mem0:8580`                      |
+| 服务凭据      | 填写 `.local/context/test-key` 文件内容 |
 
 页面填写的是平台接入容器可访问的 Compose 内网地址。宿主机调试地址为 `http://127.0.0.1:18583`，仅绑定回环；`http://127.0.0.1:18580/mem0` 是平台内部签名接口，不能填写到此表单。已有本机策略由 `make context-mem0-up` 补齐 `service_key_file`；平台 API 须加载 `.local/context/endpoints.local.json`（`make run-auth` 自动识别）。
 
@@ -62,12 +62,12 @@ make context-embedding-test        # 真实中文向量、认证、批量和编�
 
 平台知识库填写：
 
-| 字段 | 配置 |
-| --- | --- |
+| 字段               | 配置                                                                   |
+| ------------------ | ---------------------------------------------------------------------- |
 | Embedding 服务地址 | `http://embeddings:8581/v1`（平台接入容器与服务位于同一 Compose 网络） |
-| 模型名称 | `BAAI/bge-small-zh-v1.5` |
-| 向量维度 | `512` |
-| API Key | `.local/context/test-key` 中的私有凭据，不要提交到 Git 或日志 |
+| 模型名称           | `BAAI/bge-small-zh-v1.5`                                               |
+| 向量维度           | `512`                                                                  |
+| API Key            | `.local/context/test-key` 中的私有凭据，不要提交到 Git 或日志          |
 
 宿主机调试地址为 `http://127.0.0.1:18581/v1`，健康检查为 `/health`，模型元信息为 `/info`。宿主端口仅绑定回环，平台接入容器使用上表的内网地址。模型文件保存在独立 `embedding-api-data` 卷，重启复用；首次启动需访问 Hugging Face 下载模型。可用 `HC_CONTEXT_EMBEDDING_MODEL` 指定其他 TEI 支持的模型，并在新建知识库时填写匹配的模型名及维度。
 
@@ -75,14 +75,14 @@ make context-embedding-test        # 真实中文向量、认证、批量和编�
 
 当前本机 Compose 环境可按下表新增知识库，保存后点击“验证”。
 
-| 字段 | 示例值 |
-| --- | --- |
-| 连接名称 | `Milvus 手动测试` |
-| Milvus 服务地址 | `http://milvus:19530` |
-| 服务凭据 | 留空（本机测试 Milvus 未启用原生认证） |
-| Embedding 服务地址 | `http://embeddings:8581/v1` |
-| Embedding 模型名称 | `BAAI/bge-small-zh-v1.5` |
-| 向量维度 | `512` |
+| 字段                   | 示例值                                  |
+| ---------------------- | --------------------------------------- |
+| 连接名称               | `Milvus 手动测试`                       |
+| Milvus 服务地址        | `http://milvus:19530`                   |
+| 服务凭据               | 留空（本机测试 Milvus 未启用原生认证）  |
+| Embedding 服务地址     | `http://embeddings:8581/v1`             |
+| Embedding 模型名称     | `BAAI/bge-small-zh-v1.5`                |
+| 向量维度               | `512`                                   |
 | Embedding 服务 API Key | 填写 `.local/context/test-key` 文件内容 |
 
 打开“管理内容”，点击“添加文档”，标题填写“星河项目发布流程”，输入以下合成文本，预览并确认保存：
@@ -97,12 +97,12 @@ make context-embedding-test        # 真实中文向量、认证、批量和编�
 
 保存后检索以下问题，确认结果片段及原文与预期一致：
 
-| 检索问题 | 预期片段中的事实 |
-| --- | --- |
-| 星河项目什么时候发布？ | 每周三下午 15:00 |
-| 谁负责发布和验收？ | 李明负责发布，王芳确认验收 |
-| 严重故障后如何处理？ | 停止发布，李明在 15 分钟内回滚到上一个稳定版本 |
-| 发布记录放在哪里？ | 项目文档的“发布日志”目录 |
+| 检索问题               | 预期片段中的事实                               |
+| ---------------------- | ---------------------------------------------- |
+| 星河项目什么时候发布？ | 每周三下午 15:00                               |
+| 谁负责发布和验收？     | 李明负责发布，王芳确认验收                     |
+| 严重故障后如何处理？   | 停止发布，李明在 15 分钟内回滚到上一个稳定版本 |
+| 发布记录放在哪里？     | 项目文档的“发布日志”目录                       |
 
 ### 文档分段与重建
 
@@ -143,17 +143,17 @@ HC_CONTEXT_TEST_BACKENDS=openviking,graphiti python3 deploy/context/test_service
 
 本机测试已按用户授权复用平台配置的模型；私有快照不会自动跟随平台撤销，轮换或撤销时须同步更新测试配置并重建容器。不要将模型配置、Compose展开结果或容器环境输出到日志。模型提取可能产生调用费用。手动记忆正文在预览确认后写入；DSH 完整会话同步在创建时选择 OpenViking 连接后默认开启，可手动关闭。
 
-| 服务 | 固定版本 | 本机端口 |
-| --- | --- | --- |
-| Embedding | Hugging Face TEI cpu-1.9，镜像固定摘要 | 18581 / 内网8581 |
-| 文档解析 | Docling Serve CPU v1.36.0，包含 LibreOffice | 18582 / 内网5001 |
-| Mem0 | 2.2.1 SDK，经认证伴随服务 | 18580/mem0 |
-| Mem0 REST 测试入口 | 2.2.1 SDK，手动直存／归档推理 | 18583 / 内网 mem0:8580 |
-| Qdrant | 1.20.0 | 16333 |
-| Weaviate | 1.27.0，vectorizer=none | 18085 / gRPC 15051 |
-| Milvus | 2.5.6，独立etcd/MinIO | 19531 / 健康19091 |
-| OpenViking | 0.4.16，镜像固定摘要 | 仅Compose内网 |
-| Graphiti | 0.31.2 SDK + Neo4j 5.26.0 | 仅Compose内网 |
+| 服务               | 固定版本                                    | 本机端口               |
+| ------------------ | ------------------------------------------- | ---------------------- |
+| Embedding          | Hugging Face TEI cpu-1.9，镜像固定摘要      | 18581 / 内网8581       |
+| 文档解析           | Docling Serve CPU v1.36.0，包含 LibreOffice | 18582 / 内网5001       |
+| Mem0               | 2.2.1 SDK，经认证伴随服务                   | 18580/mem0             |
+| Mem0 REST 测试入口 | 2.2.1 SDK，手动直存／归档推理               | 18583 / 内网 mem0:8580 |
+| Qdrant             | 1.20.0                                      | 16333                  |
+| Weaviate           | 1.27.0，vectorizer=none                     | 18085 / gRPC 15051     |
+| Milvus             | 2.5.6，独立etcd/MinIO                       | 19531 / 健康19091      |
+| OpenViking         | 0.4.16，镜像固定摘要                        | 仅Compose内网          |
+| Graphiti           | 0.31.2 SDK + Neo4j 5.26.0                   | 仅Compose内网          |
 
 知识库连接的“Embedding模型”统一通过 API 接入，适用于 Milvus、Weaviate、Qdrant。本机或私网部署的模型也需提供平台接入服务可访问的 OpenAI 兼容 `/embeddings` 接口，填写 API Base URL、模型名、实际向量维度与可选 API Key；本机服务使用局域网地址，勿填写浏览器所在电脑的 `localhost`。新建连接必须显式配置 API，不再提供平台内置本地模型选项；已有本地模型连接保留原配置，更换模型需新建连接并重新导入文档。接口不要求支持可选的 `dimensions` 请求参数，平台检查实际返回维度与所填值一致。文档写入及问题检索始终使用该连接的配置，接口错误或维度不符会失败，不回退到本地模型。公网服务使用 HTTPS；自建私网 HTTP 服务遵循接入节点的 HTTP 许可及 DNS/目标校验。
 
@@ -184,9 +184,9 @@ docker compose --env-file .local/context/compose.env -f deploy/context/compose.y
 
 ### DSH 完整会话与 OpenViking 集成
 
-创建工作空间，选择已验证的 OpenViking、Mem0 或 Graphiti 记忆连接，默认开启通用“完整会话同步”（可手动关闭），同一用户接入同一连接的多个工作空间可共享会话记忆并跨空间召回，无需选择保存范围。每个工作空间最多接入一个记忆连接，未勾选和旧配置均不自动采集。Mem0由本项目维护的DSH原生插件捕获，安装、加载和启停方式与OpenViking一致，平台扩展只提供受控代理；Graphiti也使用原生组合包，提供`graphiti-memory`技能和MCP检索、同步状态工具。两种后端同步用户消息、助手回复和工具结果，写入当前连接的内容索引，并自动召回；具体安装方式无需用户额外配置。
+创建工作空间，选择已验证的 OpenViking、Mem0 或 Graphiti 记忆连接，默认开启通用“完整会话同步”（可手动关闭），同一用户接入同一连接的多个工作空间可共享会话记忆并跨空间召回，无需选择保存范围。每个工作空间最多接入一个记忆连接，未勾选和旧配置均不自动采集。Mem0由本项目维护的DSH原生插件捕获，安装、加载和启停方式与OpenViking一致，平台扩展只提供受控代理；Graphiti也使用原生组合包，提供`graphiti-memory`技能和MCP检索、同步状态工具。两种后端先同步用户消息、助手回复和工具结果到独立会话存储，归档提取后的长期记忆才进入当前连接的内容索引并用于召回；具体安装方式无需用户额外配置。
 
-Mem0 与 OpenViking 一样先同步原始会话，在达到约 20000 token、开始压缩或会话释放时提取长期记忆。原始会话由连接适配层单独持久化，不直接写入 Mem0 记忆索引；归档使用所选 Mem0 的 `infer: true`，本机服务读取已批准的 `HC_CONTEXT_MODEL_CONFIG`，没有配置或推理失败时保留待归档原文并明确失败。只将提取出的记忆写入当前连接的可检索索引，与手动记忆共同管理和导出。自动生成记忆日常只读，可按自动／手动来源筛选；旧版已有会话记录保留。提取在独立临时命名空间进行，避免改写手动记忆；回执持久化后索引重试不会再次提取。Graphiti 继续同步生成图谱。同一用户的多个已接入工作空间共享，其他连接和用户隔离。新插件版本为 0.2.0；已有工作空间需升级原生插件及受控代理后使用压缩、会话释放归档，不覆盖用户配置。
+Mem0 与 OpenViking 一样先同步原始会话，在达到约 20000 token、开始压缩或会话释放时提取长期记忆。原始会话由连接适配层单独持久化，不直接写入 Mem0 记忆索引；归档使用所选 Mem0 的 `infer: true`，本机服务读取已批准的 `HC_CONTEXT_MODEL_CONFIG`，没有配置或推理失败时保留待归档原文并明确失败。只将提取出的记忆写入当前连接的可检索索引，与手动记忆共同管理和导出。自动生成记忆不提供编辑；Mem0、Graphiti可由具备`memory:manage`的用户确认删除，OpenViking原生自动内容只读。可按自动／手动来源筛选；旧版已有会话记录保留。提取在独立临时命名空间进行，避免改写手动记忆；回执持久化后索引重试不会再次提取。Graphiti同样先暂存原始会话，再通过已配置模型提取长期事实并建立图谱；原文不写入Neo4j，也不进入普通记忆导出。同一用户的多个已接入工作空间共享，其他连接和用户隔离。新插件版本为 0.2.0；平台更新不自动覆写已有Profile；新建并开启完整会话同步的空间采用当前插件。手动升级须同时匹配插件与受控代理，不覆盖用户配置。
 
 OpenViking 初始化时离线安装未修改的官方 `@openviking/dsh-memory-plugin@0.5.31` npm 包，校验 SHA-256，并登记到工作空间 profile 的 `dependencies` 和 `dsh.profile.bundles`，复用当前固定 DSH 版本的依赖；无需升级运行镜像或在工作空间运行安装命令。官方 `openviking-memory-runtime` 条目由 DSH loader 加载并管理生命周期，可在 DSH 插件列表查看和启用、停用。插件提供原生 MCP 工具及 `openviking-memory`、`openviking-skills`、`ov-experience-memory` 三个内置技能。
 
@@ -208,12 +208,12 @@ OpenViking、Mem0 和 Graphiti 的记忆检索均可选择返回 5／10／20 条
 
 捕获遵循官方插件的格式和长度限制，本集成设置单条文本上限 100000 字符，并受 512 KiB 原生请求及 1 MiB 私有通道约束；不等同于附件原文件备份。原生记忆提取使用 OpenViking 服务配置的模型及 Embedding，可能产生调用费用。
 
-仅新建并开启此选项的工作空间加载集成；普通重启不会改写既有 profile。验证：
+仅新建并开启此选项的工作空间加载集成；普通重启不会改写既有 profile。以下命令需要固定运行镜像；`make context-unit-test`另需已构建的`hc-context-bridge:dev`镜像，其依赖由bridge Dockerfile安装，不能直接用缺少依赖的宿主Python替代。验证：
 
 ```bash
 HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 node --test infrastructure/runtime/tests/openviking-session-integration.test.mjs
 HC_RUNTIME_IMAGE=hc-dsh-runtime:0.1.0 HC_RUNTIME_SESSION_MEMORY=true node --test infrastructure/runtime/tests/docker-integration.test.mjs
-python3 -m unittest discover -s deploy/context/bridge -p 'test_viking*.py'
+make context-unit-test
 ```
 
-Graphiti 原生插件为 `@harness-cloud/dsh-graphiti-memory@0.1.0`，通过 `graphiti-memory` 技能与 MCP 检索、状态工具使用平台连接；不另填Neo4j凭据，不直接注册内置记忆工具。安装和启停由DSH原生Profile管理，旧空间需新建后采用此模式。详见[Graphiti插件README](../../infrastructure/plugins/graphiti/README.md)。
+Graphiti 原生插件为 `@harness-cloud/dsh-graphiti-memory@0.2.0`，通过 `graphiti-memory` 技能与 MCP 检索、状态工具使用平台连接；不另填Neo4j凭据，不直接注册内置记忆工具。安装和启停由DSH原生Profile管理，旧空间需新建后采用此模式。详见[Graphiti插件README](../../infrastructure/plugins/graphiti/README.md)。

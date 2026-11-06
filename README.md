@@ -55,7 +55,7 @@
 
 ### 1. 准备环境
 
-准备 Git、Make、Go **1.27.2**、Node.js **24.x**（含 npm）、Docker Engine 和 Docker Compose，并确保 Docker 服务已启动。
+准备 Git、Make、Go **1.27.2**、Node.js **24.x**（含 npm）、Python **3.11+**、Docker Engine 和 Docker Compose，并确保 Docker 服务已启动。
 
 ```bash
 git clone https://github.com/jonluo94/deepseek-harness-cloud.git
@@ -118,12 +118,8 @@ HC_PUBLIC_IP=192.168.1.100 make ip-access-init
 | 命令                  | 用途                                      |
 | --------------------- | ----------------------------------------- |
 | `make portal`         | 启动前端开发服务                          |
-| `make format`         | 统一 Go、Python、前端与嵌入脚本格式       |
-| `make format-check`   | 仅检查格式                                |
-| `make check`          | 格式、静态检查与 TypeScript 类型检查      |
 | `make test`           | 运行单元测试与 Go 竞态检查                |
 | `make build`          | 构建后端与控制台                          |
-| `make ci`             | 依次执行检查、测试与构建                  |
 | `make portal-preview` | 预览已构建的控制台，需先执行 `make build` |
 | `make infra-stop`     | 停止 PostgreSQL 与 Redis，保留数据卷      |
 
@@ -131,15 +127,19 @@ HC_PUBLIC_IP=192.168.1.100 make ip-access-init
 
 ### 开发检查
 
-格式检查还需 Python 3.11 及以上版本和 `rg`（ripgrep）：
+在仓库根目录安装运行适配与插件测试所需的固定 DSH 依赖，再执行检查：
 
 ```bash
-python3 -m pip install -r requirements-dev.txt
-make format
-make ci
+npm ci --prefix infrastructure/runtime
+GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build go vet ./...
+npm run typecheck --prefix apps
+make test
+make build
 ```
 
-编辑器遵循 `.editorconfig`；Go 使用 `gofmt`，Python 使用 Ruff，前端与 Node 脚本使用 `apps` 中的 Prettier。工具版本由开发依赖固定，生成文件、第三方原包及不可变 SQL 迁移不参与格式化。
+`make test` 包含 Python、Go（含竞态检查）、前端、Node 及原生插件测试；缺少外部环境的测试会按条件跳过，完整集成验收需另行执行。
+
+当前格式检查脚本仍引用仓库中已缺失的 Prettier 配置，`make format`、`make format-check`、`make check` 和 `make ci` 尚不能作为完整可用的检查入口。现状与复验方式见[工程检查现状](docs/testing.md#工程检查现状)。
 
 ### 常见问题
 
@@ -208,7 +208,7 @@ docs/             需求、架构、部署与验收文档
 
 1. 对于较大的变更，先在 Issue 中说明使用场景与预期行为。
 2. Fork 仓库并创建分支，完成改动及相关文档；修复缺陷时补充能够复现问题的测试。
-3. 按[开发检查](#开发检查)准备工具，提交前运行 `make ci`，按涉及范围补充[集成或浏览器验证](docs/testing.md)。在 PR 中说明变更目的、行为变化和验证结果。
+3. 按[开发检查](#开发检查)准备工具，提交前执行其中的静态检查、测试与构建，按涉及范围补充[集成或浏览器验证](docs/testing.md)。在 PR 中说明变更目的、行为变化和验证结果。
 
 请勿提交 `.local/` 中的密码、密钥、令牌或本机配置。
 

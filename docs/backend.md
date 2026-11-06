@@ -44,13 +44,13 @@
 | PostgreSQL                               | 17                                                                               | 业务事实、事务/约束、Outbox、配额、会话和审计                                                                 |
 | Redis                                    | 7.4                                                                              | 脱敏短期缓存；ACL/noeviction；不能保存唯一授权/任务                                                           |
 | pgx                                      | v5                                                                               | 显式SQL、事务、条件更新、索引/约束和连接池；避免隐式事务，结构见[db/schema.sql](../db/schema.sql)             |
-| go-redis                                 | v9                                                                               | Cache/RateLimiter端口适配，200ms有界超时                                                                      |
+| go-redis                                 | v9                                                                               | 可重建缓存适配，200ms有界超时                                                                                 |
 | OIDC / OAuth2                            | 平台 AuthorizationServer + go-oidc/oauth2/go-jose + bcrypt                       | 内置授权码/PKCE、RS256/JWKS、数据库账号与BFF；标准库和成熟签名/散列实现                                       |
 | crypto/aes、cipher.GCM                   | Go标准库                                                                         | AES-256-GCM、外置主密钥、AAD、key_id                                                                          |
 | 内嵌 Workspace 模块 + Terraform Provider | 上游源码 v2.37.4，Terraform 1.15.5，Coder Provider 2.19.0，Docker Provider 4.6.0 | Go 内部编排Workspace/TemplateVersion/Build，平台PG持久化，Worker执行受控Terraform                             |
 | Docker Engine                            | D0按目标主机锁定兼容版本                                                         | 固定DSH镜像digest、非特权用户、批准规格、容器硬限额及独立卷、隔离网络；成员无Socket                           |
 | net/http/httputil                        | Go标准库                                                                         | 最小Gateway、固定路由、HTTP/WS代理、实时授权                                                                  |
-| OpenAPI                                  | 3.0.3                                                                            | 平台API契约、类型生成与fixture验证                                                                            |
+| OpenAPI                                  | 3.0.3                                                                            | 平台API契约、手写DTO与fixture对照；自动一致性检查待补齐                                                       |
 | 异步任务                                 | PostgreSQL Operation/Outbox + Worker                                             | 有界领取、幂等、租约和对账，不新增消息队列                                                                    |
 | 秘密                                     | 受控密钥存储及版本引用                                                           | AES-256-GCM密文存PG，key_id/AAD；主密钥只读文件外置                                                           |
 | 观测                                     | 结构化日志、指标、关联 ID                                                        | 脱敏；不记录 Key/Token/工作正文                                                                               |
@@ -431,7 +431,7 @@ QueryService通过当前会话及 `instances:read` 校验，只查询本人资�
 
 Worker的StorageUsageCollector每60秒采集RUNNING且READY、无活跃操作的原资产，10秒调度周期每批最多2项、每项5秒预算。取得同实例主机锁后，核验固定镜像、原容器挂载与原资产；用量采集仅执行容器内Node statfs读取/data文件系统计数，不扫描文件或启动已停止计算。发布再次核对instance.version与状态；过时结果丢弃，失败保留最近成功观察，5分钟后标记STALE。
 
-显式文件浏览通过独立短时`storage_browse_requests`队列执行，仅允许本人停止/软删除资产中的`workspace`与`dsh`根。Worker重新核对Owner权限、数据盘绑定、停止状态及无活动操作，取得同实例主机锁并以`ro,noload,nosuid,nodev`挂载；逐级`O_NOFOLLOW`打开路径，限制单页100项、预览512 KiB、下载64 MiB。文件请求使用一次性X25519密钥，Worker只将AES-GCM加密结果写入数据库，API在当前请求中解密；数据库WAL和备份不含明文正文。完成或失败后API删除请求行；超时请求最多保留2分钟供后台清理。列表元数据及文件内容不进入审计或长期缓存。
+显式文件浏览通过独立短时`storage_browse_requests`队列执行，允许本人运行、停止或软删除资产中的`workspace`与`dsh`根。Worker重新核对Owner权限、数据盘绑定、期望与观察状态及无活动操作，并取得同实例主机锁；运行中通过已核验容器的原卷只读浏览，停止/软删除时沿用受控离线`ro,noload,nosuid,nodev`挂载；逐级`O_NOFOLLOW`打开路径，限制单页100项、预览512 KiB、下载64 MiB。文件请求使用一次性X25519密钥，Worker只将AES-GCM加密结果写入数据库，API在当前请求中解密；数据库WAL和备份不含明文正文。完成或失败后API删除请求行；超时请求最多保留2分钟供后台清理。列表元数据及文件内容不进入审计或长期缓存。
 
 备份在物理操作前持久化RUNNING任务与ACCEPTED审计；完成加密并完整回读认证后，SUCCEEDED记录与末尾审计同事务提交。中断保留原任务，storage-backup-reconcile仅验证原持久化路径，禁止另建备份替代确认。storage-hold按精确资产预览/确认，和物理维护、日备份清理串行；网页仅增加Owner明确确认后的存储释放请求，物理执行仍留在Worker。日备份发布重命名同步私有路径，清理依次发布PRUNE_PENDING/PRUNED。
 
@@ -523,7 +523,7 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 ## 创建扩展与受控运行（REQ-25）
 
-API-005除既有`skills`外接受`connectors: [{id,version,catalog_version}]`、`memory/knowledge: [{id,version,scopes}]`和`plugins: [{id,version}]`。连接每类最多50项，插件最多12项；范围仅`personal/workspace`，工作空间ID由服务端解析。`workspaceextensions.Save`在同一创建事务锁定当前身份、Owner、源版本与工具授权，保存非秘密快照及context绑定；请求摘要包含全部选择。API-118 `GET /v1/workspace-extensions/plugins`提供固定版本兼容目录，API-119 `GET /v1/workspace-extensions/{id}`仅返回本人及当前可读类型的逐项状态。RUNNING不代表扩展已加载，状态必须匹配当前`runtime_generation`；运行两分钟仍未确认时显示失败和诊断指引。
+API-005除既有`skills`外接受`connectors: [{id,version,catalog_version}]`、`memory/knowledge: [{id,version,scopes}]`和`plugins: [{id,version}]`。记忆连接最多1项，连接器和知识库各最多50项，插件最多12项；记忆与知识库统一保存为`personal`共享内容，旧客户端的`scopes`和`session_scope`仍接受校验，但不建立额外工作空间私有语料。`workspaceextensions.Save`在同一创建事务锁定当前身份、Owner、源版本与工具授权，保存非秘密快照及context绑定；请求摘要包含全部选择。API-118 `GET /v1/workspace-extensions/plugins`提供固定版本兼容目录，API-119 `GET /v1/workspace-extensions/{id}`仅返回本人及当前可读类型的逐项状态。RUNNING不代表扩展已加载，状态必须匹配当前`runtime_generation`；运行两分钟仍未确认时显示失败和诊断指引。
 
 Worker使用批准的原镜像、隔离无网络helper写原生web profile，启用随附准确版本的官方组合并装载`cloud_extensions.mjs`，无需新镜像、监听端口或容器出口。第三方、缺依赖和需额外配置的插件当前禁选，不执行npm安装或构建脚本。CREATE复核当前配置权限及接受时授权代次；快照摘要和原盘身份保护恢复，START沿用持久目录、不覆盖用户修改。
 
@@ -545,6 +545,6 @@ Mem0、Graphiti 0.2.0 与 OpenViking 的归档流程对齐：原始用户、助�
 
 受信运维维护数据库默认模板时同步递增 `revision`；本人覆盖优先于默认模板，模板更新不覆盖个人资料。
 
-`@harness-cloud/dsh-mem0-memory@0.2.0`通过 `apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.2.0.tgz` 分发，未发布到公共npm。开启Mem0完整会话同步的新建工作空间自动安装此原生组合包，Profile依赖引用随附本地归档，支持以后原生插件安装和重启；加载就绪检查原生bundle版本、启用状态和`mem0Memory`服务。与OpenViking相同，组合包通过`dsh-skill-filesystem`加载`mem0-memory`技能，通过`dsh-mcp-client`加载stdio MCP服务，提供`mcp__mem0__search`和`mcp__mem0__status`；不直接注册内置工具，技能和工具随原生插件启停。平台模式通过受控回环代理共用已选连接，无需重填外部凭据。目录条目、包下载与工作空间运行分别管理；手动下载后的独立模式由用户在DSH安装后独立配置工作空间可访问的 `endpoint`、服务 `apiKey` 和固定 `userId`，再显式启用。此插件不继承平台记忆连接的凭据或命名空间，其内容不会自动出现在平台连接管理列表；个人上传的同名离线包继续下载本人加密保存的原包。安装、默认行为及验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)和[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
+`@harness-cloud/dsh-mem0-memory@0.2.0`通过 `apps/public/plugin-packages/harness-cloud-dsh-mem0-memory-0.2.0.tgz` 分发，未发布到公共npm。开启Mem0完整会话同步的新建工作空间自动安装此原生组合包，Profile依赖引用随附本地归档，支持以后原生插件安装和重启；加载就绪检查原生bundle版本、启用状态和`mem0Memory`服务。与OpenViking相同，组合包通过`dsh-skill-filesystem`加载`mem0-memory`技能，通过`dsh-mcp-client`加载stdio MCP服务，提供`mcp__mem0__search`和`mcp__mem0__status`；不直接注册内置工具，技能和工具随原生插件启停。平台模式通过受控回环代理共用已选连接，无需重填外部凭据。目录条目、包下载与工作空间运行分别管理；手动下载后的独立模式由用户在DSH安装后独立配置工作空间可访问的 `endpoint`、服务 `apiKey` 和固定 `userId`，再显式启用。独立模式不继承平台记忆连接的凭据或命名空间，其内容不会自动出现在平台连接管理列表；个人上传的同名离线包继续下载本人加密保存的原包。安装、默认行为及验证边界见[Mem0独立插件需求](requirements.md#6182-mem0-独立插件包)和[Mem0 插件配置](../infrastructure/plugins/mem0/README.md)。
 
 `@harness-cloud/dsh-graphiti-memory@0.2.0` 随平台分发并按摘要离线安装，Profile保存本地归档依赖。与OpenViking、Mem0相同，原生技能提供器加载 `graphiti-memory`，MCP客户端提供 `mcp__graphiti__search/status`；就绪检查对应bundle及 `graphitiMemory` 服务。平台扩展仅提供受控回环代理，不再加载Graphiti旧会话适配器，也不重复注册内置记忆工具。此版本仅支持平台连接，参见[Graphiti插件说明](../infrastructure/plugins/graphiti/README.md)。
