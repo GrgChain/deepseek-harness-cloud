@@ -59,40 +59,6 @@ const defaultPlugins = [
   },
   {
     ...customPlugin,
-    id: 'default-dsh-ssh',
-    name: 'DSH SSH',
-    package_name: '@linxin666/dsh-ssh',
-    version: '0.4.11',
-    author: 'zhu1090093659 / linxin666',
-    category: '开发工具',
-    summary: '在 DSH Web 中使用 SSH 终端、SFTP 和远程主机工具。',
-    description: '为 DSH Web 提供远程 SSH 操作，包括主机配置、终端和文件传输。',
-    keywords: ['SSH', 'SFTP', '远程', '终端'],
-    repository: 'https://github.com/zhu1090093659/dsh-web',
-    documentation: 'https://github.com/zhu1090093659/dsh-web#readme',
-    compatibility: '包声明 DSH >=0.2.1-rc.3；Node.js ^22.19.0 或 >=24.0.0。',
-    checked_at: '2026-10-27',
-    custom: false,
-  },
-  {
-    ...customPlugin,
-    id: 'default-dshmarket',
-    name: 'DSH Market',
-    package_name: 'dshmarket',
-    version: '1.71.1',
-    author: 'dsh-market',
-    category: '集成扩展',
-    summary: '社区维护的 DSH 插件发现与浏览工具。',
-    description: '该第三方组合包在 DSH 中提供社区目录的浏览和搜索。',
-    keywords: ['市场', '目录', 'marketplace', '发现'],
-    repository: 'https://github.com/dsh-market/dsh-market',
-    documentation: 'https://github.com/dsh-market/dsh-market',
-    compatibility: '未声明 DSH 版本范围，需由 DSH 检查依赖兼容性。',
-    checked_at: '2026-10-27',
-    custom: false,
-  },
-  {
-    ...customPlugin,
     id: 'mem0-memory',
     name: 'Mem0 记忆',
     package_name: '@harness-cloud/dsh-mem0-memory',
@@ -107,6 +73,24 @@ const defaultPlugins = [
     compatibility: 'DSH 0.2.1-alpha.2；Node.js >=24。',
     checked_at: '2026-11-03',
     source_note: '本地维护的 DSH 组合包，随平台分发离线包',
+    custom: false,
+  },
+  {
+    ...customPlugin,
+    id: 'graphiti-memory',
+    name: 'Graphiti 记忆',
+    package_name: '@harness-cloud/dsh-graphiti-memory',
+    version: '0.2.0',
+    author: 'Harness Cloud',
+    category: '会话与记忆',
+    summary: '通过技能检索 Graphiti 记忆，归档会话后提取长期记忆。',
+    description: '本项目维护的 DSH 原生记忆插件，内含 graphiti-memory 技能和 MCP 工具。',
+    keywords: ['记忆', '图谱', 'Graphiti', 'MCP'],
+    repository: '',
+    documentation: '',
+    compatibility: '适配 DSH 0.2.1-alpha.2；Node.js 24。需要平台 Graphiti 记忆连接。',
+    checked_at: '2026-11-03',
+    source_note: '本项目维护的离线组合包，随平台分发',
     custom: false,
   },
 ];
@@ -215,8 +199,8 @@ test('plugin square navigation and responsive catalog work without querying or c
   expect(labels.indexOf('模型提供商')).toBe(labels.indexOf('插件') + 1);
   await nav.getByRole('link', { name: '插件', exact: true }).click();
   await expect(page.getByRole('heading', { name: '插件', exact: true })).toBeVisible();
-  await expect(page.getByRole('article')).toHaveCount(4);
-  for (const name of ['OpenViking 记忆', 'DSH SSH', 'DSH Market', 'Mem0 记忆'])
+  await expect(page.getByRole('article')).toHaveCount(3);
+  for (const name of ['OpenViking 记忆', 'Mem0 记忆', 'Graphiti 记忆'])
     await expect(page.getByRole('article', { name, exact: true })).toBeVisible();
   await expect(page.getByText('官方', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('combobox', { name: '插件来源', exact: true })).toHaveCount(0);
@@ -255,7 +239,7 @@ test('plugin square navigation and responsive catalog work without querying or c
   await expect(page.getByRole('article')).toHaveCount(0);
   catalogState = 'loaded';
   await page.getByRole('button', { name: /^重\s*试$/ }).click();
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   expect(workspaceRequests).toEqual([]);
   expect(writes).toEqual([]);
   expect(errors).toEqual([]);
@@ -266,24 +250,31 @@ test('search and categories cover third-party and local packages, authors and ca
 }) => {
   await setup(page);
   await page.goto('/app/plugins');
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   const search = page.getByRole('searchbox', { name: '搜索插件', exact: true });
   await search.fill('@openviking/dsh-memory-plugin');
   await expect(page.getByRole('article')).toHaveCount(1);
   await expect(page.getByRole('article', { name: 'OpenViking 记忆', exact: true })).toBeVisible();
-  await search.fill('zhu1090093659');
-  await expect(page.getByRole('article', { name: 'DSH SSH', exact: true })).toBeVisible();
-  await search.fill('SFTP');
+  await search.fill('volcengine');
+  await expect(page.getByRole('article', { name: 'OpenViking 记忆', exact: true })).toBeVisible();
+  await search.fill('图谱');
   await expect(page.getByRole('article')).toHaveCount(1);
-  await expect(page.getByRole('article', { name: 'DSH SSH', exact: true })).toBeVisible();
-  for (const removed of ['DeepSeek', '@deepseek-ai/dsh-experimental-session-search']) {
+  await expect(page.getByRole('article', { name: 'Graphiti 记忆', exact: true })).toBeVisible();
+  for (const removed of [
+    'DeepSeek',
+    '@deepseek-ai/dsh-experimental-session-search',
+    'DSH SSH',
+    '@linxin666/dsh-ssh',
+    'DSH Market',
+    'dshmarket',
+  ]) {
     await search.fill(removed);
     await expect(page.getByRole('article')).toHaveCount(0);
     await expect(page.getByText('没有符合条件的插件', { exact: true })).toBeVisible();
   }
   await page.getByRole('button', { name: '清除筛选', exact: true }).click();
   await expect(search).toHaveValue('');
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   await page
     .locator('.ant-select')
     .filter({ has: page.getByRole('combobox', { name: '插件分类', exact: true }) })
@@ -295,20 +286,18 @@ test('search and categories cover third-party and local packages, authors and ca
     .locator('.ant-select-dropdown:visible')
     .getByTitle('会话与记忆', { exact: true })
     .click();
-  await expect(page.getByRole('article')).toHaveCount(2);
-  for (const name of ['OpenViking 记忆', 'Mem0 记忆'])
+  await expect(page.getByRole('article')).toHaveCount(3);
+  for (const name of ['OpenViking 记忆', 'Mem0 记忆', 'Graphiti 记忆'])
     await expect(page.getByRole('article', { name, exact: true })).toBeVisible();
   await search.fill('SSH');
   await expect(page.getByRole('article')).toHaveCount(0);
   await search.fill('');
   await select(page, '插件分类', '开发工具');
-  await expect(page.getByRole('article')).toHaveCount(1);
-  await expect(page.getByRole('article', { name: 'DSH SSH', exact: true })).toBeVisible();
+  await expect(page.getByRole('article')).toHaveCount(0);
   await select(page, '插件分类', '集成扩展');
-  await expect(page.getByRole('article')).toHaveCount(1);
-  await expect(page.getByRole('article', { name: 'DSH Market', exact: true })).toBeVisible();
+  await expect(page.getByRole('article')).toHaveCount(0);
   await select(page, '插件分类', '全部分类');
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
 });
 
 test('details expose pinned version, provenance, compatibility and manual install guidance; copying does not install', async ({
@@ -323,18 +312,18 @@ test('details expose pinned version, provenance, compatibility and manual instal
   });
   await page.goto('/app/plugins');
   await page
-    .getByRole('article', { name: 'DSH SSH', exact: true })
+    .getByRole('article', { name: 'OpenViking 记忆', exact: true })
     .getByRole('heading')
     .getByRole('button')
     .click();
   const drawer = page.getByRole('dialog', { name: '插件详情', exact: true });
-  await expect(drawer).toContainText('0.4.11');
-  await expect(drawer).toContainText('>=0.2.1-rc.3');
+  await expect(drawer).toContainText('0.5.29');
+  await expect(drawer).toContainText('^22.19.0 或 >=24');
   await expect(drawer).toContainText('来源核对');
   await expect(drawer).toContainText('安装与启用由你在 DSH 中完成');
   await expect(drawer.getByRole('link', { name: '源代码', exact: true })).toHaveAttribute(
     'href',
-    'https://github.com/zhu1090093659/dsh-web',
+    'https://github.com/volcengine/OpenViking',
   );
   await expect(drawer.getByRole('link', { name: '源代码', exact: true })).toHaveAttribute(
     'rel',
@@ -342,7 +331,7 @@ test('details expose pinned version, provenance, compatibility and manual instal
   );
   await expect(drawer.getByRole('link', { name: 'npm 包', exact: true })).toHaveAttribute(
     'href',
-    'https://www.npmjs.com/package/@linxin666/dsh-ssh/v/0.4.11',
+    'https://www.npmjs.com/package/@openviking/dsh-memory-plugin/v/0.5.29',
   );
   await expect(drawer.getByRole('button', { name: '复制包名', exact: true })).toBeInViewport();
   const provenance = drawer.locator('details');
@@ -354,16 +343,16 @@ test('details expose pinned version, provenance, compatibility and manual instal
   await drawer.getByRole('button', { name: '复制包名', exact: true }).click();
   await expect(drawer.getByRole('status')).toHaveText('包名与版本已复制');
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    '@linxin666/dsh-ssh@0.4.11',
+    '@openviking/dsh-memory-plugin@0.5.29',
   );
   expect(writes).toEqual([]);
   await page.keyboard.press('Escape');
   await expect(drawer).not.toBeVisible();
   await page
-    .getByRole('article', { name: 'DSH Market', exact: true })
+    .getByRole('article', { name: 'Mem0 记忆', exact: true })
     .getByRole('button', { name: '查看详情', exact: true })
     .click();
-  await expect(page.getByRole('dialog')).toContainText('dshmarket@1.71.1');
+  await expect(page.getByRole('dialog')).toContainText('@harness-cloud/dsh-mem0-memory@0.2.0');
   await expect(page.getByRole('button', { name: '复制包名', exact: true })).toBeVisible();
 });
 
@@ -399,7 +388,7 @@ test('clipboard failure keeps a selectable package and detail close preserves fi
   await page.getByRole('searchbox', { name: '搜索插件', exact: true }).fill('不存在的插件');
   await expect(page.getByText('没有符合条件的插件', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '清除筛选', exact: true }).click();
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   await expect(page.getByRole('searchbox', { name: '搜索插件', exact: true })).toHaveValue('');
 });
 
@@ -477,7 +466,7 @@ test('an edited Mem0 version cannot download a different bundled version or offe
   page,
 }) => {
   await setup(page);
-  const mem0 = defaultPlugins[3];
+  const mem0 = defaultPlugins[1];
   await page.route('**/v1/plugins', (route) =>
     route.fulfill({ json: { items: [{ ...mem0, version: '9.0.0' }] } }),
   );
@@ -498,7 +487,7 @@ for (const version of ['0.2.0', '9.0.0']) {
   }) => {
     await setup(page);
     const plugin = {
-      ...defaultPlugins[3],
+      ...defaultPlugins[1],
       id: 'graphiti-memory',
       name: 'Graphiti 记忆',
       package_name: '@harness-cloud/dsh-graphiti-memory',
@@ -604,7 +593,7 @@ test('adding an npm plugin reads its pinned metadata and persists it across relo
     return route.fulfill({ json: customPlugin });
   });
   await page.goto('/app/plugins');
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   const search = page.getByRole('searchbox', { name: '搜索插件', exact: true });
   await search.fill('当前筛选不包含新插件');
   await select(page, '插件分类', '会话与记忆');
@@ -632,7 +621,7 @@ test('adding an npm plugin reads its pinned metadata and persists it across relo
   await submit.click();
   await expect(modal).not.toBeVisible();
   await expect(search).toHaveValue('');
-  await expect(page.getByRole('article')).toHaveCount(5);
+  await expect(page.getByRole('article')).toHaveCount(4);
   await expect(page.getByRole('article', { name: customPlugin.name, exact: true })).toBeVisible();
   await expect(
     page
@@ -641,7 +630,7 @@ test('adding an npm plugin reads its pinned metadata and persists it across relo
   ).toContainText('全部分类');
   await page.reload();
   await expect(page.getByRole('article', { name: customPlugin.name, exact: true })).toBeVisible();
-  await expect(page.getByRole('article')).toHaveCount(5);
+  await expect(page.getByRole('article')).toHaveCount(4);
   expect(previews).toBe(1);
   expect(saves).toBe(1);
   expect(lists).toBeGreaterThanOrEqual(2);
@@ -891,7 +880,7 @@ test('an offline npm archive persists and downloads safely across transient erro
   const card = page.getByRole('article', { name: offlinePlugin.name, exact: true });
   await expect(card).toBeVisible();
   await expect(card.getByText('离线', { exact: true })).toBeVisible();
-  await expect(page.getByRole('article')).toHaveCount(5);
+  await expect(page.getByRole('article')).toHaveCount(4);
   await page.reload();
   await expect(card).toBeVisible();
   await expect(card.getByText('离线', { exact: true })).toBeVisible();
@@ -1215,13 +1204,13 @@ test('editing a default plugin replaces its server identity and persists every c
   await expect(details).toContainText(changed.author);
   await expect(details).toContainText(changed.version);
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   await expect(page.getByRole('article', { name: original.name, exact: true })).toHaveCount(0);
   await expect(page.getByRole('article', { name: changed.name, exact: true })).toContainText(
     changed.summary,
   );
   await page.reload();
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
   await page
     .getByRole('article', { name: changed.name, exact: true })
     .getByRole('button', { name: '查看详情', exact: true })
@@ -1289,7 +1278,7 @@ for (const existing of [customPlugin, offlinePlugin])
     await expect(details).toContainText(changed.name);
     await expect(details).not.toContainText(existing.source_note);
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('article')).toHaveCount(5);
+    await expect(page.getByRole('article')).toHaveCount(4);
     await page.reload();
     await page
       .getByRole('article', { name: changed.name, exact: true })
@@ -1439,7 +1428,7 @@ test('the third-party catalog is keyboard accessible and uses safe public source
   await setup(page);
   await page.goto('/app/plugins');
   const titleButton = page
-    .getByRole('article', { name: 'DSH Market', exact: true })
+    .getByRole('article', { name: 'Mem0 记忆', exact: true })
     .getByRole('heading')
     .getByRole('button');
   await titleButton.focus();
@@ -1454,5 +1443,5 @@ test('the third-party catalog is keyboard accessible and uses safe public source
   }
   await page.keyboard.press('Escape');
   await expect(drawer).not.toBeVisible();
-  await expect(page.getByRole('article')).toHaveCount(4);
+  await expect(page.getByRole('article')).toHaveCount(3);
 });

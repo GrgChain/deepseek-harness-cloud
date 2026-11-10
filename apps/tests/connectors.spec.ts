@@ -27,7 +27,7 @@ const tool = {
   input_schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
   definition: { annotations: { readOnlyHint: true, destructiveHint: false } },
   hash: 'h',
-  enabled: false,
+  enabled: true,
 };
 const fixture = {
   id,
@@ -69,11 +69,16 @@ async function setup(page: Page, permissions = user.permissions) {
     r.fulfill({ json: { items: [], total: 0 } }),
   );
   await page.route(`**/v1/connectors/${id}/tools`, (r) => {
+    const selected = r.request().postDataJSON().enabled_tools;
     expect(r.request().postDataJSON()).toEqual({
       expected_version: current.version,
-      enabled_tools: ['echo'],
+      enabled_tools: selected,
     });
-    current = { ...current, version: current.version + 1, tools: [{ ...tool, enabled: true }] };
+    current = {
+      ...current,
+      version: current.version + 1,
+      tools: [{ ...tool, enabled: selected.includes('echo') }],
+    };
     return r.fulfill({ json: current });
   });
   await page.route(`**/v1/connectors/${id}/invoke`, (r) => {
@@ -96,7 +101,7 @@ async function setup(page: Page, permissions = user.permissions) {
   });
   return { invokes: () => invokes, saves };
 }
-test('workbench connector tools require selection and parameter confirmation', async ({
+test('discovered tools are available by default and can be disabled before parameter confirmation', async ({
   page,
 }, info) => {
   const calls = await setup(page);
@@ -106,17 +111,40 @@ test('workbench connector tools require selection and parameter confirmation', a
   await expect(page.getByRole('button', { name: '导出配置', exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.getByRole('button', { name: '工具与记录' }).click();
+  await expect(page.getByRole('button', { name: '试调用', exact: true })).toBeEnabled();
+  await page.getByRole('switch', { name: '启用工具 echo' }).click();
   await expect(page.getByRole('button', { name: '试调用', exact: true })).toBeDisabled();
   await page.getByRole('switch', { name: '启用工具 echo' }).click();
   await expect(page.getByRole('button', { name: '试调用', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '试调用', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '试调用 · echo' });
+  await expect(modal.getByLabel('text', { exact: true })).toBeVisible();
+  await expect(modal.getByLabel('超时（秒）')).not.toBeVisible();
+  await modal.getByRole('button', { name: '检查参数' }).click();
+  await expect(modal.getByText('请填写 text', { exact: true })).toBeVisible();
+  expect(calls.invokes()).toBe(0);
+  await modal.getByLabel('text', { exact: true }).fill('中文参数');
+  await page.screenshot({
+    path: info.outputPath('connector-tool-call-form.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
+  await modal.getByText('JSON 填写', { exact: true }).click();
+  await expect(modal.getByLabel('调用参数（JSON）')).toHaveValue('{\n  "text": "中文参数"\n}');
   await modal.getByLabel('调用参数（JSON）').fill('{');
   await modal.getByRole('button', { name: '检查参数' }).click();
   await expect(modal.getByRole('alert')).toBeVisible();
   expect(calls.invokes()).toBe(0);
   await modal.getByLabel('调用参数（JSON）').fill('{"text":"中文参数"}');
+  await modal.getByText('表单填写', { exact: true }).click();
+  await expect(modal.getByLabel('text', { exact: true })).toHaveValue('中文参数');
   await modal.getByRole('button', { name: '检查参数' }).click();
+  await expect(modal.getByText('超时 60 秒', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: info.outputPath('connector-tool-call-confirm.png'),
+    fullPage: true,
+    animations: 'disabled',
+  });
   await expect(modal.getByRole('button', { name: '确认调用', exact: true })).toBeDisabled();
   await modal.getByRole('checkbox', { name: '确认将以上参数发送到此服务' }).check();
   await modal.getByRole('button', { name: '确认调用', exact: true }).click();
@@ -139,6 +167,185 @@ test('workbench connector tools require selection and parameter confirmation', a
     animations: 'disabled',
   });
 });
+test('server switches retain configuration and finished call history has no empty action column', async ({
+  page,
+}) => {
+  await setup(page);
+  let current = structuredClone(fixture);
+  const transitions: boolean[] = [];
+  await page.route('**/v1/connectors', (r) =>
+    r.fulfill({ json: { items: [current], endpoints, catalog } }),
+  );
+  await page.route(`**/v1/connectors/${id}/enabled`, (r) => {
+    const body = r.request().postDataJSON();
+    expect(body.expected_version).toBe(current.version);
+    transitions.push(body.enabled);
+    current = { ...current, enabled: body.enabled, version: current.version + 1 };
+    return r.fulfill({ json: current });
+  });
+  await page.route(`**/v1/connectors/${id}/calls?*`, (r) =>
+    r.fulfill({
+      json: {
+        items: [{ id: 'done', tool: 'echo', status: 'SUCCEEDED', created_at: fixture.updated_at }],
+        total: 1,
+      },
+    }),
+  );
+  await page.goto('/app/connectors');
+  const toggle = page.getByRole('switch', { name: '启用服务 业务工具', exact: true });
+  await expect(toggle).toBeChecked();
+  await toggle.click();
+  await expect(toggle).not.toBeChecked();
+  await expect(page.getByRole('article').getByText('已停用', { exact: true })).toBeVisible();
+  await toggle.click();
+  await expect(toggle).toBeChecked();
+  expect(transitions).toEqual([false, true]);
+  await page.getByRole('button', { name: '工具与记录' }).click();
+  await page.getByRole('tab', { name: '调用记录', exact: true }).click();
+  const history = page.getByRole('tabpanel', { name: '调用记录', exact: true });
+  await expect(history.getByRole('columnheader', { name: '操作', exact: true })).toHaveCount(0);
+  await expect(history.getByText('成功', { exact: true })).toBeVisible();
+});
+
+test('parameter forms preserve numeric boolean and enum values and require write confirmation', async ({
+  page,
+}) => {
+  await setup(page);
+  const typedTool = {
+    ...tool,
+    name: 'synthetic_write',
+    enabled: true,
+    definition: {},
+    input_schema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string' },
+        count: { type: 'integer' },
+        enabled: { type: 'boolean' },
+        mode: { type: 'string', enum: ['safe', 'fast'] },
+      },
+      required: ['text', 'count', 'enabled', 'mode'],
+    },
+  };
+  await page.route('**/v1/connectors', (r) =>
+    r.fulfill({ json: { items: [{ ...fixture, tools: [typedTool] }], endpoints, catalog } }),
+  );
+  let submitted: Record<string, unknown> | undefined;
+  await page.route(`**/v1/connectors/${id}/invoke`, (r) => {
+    submitted = r.request().postDataJSON();
+    return r.fulfill({
+      json: { id: 'typed-call', status: 'SUCCEEDED', result: { content: [] } },
+    });
+  });
+  await page.goto('/app/connectors');
+  await page.getByRole('button', { name: '工具与记录' }).click();
+  await page.getByRole('button', { name: '试调用', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: '试调用 · synthetic_write', exact: true });
+  await modal.getByLabel('text', { exact: true }).fill('类型保留');
+  await modal.getByLabel('count', { exact: true }).fill('0');
+  await modal.getByLabel('enabled', { exact: true }).press('ArrowDown');
+  await page.getByRole('option', { name: 'false', exact: true }).click();
+  await modal.getByLabel('mode', { exact: true }).press('ArrowDown');
+  await page.getByRole('option', { name: 'safe', exact: true }).click();
+  await modal.getByText('JSON 填写', { exact: true }).click();
+  const expected = { text: '类型保留', count: 0, enabled: false, mode: 'safe' };
+  expect(JSON.parse(await modal.getByLabel('调用参数（JSON）').inputValue())).toEqual(expected);
+  await modal.getByText('表单填写', { exact: true }).click();
+  await expect(modal.getByLabel('count', { exact: true })).toHaveValue('0');
+  await modal.getByRole('button', { name: /更多设置/ }).click();
+  await modal.getByLabel('超时（秒）').fill('12');
+  await modal.getByRole('button', { name: '检查参数', exact: true }).click();
+  await modal.getByRole('checkbox', { name: '确认将以上参数发送到此服务' }).check();
+  await expect(modal.getByRole('button', { name: '确认调用', exact: true })).toBeDisabled();
+  expect(submitted).toBeUndefined();
+  await modal.getByRole('checkbox', { name: '此工具可能修改或发送外部数据，我确认执行' }).check();
+  await modal.getByRole('button', { name: '确认调用', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '工具调用结果' })).toBeVisible();
+  expect(submitted).toMatchObject({
+    tool: 'synthetic_write',
+    arguments: expected,
+    timeout_seconds: 12,
+    confirmed: true,
+    risk_confirmed: true,
+  });
+});
+
+test('background refresh preserves entered arguments and cannot approve a changed service version', async ({
+  page,
+}) => {
+  await setup(page);
+  let current = structuredClone(fixture);
+  let reads = 0;
+  let invokes = 0;
+  await page.route('**/v1/connectors', (r) => {
+    reads++;
+    return r.fulfill({ json: { items: [current], endpoints, catalog } });
+  });
+  await page.route(`**/v1/connectors/${id}/invoke`, (r) => {
+    invokes++;
+    expect(r.request().postDataJSON()).toMatchObject({
+      expected_version: 1,
+      arguments: { text: '保留输入' },
+    });
+    return r.fulfill({
+      status: 409,
+      json: { code: 'VERSION_CONFLICT', message: '连接或工具目录已变更，请刷新后重试' },
+    });
+  });
+  await page.goto('/app/connectors');
+  await page.getByRole('button', { name: '工具与记录' }).click();
+  await page.getByRole('button', { name: '试调用', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: '试调用 · echo', exact: true });
+  await modal.getByLabel('text', { exact: true }).fill('保留输入');
+  const initialReads = reads;
+  current = { ...current, version: 2 };
+  await expect.poll(() => reads, { timeout: 10000 }).toBeGreaterThan(initialReads);
+  await expect(modal.getByLabel('text', { exact: true })).toHaveValue('保留输入');
+  await modal.getByRole('button', { name: '检查参数' }).click();
+  await modal.getByRole('checkbox', { name: '确认将以上参数发送到此服务' }).check();
+  await modal.getByRole('button', { name: '确认调用', exact: true }).click();
+  await expect(modal.getByRole('alert')).toContainText('已变更');
+  expect(invokes).toBe(1);
+});
+
+test('complex parameter schemas retain JSON editing and forward nested arguments intact', async ({
+  page,
+}) => {
+  await setup(page);
+  const complex = {
+    ...tool,
+    enabled: true,
+    input_schema: {
+      type: 'object',
+      properties: { query: { type: 'object', properties: { text: { type: 'string' } } } },
+      required: ['query'],
+    },
+  };
+  await page.route('**/v1/connectors', (r) =>
+    r.fulfill({ json: { items: [{ ...fixture, tools: [complex] }], endpoints, catalog } }),
+  );
+  let submitted: Record<string, unknown> | undefined;
+  await page.route(`**/v1/connectors/${id}/invoke`, (r) => {
+    submitted = r.request().postDataJSON();
+    return r.fulfill({
+      json: { id: 'nested-call', status: 'SUCCEEDED', result: { content: [] } },
+    });
+  });
+  await page.goto('/app/connectors');
+  await page.getByRole('button', { name: '工具与记录' }).click();
+  await page.getByRole('button', { name: '试调用', exact: true }).click();
+  const modal = page.getByRole('dialog', { name: '试调用 · echo', exact: true });
+  await expect(modal.getByText('表单填写', { exact: true })).toHaveCount(0);
+  const args = { query: { text: '嵌套查询' } };
+  await modal.getByLabel('调用参数（JSON）').fill(JSON.stringify(args));
+  await modal.getByRole('button', { name: '检查参数', exact: true }).click();
+  expect(submitted).toBeUndefined();
+  await modal.getByRole('checkbox', { name: '确认将以上参数发送到此服务' }).check();
+  await modal.getByRole('button', { name: '确认调用', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: '工具调用结果' })).toBeVisible();
+  expect(submitted).toMatchObject({ arguments: args, timeout_seconds: 60 });
+});
+
 test('read-only connector user cannot configure tools or invoke', async ({ page }) => {
   await setup(page, ['connectors:read']);
   await page.goto('/app/connectors');
@@ -215,7 +422,7 @@ test('connector save errors retain fields', async ({ page }) => {
   await modal.getByRole('button', { name: /^取\s*消$/ }).click();
 });
 
-test('personal MCP works without platform endpoints and accepts an owner supplied HTTPS address', async ({
+test('personal MCP starts empty without recommended services and accepts an owner supplied HTTPS address', async ({
   page,
 }) => {
   await setup(page);
@@ -225,12 +432,14 @@ test('personal MCP works without platform endpoints and accepts an owner supplie
       saved = r.request().postDataJSON();
       return r.fulfill({ status: 201, json: { ...fixture, ...saved, endpoint_id: 'personal' } });
     }
-    return r.fulfill({ json: { items: [], endpoints: [], catalog } });
+    return r.fulfill({ json: { items: [], endpoints: [endpoints[0]], catalog } });
   });
   await page.goto('/app/connectors');
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
   await page.getByRole('button', { name: '自定义 MCP', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
+  await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
+  await expect(editor.getByLabel('服务地址')).toBeEmpty();
   await editor.getByRole('button', { name: /更多设置/ }).click();
   await expect(editor.getByLabel('协议版本', { exact: true })).toHaveCount(0);
   await expect(editor.getByLabel('说明', { exact: true })).toBeVisible();
@@ -353,7 +562,7 @@ test('built-in directory exposes all providers with search categories and honest
     page.getByRole('dialog', { name: '添加连接器', exact: true }).getByRole('article'),
   ).toHaveCount(catalog.entries.length);
 });
-test('built-in configuration offers a recommended address and preserves personal setup', async ({
+test('built-in configuration uses official defaults and preserves personal setup without recommended services', async ({
   page,
 }, info) => {
   const calls = await setup(page);
@@ -364,13 +573,12 @@ test('built-in configuration offers a recommended address and preserves personal
   await directory.getByRole('button', { name: /^授权连接 / }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
   await expect(editor.getByLabel('连接器名称')).toHaveValue('Notion');
-  await expect(editor.getByLabel('服务地址')).toHaveValue('https://mcp.example.com/notion');
+  await expect(editor.getByLabel('服务地址')).toHaveValue('https://mcp.notion.com/mcp');
   await expect(editor.getByText('暂未接入', { exact: true })).toHaveCount(0);
   await expect(editor.getByLabel('服务地址')).toBeEditable();
-  await editor.getByLabel('推荐服务').press('ArrowDown');
-  await expect(page.getByRole('option', { name: '测试服务', exact: true })).toHaveCount(0);
-  await page.getByRole('option', { name: '已批准 Notion 网关', exact: true }).click();
-  await editor.getByText('无需认证', { exact: true }).click();
+  await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
+  await editor.getByLabel('服务地址').fill('https://mcp.example.com/notion');
+  await editor.getByLabel('认证方式').press('ArrowDown');
   await page.getByRole('option', { name: 'Bearer Token', exact: true }).click();
   await editor.getByLabel('服务凭据', { exact: true }).fill('private-test-token');
   await page.screenshot({
@@ -583,9 +791,7 @@ test('platform settings and copies allow personal addresses while presets retain
   let editor = page.getByRole('dialog', { name: '连接器设置', exact: true });
   await expect(editor.getByLabel('服务地址')).toBeEditable();
   await expect(editor.getByLabel('服务地址')).toHaveValue(endpoints[0].url);
-  await editor.getByLabel('推荐服务').press('ArrowDown');
-  await page.getByRole('option', { name: '已批准 Notion 网关', exact: true }).click();
-  await expect(editor.getByLabel('服务地址')).toHaveValue(endpoints[1].url);
+  await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
   await editor.getByLabel('服务地址').fill('https://own.example.com/mcp');
   await editor.getByRole('button', { name: /^保\s*存$/ }).click();
   await expect(editor).toHaveCount(0);
@@ -596,6 +802,7 @@ test('platform settings and copies allow personal addresses while presets retain
   editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
   await expect(editor.getByLabel('连接器名称')).toHaveValue('业务工具 副本');
   await expect(editor.getByLabel('服务地址')).toBeEditable();
+  await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
   await editor.getByRole('button', { name: /^取\s*消$/ }).click();
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
   await page.getByRole('button', { name: '配置连接 QQ 音乐', exact: true }).click();

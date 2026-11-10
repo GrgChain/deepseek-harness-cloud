@@ -158,7 +158,7 @@ func Current(ctx context.Context, tx pgx.Tx, p identity.Principal, instance stri
 		return false, err
 	}
 	if item.Kind == "connector" {
-		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mcp_connectors WHERE id=$1 AND org_id=$2 AND owner_id=$3 AND version=$4 AND catalog_version=$5 AND enabled AND status='READY' AND deleted_at IS NULL) AND public.hc_has_permission($2,$3,'connectors:invoke')`, item.ID, p.OrganizationID, p.UserID, item.Version, item.CatalogVersion).Scan(&valid)
+		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM mcp_connectors WHERE id=$1 AND org_id=$2 AND owner_id=$3 AND enabled AND status='READY' AND deleted_at IS NULL) AND public.hc_has_permission($2,$3,'connectors:invoke')`, item.ID, p.OrganizationID, p.UserID).Scan(&valid)
 	} else {
 		err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM context_connections c JOIN context_bindings b ON b.connection_id=c.id WHERE c.id=$1 AND c.org_id=$2 AND c.owner_id=$3 AND c.kind=$4 AND c.version=$5 AND c.enabled AND c.status='READY' AND b.instance_id=$6 AND b.enabled AND b.scopes=$7::jsonb)`, item.ID, p.OrganizationID, p.UserID, item.Kind, item.Version, instance, mustJSON(item.Scopes)).Scan(&valid)
 	}

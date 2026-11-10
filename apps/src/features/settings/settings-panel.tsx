@@ -189,6 +189,7 @@ export function SettingsPanel({
             label: '系统检查',
             children: (
               <>
+                {diagnostics}
                 {preflight.isError && (
                   <Alert
                     className="settings-module-error"
@@ -250,7 +251,6 @@ export function SettingsPanel({
               </>
             ),
           },
-          { key: 'connection', label: '连接状态', children: diagnostics },
         ]}
       />
     </div>

@@ -19,10 +19,12 @@ func mergeTools(old, new []Tool) []Tool {
 	for i := range new {
 		v, ok := previous[new[i].Name]
 		if !ok {
+			new[i].Enabled = true
 			new[i].Change = "added"
 		} else if v.Hash == new[i].Hash {
 			new[i].Enabled = v.Enabled
 		} else {
+			new[i].Enabled = v.Enabled
 			new[i].Change = "changed"
 		}
 	}
@@ -123,7 +125,7 @@ func (s *Service) Sync(ctx context.Context, p identity.Principal, id string, ver
 		info["verification_error"] = verificationMessage(remoteErr)
 		server, _ = json.Marshal(info)
 	}
-	_, err = tx.Exec(ctx, `UPDATE mcp_connectors SET status=$2,tools=$3,server_info=$4,version=version+1,catalog_version=catalog_version+1,verified_at=CASE WHEN $2='READY' THEN clock_timestamp() ELSE verified_at END,updated_at=clock_timestamp() WHERE id=$1`, id, state, encoded, server)
+	_, err = tx.Exec(ctx, `UPDATE mcp_connectors SET status=$2,tools=$3,server_info=$4,version=version+CASE WHEN status IS DISTINCT FROM $2 OR tools IS DISTINCT FROM $3::jsonb OR server_info IS DISTINCT FROM $4::jsonb THEN 1 ELSE 0 END,catalog_version=catalog_version+CASE WHEN tools IS DISTINCT FROM $3::jsonb THEN 1 ELSE 0 END,verified_at=CASE WHEN $2='READY' THEN clock_timestamp() ELSE verified_at END,updated_at=clock_timestamp() WHERE id=$1`, id, state, encoded, server)
 	if err == nil {
 		err = audit(ctx, tx, p, id, "CONNECTOR_SYNCED", trace)
 	}

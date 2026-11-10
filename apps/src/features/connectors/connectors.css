@@ -91,7 +91,87 @@
 .connector-modal .ant-modal-footer {
   margin-top: 16px;
 }
+.connector-call-context {
+  margin-bottom: 24px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--line);
+}
+.connector-call-context > span {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.connector-call-context > p {
+  margin: 8px 0 0;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.connector-call-toolbar,
+.connector-call-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+.connector-call-toolbar h3,
+.connector-call-preview-heading h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.connector-call-preview-heading > span {
+  color: var(--muted);
+  font-size: 13px;
+}
+.connector-call-form .ant-form-item {
+  margin-bottom: 20px;
+}
+.connector-parameter-number {
+  width: 100%;
+}
+.connector-arguments-json {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  line-height: 1.7;
+}
+.connector-call-advanced {
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+}
+.connector-call-advanced > .ant-collapse-item > .ant-collapse-header {
+  padding: 14px 0;
+  color: var(--muted);
+}
+.connector-call-advanced > .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box {
+  padding: 0 0 8px;
+}
+.connector-call-schema summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+}
+.connector-call-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.connector-tool-call .ant-modal-footer {
+  border-top: 1px solid var(--line);
+  padding-top: 16px;
+}
 @media (max-width: 640px) {
+  .connector-call-context {
+    margin-bottom: 20px;
+  }
+  .connector-call-toolbar .ant-segmented {
+    margin-left: auto;
+  }
+  .connector-call-actions > .ant-btn {
+    flex: 1;
+    margin: 0;
+  }
   .connector-modal {
     top: 20px;
   }

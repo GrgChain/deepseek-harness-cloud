@@ -108,6 +108,9 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 		var in Input
 		if err = decode(w, r, &in); err == nil {
 			result, err = h.service.Save(ctx, p, "", in, trace)
+			if err == nil {
+				result, err = h.connectSaved(ctx, p, result.(Connection), trace)
+			}
 			status = 201
 		}
 	case len(parts) == 1 && parts[0] == "export" && r.Method == "POST":
@@ -129,6 +132,9 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 		if err = decode(w, r, &in); err == nil {
 			if r.Method == "PUT" {
 				result, err = h.service.Save(ctx, p, parts[0], in, trace)
+				if err == nil {
+					result, err = h.connectSaved(ctx, p, result.(Connection), trace)
+				}
 			} else {
 				err = h.service.Delete(ctx, p, parts[0], in, trace)
 				result = map[string]bool{"deleted": true}
@@ -167,6 +173,18 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 		if err = decode(w, r, &in); err == nil {
 			result, err = h.service.Invoke(ctx, p, parts[0], in, trace)
 		}
+	case len(parts) == 2 && action == "enabled" && r.Method == "POST":
+		var in struct {
+			ExpectedVersion int64 `json:"expected_version"`
+			Enabled         *bool `json:"enabled"`
+		}
+		if err = decode(w, r, &in); err == nil {
+			if in.Enabled == nil {
+				err = invalid("请指定服务启用状态")
+			} else {
+				result, err = h.service.SetEnabled(ctx, p, parts[0], in.ExpectedVersion, *in.Enabled, trace)
+			}
+		}
 	case len(parts) == 2 && (action == "sync" || action == "tools") && r.Method == "POST":
 		var in struct {
 			ExpectedVersion int64    `json:"expected_version"`
@@ -191,4 +209,11 @@ func (h *Handler) ServeAuthenticated(w http.ResponseWriter, r *http.Request, p i
 		return
 	}
 	webapi.JSON(w, status, result)
+}
+
+func (h *Handler) connectSaved(ctx context.Context, p identity.Principal, c Connection, trace string) (Connection, error) {
+	if !c.Enabled || c.Auth == "oauth2" {
+		return c, nil
+	}
+	return h.service.Sync(ctx, p, c.ID, c.Version, trace)
 }

@@ -182,6 +182,7 @@ export function installExtensions(root, request) {
       }),
       'cordis.patch.yml': JSON.stringify(patches),
       'cloud-extensions.mjs': request.program,
+      'cloud-mcp.mjs': request.mcp_program ?? '',
       'openviking-session.mjs': request.session_program ?? '',
       ...(localMemory
         ? {

@@ -170,11 +170,12 @@
 | API-126 | `POST /v1/instances/{id}:access-endpoint`    | Resolve an owned ready workspace's domain and optional IP entry                              |
 | API-127 | `DELETE /v1/users/{id}`                      | 删除用户并撤销登录权限                                                                       |
 | API-128 | `GET /v1/platform-checks`                    | Check shared platform services and resource configuration                                    |
+| API-129 | `POST /v1/connectors/{id}/enabled`           | Enable and reconnect a server, or disable it while retaining its configuration                |
 | -       | `DELETE /v1/storage-assets/{id}`             | Remove a reclaimed asset from the owner's list                                               |
 | -       | `GET /v1/workspace-extensions/{id}/skills`   | Read skills selected when the workspace was created                                          |
 | -       | `POST /v1/skills:search`                     | Search public skills on skills.sh, ClawHub, Tencent SkillHub or SkillsMP                     |
 
-接口编号仅用于文档追踪。用户删除与平台检查分别使用API-127、API-128，避免与存储查询的API-077、API-078重号；方法、路径、operationId和运行行为保持不变。未编号操作以方法与路径定位。
+接口编号仅用于文档追踪。用户删除、平台检查和MCP服务启停分别使用API-127、API-128、API-129；工作空间入口解析保留API-126，避免编号冲突。方法、路径、operationId和运行行为保持不变。未编号操作以方法与路径定位。
 
 ## 3 请求、分页与并发
 
@@ -340,11 +341,14 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 ## 工作台连接器（REQ-23，API-100～111、API-115/116）
 
+服务启停使用API-129；工作空间入口解析继续使用API-126。创建、编辑及OAuth授权后的自动发现只调用协议握手和目录接口，不执行业务工具。
+
 | 方法与路径                                                       | 权限及用途                                                                                           |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及38种内置连接器目录                                  |
 | `POST /v1/connectors`、`PUT /v1/connectors/{id}`                 | `connectors:manage`；创建及版本化保存；凭据只写                                                      |
 | `DELETE /v1/connectors/{id}`                                     | 管理权限；`expected_version`、`confirmed_name`确认删除                                               |
+| `POST /v1/connectors/{id}/enabled`                               | 管理权限；`expected_version`、`enabled`启停服务，保留配置及工具偏好；启用时自动发现（API-129）         |
 | `POST /v1/connectors/{id}/sync`                                  | 管理权限；`expected_version`验证并完整同步目录                                                       |
 | `POST /v1/connectors/{id}/tools`                                 | 管理权限；`expected_version`、`enabled_tools`选择工具                                                |
 | `POST /v1/connectors/{id}/invoke`                                | `connectors:invoke`；手动确认后调用                                                                  |
@@ -356,11 +360,15 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[连接器后端设计](backend.md#工作台连接器mcp)。
 
-`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为19种官方远程服务提供预填地址（其中9种采用OAuth），其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。推荐服务可预填地址，允许用户修改；旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存不发起外部请求。
+`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为19种官方远程服务提供预填地址（其中9种采用OAuth），其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。内置目录可预填官方地址，允许用户修改；自定义MCP地址默认留空，表单不提供推荐服务选择。旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存已启用的非OAuth服务后自动连接并发现工具；停用配置仅保存，不连接。
 
 `auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
 
-回调处理后返回 `/app/connectors`，查询参数`connector_oauth`为`ready`、`verify_failed`、`cancelled`或`failed`之一，页面展示后清除该参数。返回URL不含授权码、Token或厂商错误正文；登录失效时返回工作台登录流程。授权成功只同步工具，不自动启用或调用。厂商账号完整验收与企查查专用聚合/解绑是独立待完成项，当前没有对应聚合或远端撤销API契约。
+回调处理后返回 `/app/connectors`，查询参数`connector_oauth`为`ready`、`verify_failed`、`cancelled`或`failed`之一，页面展示后清除该参数。返回URL不含授权码、Token或厂商错误正文；登录失效时返回工作台登录流程。授权成功同步并启用新发现的工具，不调用业务工具。厂商账号完整验收与企查查专用聚合/解绑是独立待完成项，当前没有对应聚合或远端撤销API契约。
+
+`enabled`服务开关保留凭据及单工具偏好；启用时自动发现，OAuth仍未授权时保持待授权。`sync`仅在状态、服务信息或工具目录发生变化时递增配置版本；工具目录变化时递增目录版本。新工具自动启用，已有工具保留显式选择。运行中绑定约每30秒自动发现，DSH逐工具调用携带发布时的服务及目录版本，变化后拒绝旧确认，不静默改用新配置。
+
+`mcp_calls`及调用查询接口只保存/返回状态元数据，参数和结果正文不持久保存。该约束属于平台调用账本；在DSH中调用时，工具参数及结果会进入原生会话记录。手动试调用与DSH调用的使用步骤见[连接器指南](../deploy/connectors/README.md#在-dsh-对话中调用)，真实模型验证范围见[新空间对话记录](testing.md#新空间真实mcp对话2026-11-10)。
 
 ## 创建扩展配置（REQ-25；API-005、118～119）
 

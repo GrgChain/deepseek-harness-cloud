@@ -29,7 +29,6 @@ export function ConnectorEditor({
   onClose: () => void;
   onSaved: () => Promise<void>;
 }) {
-  const endpoints = preset ? allEndpoints.filter((e) => e.catalog_id === preset.id) : allEndpoints;
   const cache = useQueryClient();
   const [form] = Form.useForm();
   const currentURL = Form.useWatch('url', form);
@@ -43,11 +42,7 @@ export function ConnectorEditor({
   const address =
     previous?.url ?? allEndpoints.find((e) => e.id === previous?.endpoint_id)?.url ?? '';
   const target = {
-    url: previous
-      ? address
-      : endpoints.length === 1
-        ? endpoints[0].url
-        : (preset?.default_url ?? ''),
+    url: previous ? address : (preset?.default_url ?? ''),
   };
   const official = !!preset?.default_url && currentURL === preset.default_url;
   const native = official && preset?.auth_kind !== 'oauth2';
@@ -57,9 +52,7 @@ export function ConnectorEditor({
       ? preset?.auth_kind === 'oauth2'
         ? 'oauth2'
         : 'bearer'
-      : preset?.auth_kind === 'oauth2' && endpoints.some((e) => e.id.startsWith('builtin-'))
-        ? 'oauth2'
-        : 'none';
+      : 'none';
   const initial = {
     ...(previous
       ? {
@@ -148,31 +141,13 @@ export function ConnectorEditor({
         >
           <Input maxLength={100} />
         </Form.Item>
-        {endpoints.length > 0 && (
-          <Form.Item
-            label="推荐服务"
-            htmlFor="connector-recommended"
-            extra="可选择推荐地址，也可在下方填写自己的服务地址。"
-          >
-            <Select
-              id="connector-recommended"
-              virtual={false}
-              placeholder="选择推荐服务（可选）"
-              value={endpoints.find((e) => e.url === currentURL)?.id}
-              options={endpoints.map((e) => ({ value: e.id, label: e.name }))}
-              onChange={(id) =>
-                form.setFieldValue('url', endpoints.find((e) => e.id === id)?.url ?? '')
-              }
-            />
-          </Form.Item>
-        )}
         <Form.Item
           name="url"
           label="服务地址"
           extra={
             official ? (
               '已预填官方 MCP 地址，可按需修改。'
-            ) : preset && !preset.default_url && endpoints.length === 0 ? (
+            ) : preset && !preset.default_url ? (
               <>
                 {preset.id === 'dify'
                   ? '此地址由你的 Dify 应用或工作流发布后生成。'
@@ -284,8 +259,8 @@ export function ConnectorEditor({
       </Form>
       <p className="connector-editor-note">
         {authType === 'oauth2'
-          ? '仅本人可见。授权后自动验证连接，工具需自行选择启用。'
-          : '仅本人可见。保存后验证连接，再选择需要的工具。'}
+          ? '仅本人可见。授权后自动连接并启用发现的工具。'
+          : '仅本人可见。保存后自动连接并启用发现的工具。'}
       </p>
     </Modal>
   );

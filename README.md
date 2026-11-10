@@ -21,7 +21,7 @@
 | 持久工作数据     | 保留工作目录与 DSH 数据，浏览 `/data/workspace` 和 `/data/dsh`，支持文件、Office / PDF 预览及下载。        |
 | 个人技能库       | 搜索主流技能来源，编辑、导入导出 Markdown / ZIP，并通过公开链接同步技能包。                                |
 | 记忆与知识库     | 在工作台维护、迁移和检索个人内容，外接 OpenViking / Mem0 / Graphiti 与 Milvus / Weaviate / Qdrant。        |
-| MCP 连接器       | 内置分类目录，支持自定义 MCP、OAuth 授权、工具选择及手动调用，覆盖 GitHub、Context7 等开发工具。           |
+| MCP 连接器       | 自定义 MCP 与 OAuth 接入，自动发现并启用新工具；新空间选择服务后可在 DSH 对话中调用，另提供手动试调用。    |
 | 原生扩展         | 启停内置插件、安装第三方 DSH 组合包、保存 Agent 预设。                                                     |
 | 插件库           | 浏览默认及个人插件目录，在线/离线添加、编辑个人资料并下载原包；提供本项目维护的 Mem0 / Graphiti 记忆插件。 |
 | 团队管理         | 内置登录与账号管理、角色权限、实例 / CPU / 内存 / 存储额度和操作日志。                                     |
@@ -31,6 +31,14 @@
 工作台管理与创建时的扩展选择分别操作；创建可选技能、连接器、记忆、知识库及兼容插件，运行接入按当前权限验证。连接器需完成相应服务配置或授权，实网验证结果见[连接器实网验证边界](deploy/connectors/README.md#实网验证边界)。
 
 创建工作空间时选择 Mem0 或 Graphiti 记忆连接并开启“完整会话同步”，平台会安装并启用对应原生插件。两者先保存原始会话，归档后提取长期记忆用于管理和召回；已有工作空间的 Profile 不自动升级。Mem0 另支持独立安装，独立模式默认关闭自动采集，与平台连接分别配置。详见[插件分发总览](infrastructure/plugins/README.md)、[Mem0](infrastructure/plugins/mem0/README.md)、[Graphiti](infrastructure/plugins/graphiti/README.md)及[插件库规则](docs/requirements.md#618-插件req-24)。
+
+### 在 DSH 中使用 MCP
+
+1. 在“连接器”添加自定义 MCP，填写 Streamable HTTP 地址与认证信息。保存启用的服务后自动发现工具；OAuth 服务先完成授权。新工具默认启用，可按需关闭。
+2. 新建工作空间，在扩展的“连接器”中选择该服务，进入 DSH 后直接要求调用，例如：`调用“我的测试 MCP”的 echo 工具，text 填写“你好 MCP”，收到结果后返回原文。`
+3. 已绑定的新空间自动跟随服务启停和工具目录变化；停用服务保留配置，重新启用后恢复连接。
+
+旧空间的 Profile 保留，使用新的逐工具调用方式需新建空间并选择连接器。平台复用 DSH 官方 MCP 适配器，DSH 本体与运行镜像保持不变。完整步骤见[连接器使用说明](deploy/connectors/README.md#在-dsh-对话中调用)；已完成[新空间真实模型调用验证](docs/testing.md#新空间真实mcp对话2026-11-10)，验收范围为合成服务的 `echo`。
 
 ### 技能来源
 

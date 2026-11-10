@@ -220,17 +220,13 @@ test('live workbench connects discovers authorizes calls and manages personal se
     await editor.getByRole('button', { name: /^保\s*存$/ }).click();
     await expect(editor).toHaveCount(0);
     const row = page.getByRole('article', { name: '连接器 ' + name, exact: true });
-    await expect(row.getByText('待验证', { exact: true })).toBeVisible();
-    await row.getByRole('button', { name: /^验\s*证$/ }).click();
     await expect(row.getByText('可用', { exact: true })).toBeVisible();
     await row.getByRole('button', { name: '工具与记录' }).click();
-    await page.getByRole('switch', { name: '启用工具 echo', exact: true }).click();
+    await expect(page.getByRole('switch', { name: '启用工具 echo', exact: true })).toBeChecked();
     const toolRow = page.getByRole('row').filter({ has: page.getByText('echo', { exact: true }) });
     await toolRow.getByRole('button', { name: '试调用', exact: true }).click();
     const call = page.getByRole('dialog', { name: '试调用 · echo' });
-    await call
-      .getByLabel('调用参数（JSON）')
-      .fill(JSON.stringify({ text: '工作台真实MCP中文回显' }));
+    await call.getByLabel('text', { exact: true }).fill('工作台真实MCP中文回显');
     await call.getByRole('button', { name: '检查参数' }).click();
     await call.getByRole('checkbox', { name: '确认将以上参数发送到此服务' }).check();
     await call.getByRole('button', { name: '确认调用', exact: true }).click();

@@ -12,5 +12,8 @@ var InstallExtensions string
 //go:embed cloud_extensions.mjs
 var CloudExtensions string
 
+//go:embed cloud_mcp.mjs
+var CloudMCP string
+
 //go:embed openviking_session.mjs
 var OpenVikingSession string
