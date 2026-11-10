@@ -58,8 +58,8 @@ paths:
       x-api-id: API-101
       tags:
         - Connectors
-      summary: Create a connector without invoking tools
-      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      summary: Create a connector and automatically discover its tools
+      description: Requires current connectors:manage. Enabled non-OAuth services connect and discover tools after save; OAuth services discover after authorization. New tools are enabled automatically, and discovery never executes business tools. Credentials remain on the platform.
       responses:
         '201':
           description: Authorized operation result
@@ -93,7 +93,7 @@ paths:
       x-api-id: API-102
       tags:
         - Connectors
-      summary: Update or disable a connector; invalidate verification and tool grants
+      summary: Update a connector and reconnect when enabled
       description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
       responses:
         '200':
@@ -195,7 +195,7 @@ paths:
       x-api-id: API-116
       tags: [Connectors]
       summary: Consume a single-use OAuth state and verify the connection
-      description: Bound to the initiating owner, organization, portal session, connector version and exact target. Exchanges the code with PKCE, encrypts tokens and verifies tools without enabling or invoking them. State expires after 10 minutes. Browser login expiry returns to the workbench; no tokens or provider error details appear in redirects.
+      description: Bound to the initiating owner, organization, portal session, connector version and exact target. Exchanges the code with PKCE, encrypts tokens and discovers tools, enabling newly discovered tools without invoking them. State expires after 10 minutes. Browser login expiry returns to the workbench; no tokens or provider error details appear in redirects.
       parameters:
         - {
             name: state,
@@ -219,6 +219,39 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+  /v1/connectors/{id}/enabled:
+    parameters:
+      - *mcp_path_id
+    post:
+      operationId: setOwnMCPConnectorEnabled
+      x-api-id: API-129
+      tags: [Connectors]
+      summary: Enable and reconnect a server, or disable it while retaining its configuration
+      description: Requires connectors:manage and the current version. Re-enabling discovers tools automatically. Bound workspaces follow the server state; credentials are never copied into DSH configuration.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [expected_version, enabled]
+              properties:
+                expected_version: { type: integer, minimum: 1 }
+                enabled: { type: boolean }
+      responses:
+        '200':
+          description: Current server configuration and discovered tools
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MCPConnector'
+        default:
+          description: Denied, unavailable or stale configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
   /v1/connectors/{id}/sync:
     parameters:
       - *mcp_path_id
@@ -228,7 +261,7 @@ paths:
       tags:
         - Connectors
       summary: Validate protocol and publish a complete tool catalog
-      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      description: Requires current connectors:manage. New tools are enabled automatically; existing tool preferences survive definition changes. Discovery never executes business tools. Bound workspaces follow the current catalog.
       responses:
         '200':
           description: Authorized operation result
@@ -264,7 +297,7 @@ paths:
       tags:
         - Connectors
       summary: Select tools from the current definition snapshot
-      description: Requires current connectors:manage. Owner and organization are server selected. No DSH changes.
+      description: Requires current connectors:manage and the current version. Explicit tool choices are preserved by subsequent discovery and propagated to bound workspaces. No business tools are invoked.
       responses:
         '200':
           description: Authorized operation result
@@ -5994,8 +6027,10 @@ components:
           maxItems: 50
           items:
             $ref: '#/components/schemas/WorkspaceConnectorSelection'
-          description: Requires instances:configure and connectors:read/manage/invoke. Only
-            frozen enabled tools can be called. Source and catalog versions must match.
+          description: Requires instances:configure and connectors:read/manage/invoke. Source
+            and catalog versions must match at creation. The explicitly selected server follows
+            its current enabled tools at runtime; each native tool call checks the versions
+            published to DSH before dispatch.
         memory:
           type: array
           maxItems: 1

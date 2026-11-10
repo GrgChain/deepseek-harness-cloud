@@ -6,7 +6,7 @@
 
 工作台入口为 `/app/connectors`。平台API须具备PostgreSQL、Redis、登录会话、数据加密密钥及公网HTTPS出口；用户需要本人连接的读取/管理/调用权限。工作台由平台作为远程MCP客户端，不修改DSH；创建时的受控接入另见[REQ-25](../../docs/requirements.md#619-创建工作空间扩展配置req-25)。支持Streamable HTTP、无认证/Bearer/OAuth 2.0 + PKCE；新建连接优先使用 `2026-07-28`，自动协商兼容 `2025-11-25`，已有兼容版配置保留。
 
-执行 `make migrate` 应用迁移49～51并更新API角色授权，再更新平台API原生进程；本机 `make run-auth` 包含迁移及初始化步骤。API依赖就绪后即可执行登录测试，无请求限流或启动冷却。无需通过重启DSH处理平台认证问题。
+执行 `make migrate` 应用当前全部迁移并更新受限角色授权；连接器表来自迁移49～51，当前平台基线为迁移68。更新平台API与Worker进程，Worker内嵌新空间的安装脚本和逐工具适配器；两者须使用同一份 `HC_CONNECTOR_ENDPOINTS_FILE` 出口策略。本机 `make run-auth` 包含迁移及初始化步骤。API依赖就绪后即可执行登录测试，无启动冷却；DSH源码、运行镜像及已初始化的空间Profile保持原样。
 
 ## 2 平台服务与出口策略
 
@@ -32,7 +32,7 @@ API通过 `HC_CONNECTOR_ENDPOINTS_FILE` 读取0600私有JSON文件；本机 `mak
 
 ### 绑定内置目录
 
-38种目录条目均支持用户自行填写服务地址和认证信息，19种官方远程服务默认有推荐地址（其中9种OAuth）。管理员可通过 `catalog_id` 绑定兼容服务；同目录已有绑定时保留管理员服务，不添加默认绑定。例如：
+38种目录条目均支持用户自行填写服务地址和认证信息，19种官方远程服务默认有官方地址（其中9种OAuth）。管理员可通过 `catalog_id` 绑定兼容服务；同目录已有绑定时保留管理员服务，不添加默认绑定。例如：
 
 ```json
 {
@@ -49,11 +49,11 @@ API通过 `HC_CONNECTOR_ENDPOINTS_FILE` 读取0600私有JSON文件；本机 `mak
 }
 ```
 
-此示例用于说明绑定格式；默认OAuth服务通常无需重复登记。除已支持的腾讯文档、腾讯会议、微云、乐享及滴滴原生认证外，其他需CLI、stdio或旧SSE的条目，先独立部署兼容HTTP MCP适配服务，再由用户填写该服务地址；可选通过平台策略提供推荐地址。目录本身不会部署这些服务。用户可在任意目录条目直接填写个人地址，也可选择推荐地址后修改；“自定义MCP”用于不关联目录的服务。
+此示例用于说明绑定格式；默认OAuth服务通常无需重复登记。除已支持的腾讯文档、腾讯会议、微云、乐享及滴滴原生认证外，其他需CLI、stdio或旧SSE的条目，先独立部署兼容HTTP MCP适配服务，再由用户填写该服务地址；平台策略用于保留旧平台服务及批准私网/HTTP地址，表单不再提供推荐服务选择。目录本身不会部署这些服务。用户可在任意目录条目直接填写个人地址，“自定义MCP”用于不关联目录的服务。
 
 ### 默认地址与认证
 
-以下为2026-10-27核对的19种官方远程地址；名称链接指向来源文档。默认地址可修改，已有同目录平台绑定优先；预填地址不代表用户已授权或服务持续可用。
+以下为2026-10-27核对的19种官方远程地址；名称链接指向来源文档。默认地址可修改，表单按内置目录预填官方地址，自定义MCP地址默认留空，不展示推荐服务选择；预填地址不代表用户已授权或服务持续可用。
 
 | 连接器 | 默认地址 | 个人认证 |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ API通过 `HC_CONNECTOR_ENDPOINTS_FILE` 读取0600私有JSON文件；本机 `mak
 
 乐享页面分别填写企业标识和令牌；API的 `credential` 为包含二者的JSON字符串，如 `{"token":"本人令牌","company_from":"企业标识"}`。服务端将 `company_from` 编码为查询参数，并发送 `Authorization: Bearer 令牌`。二者一起加密且均不读回；原地址编辑时均留空可保留，更换任意一项须一起重填。滴滴Key只在出站时注入，不保存到连接URL、列表或导出中。
 
-GitLab自建实例使用该实例的 `/api/v4/mcp`，并须在群组或实例允许MCP。Context7匿名接入保存并验证后，可在“工具与记录”启用 `resolve-library-id` 和 `query-docs`；厂商可能限制匿名额度，需要时按[官方说明](https://context7.com/docs/resources/troubleshooting)改用Bearer API Key。
+GitLab自建实例使用该实例的 `/api/v4/mcp`，并须在群组或实例允许MCP。Context7匿名接入保存后自动连接和发现，可在“工具与记录”查看 `resolve-library-id` 和 `query-docs`；厂商可能限制匿名额度，需要时按[官方说明](https://context7.com/docs/resources/troubleshooting)改用Bearer API Key。
 
 其余目录没有统一的兼容公共地址：CLI或stdio服务须独立部署HTTP MCP网关，有道云笔记的旧SSE须适配，Dify地址由个人应用或工作流发布生成。填写个人兼容HTTPS地址仍沿用平台出口校验，目录本身不部署服务。
 
@@ -156,7 +156,11 @@ docker compose -f deploy/connectors/compose.yaml stop
 
 ```bash
 HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build go test -race -count=1 ./services/internal/connectors ./db ./services/internal/operations ./services/internal/security ./services/internal/httpserver
+HC_TEST_DB_DSN_FILE="$PWD/.local/migrator-dsn" GOMODCACHE=/tmp/hc-go-mod GOCACHE=/tmp/hc-go-build go test -race -count=1 ./services/internal/worker -run '^TestWorkspaceRuntimeMCPFollowsBoundServersAndStableReceipts$'
+HC_RUNTIME_IMAGE='<已批准的运行镜像或摘要>' node --test infrastructure/runtime/tests/mcp-bridge.test.mjs
 ```
+
+Worker用例验证真实HTTP MCP、受限Worker身份、动态目录、服务启停和旧确认拒绝；原生适配用例在独立容器内运行安装脚本、DSH工具注册器及私有调用通道，不修改已有空间。上述命令不调用对话模型。
 
 页面测试从 `apps` 目录执行；真实测试需平台、登录账号及独立MCP测试服务就绪：
 
@@ -181,7 +185,22 @@ HC_REAL_DEVELOPMENT_MCP=true PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/opt/google/chr
 | 回调未到平台 | 核对源站、TLS、会话、厂商登记的完整回调及浏览器访问位置 |
 | 注册拒绝或需管理员配置 | 检查厂商回调限制、动态注册能力和私有 `oauth_clients` |
 | 元数据或服务不可访问 | 检查DNS、证书、出站网络及逐端点例外；平台不使用环境代理或自动重定向 |
-| 授权成功但工具不可调用 | 先验证完整工具目录并手动启用；检查账号权限、连接/目录版本及令牌有效性 |
+| 授权成功但工具不可调用 | 新发现工具会自动启用；若曾手动停用，请重新启用，并检查账号权限、连接/目录版本及令牌有效性 |
+| 工作台试调用成功，DSH中没有该工具 | 确认新建空间时已选择服务、扩展状态为可用；旧空间Profile不会自动替换，需新建并选择连接器 |
+| 确认后提示服务或工具定义已更新 | 旧确认已失效；等待目录刷新后重新发起调用，核对新参数与目标 |
 | 工具调用超时或取消 | 保留调用ID并核对外部结果，不自动重试可能已执行的操作 |
 
-所有结果正文只在本次响应展示，持久记录不含参数、结果或秘密。当前删除连接只清除本地凭据；正式企查查远端解绑流程尚待实现。
+平台连接器调用账本仅保存状态、版本及摘要，不保存参数、结果正文或秘密；工作台结果仅在本次响应展示。DSH对话调用的参数和返回内容属于会话记录，会沿用DSH的会话持久化及已选择的记忆同步规则。当前删除连接只清除本地凭据；正式企查查远端解绑流程尚待实现。
+
+## 在 DSH 对话中调用
+
+1. 添加自定义MCP，填写可访问的Streamable HTTP地址和认证信息，保持服务启用。保存后自动发现，新工具默认启用；OAuth服务先完成授权。
+2. 创建工作空间，在扩展的“连接器”中选择该服务。启动后在详情“扩展配置”确认连接器状态为可用，再进入DSH。模型接收每个工具的原始参数Schema，结果进入对话。
+3. 对测试服务发送：`调用“我的测试 MCP”的 echo 工具一次，text 填写“你好 MCP”，收到工具结果后只返回原文。` 将服务名替换为本人配置的名称；`echo`仅为本项目合成服务的示例，其他服务使用各自工具及参数。只读工具沿用DSH权限流程，可能修改外部数据或行为未知的工具额外展示参数并请求单次确认。
+4. 运行中空间自动跟随该服务的目录，约30秒发现新增/移除工具。手动停用单个工具会保留偏好；服务开关停用后立即禁止新调用，并随目录同步撤回模型工具，重新启用后恢复。身份或权限撤销同样阻止调用。
+
+DSH调用携带当前展示的服务和目录版本；等待确认期间发生配置变化，会拒绝旧确认，请重新发起调用。
+
+此流程通过平台适配插件复用DSH官方MCP适配器，不修改DSH本体；凭据保留在平台。旧空间内已安装的通用适配器不会被覆盖，需创建选择该服务的新空间来使用逐工具适配器。平台页面提供远程HTTP连接；本地stdio程序仍使用DSH原生配置，或先部署HTTP网关。
+
+新空间验收时，核对DSH中的工具调用、返回内容、模型最终回复，以及工作台“调用记录”的工具名、成功状态和调用ID。2026-11-10已通过真实模型调用合成 `echo` 的完整链路，结果与最终回复一致；环境及未验收范围见[新空间真实对话记录](../../docs/testing.md#新空间真实mcp对话2026-11-10)。

@@ -366,6 +366,34 @@ func TestMigrationsOnIsolatedPostgres(t *testing.T) {
 		if err = tx.QueryRow(ctx, `SELECT count(*) FROM pg_class c CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault('r',c.relowner))) a WHERE c.oid='plugin_catalog_defaults'::regclass AND a.grantee=0`).Scan(&publicPrivileges); err != nil || publicPrivileges != 0 {
 			t.Fatal("default catalog grants PUBLIC access", publicPrivileges, err)
 		}
+		var retiredOverrides []string
+		for _, entry := range expected[1:] {
+			for _, user := range []string{owner, other} {
+				var id string
+				if err = tx.QueryRow(ctx, copyDefault, org, user, entry.id, "").Scan(&id); err != nil {
+					t.Fatal(err)
+				}
+				retiredOverrides = append(retiredOverrides, id)
+			}
+		}
+		for range 2 {
+			if _, err = tx.Exec(ctx, removeRetiredPlugins); err != nil {
+				t.Fatal("retired defaults with personal overrides could not be removed", err)
+			}
+			var remaining int
+			if err = tx.QueryRow(ctx, `SELECT count(*) FROM plugin_catalog_defaults`).Scan(&remaining); err != nil || remaining != 1 {
+				t.Fatal("retired defaults remain or another default was removed", remaining, err)
+			}
+			if err = tx.QueryRow(ctx, `SELECT count(*) FROM personal_plugins WHERE id=ANY($1::uuid[])`, retiredOverrides).Scan(&remaining); err != nil || remaining != 0 {
+				t.Fatal("retired personal overrides remain", remaining, err)
+			}
+			if err = tx.QueryRow(ctx, `SELECT count(*) FROM personal_plugins WHERE id=ANY($1::uuid[])`, []string{online, offline, override, otherOverride}).Scan(&remaining); err != nil || remaining != 4 {
+				t.Fatal("unrelated personal entries or overrides were removed", remaining, err)
+			}
+			if err = tx.QueryRow(ctx, `SELECT archive_sha256=repeat('a',64) AND archive_key_id='original-key' AND archive_ciphertext=decode(repeat('02',17),'hex') FROM personal_plugins WHERE id=$1`, offline).Scan(&preserved); err != nil || !preserved {
+				t.Fatal("retiring defaults changed an offline archive", preserved, err)
+			}
+		}
 	})
 	for _, table := range []string{"model_providers", "model_catalog_entries", "user_model_connections", "user_model_connection_versions", "model_sync_operations", "model_gateway_checks", "user_model_defaults", "external_provider_secrets", "model_connection_registry"} {
 		var present bool

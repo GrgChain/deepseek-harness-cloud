@@ -47,9 +47,10 @@ func (h *LocalHost) installExtensions(ctx context.Context, p ExecutionPlan) erro
 		storageRequest
 		Extensions     workspaceextensions.Snapshot `json:"extensions"`
 		Program        string                       `json:"program"`
+		MCPProgram     string                       `json:"mcp_program"`
 		SessionProgram string                       `json:"session_program"`
 		SessionPlugin  []byte                       `json:"session_plugin,omitempty"`
-	}{identity, p.extensions, cloudExtensionsProgram, workspaceassets.OpenVikingSession, sessionPlugin})
+	}{identity, p.extensions, cloudExtensionsProgram, workspaceassets.CloudMCP, workspaceassets.OpenVikingSession, sessionPlugin})
 	if err != nil {
 		return err
 	}

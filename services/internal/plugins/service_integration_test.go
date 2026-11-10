@@ -193,11 +193,11 @@ func TestPersonalPluginsWithPostgres(t *testing.T) {
 		t.Fatal("invalid preview", preview, err)
 	}
 	items, err := s.List(ctx, owner)
-	if err != nil || len(items) != 5 {
+	if err != nil || len(items) != 3 {
 		t.Fatal("preview saved an entry", items, err)
 	}
 	for _, item := range items {
-		if item.Custom || item.Revision < 1 || item.AdditionMethod != "online" {
+		if item.Custom || item.Revision < 1 || item.AdditionMethod != "online" || item.PackageName == "@linxin666/dsh-ssh" || item.PackageName == "dshmarket" {
 			t.Fatal("database default did not have catalog metadata", item)
 		}
 	}
@@ -210,11 +210,11 @@ func TestPersonalPluginsWithPostgres(t *testing.T) {
 		t.Fatal("save did not re-resolve the exact version", resolved, saved)
 	}
 	items, err = s.List(ctx, owner)
-	if err != nil || len(items) != 6 || items[0].ID != saved.ID || items[0].Summary != "服务端摘要" || items[0].CheckedAt != "2026-11-02" || items[0].Revision != 1 || items[0].SourceNote != "包信息及 DSH bundle 声明" {
+	if err != nil || len(items) != 4 || items[0].ID != saved.ID || items[0].Summary != "服务端摘要" || items[0].CheckedAt != "2026-11-02" || items[0].Revision != 1 || items[0].SourceNote != "包信息及 DSH bundle 声明" {
 		t.Fatal("saved plugin did not persist", items, err)
 	}
 	items, err = s.List(ctx, other)
-	if err != nil || len(items) != 5 {
+	if err != nil || len(items) != 3 {
 		t.Fatal("personal plugins leaked to another owner or administrator", items, err)
 	}
 	for _, item := range items {
@@ -230,7 +230,7 @@ func TestPersonalPluginsWithPostgres(t *testing.T) {
 	if _, err = s.Create(ctx, owner, saved.PackageName, saved.Version, saved.Category, "duplicate"); !pluginProblem(err, "PLUGIN_EXISTS") {
 		t.Fatal("duplicate package was accepted", err)
 	}
-	for _, name := range []string{"@openviking/dsh-memory-plugin", "@linxin666/dsh-ssh", "dshmarket"} {
+	for _, name := range []string{"@openviking/dsh-memory-plugin", "@harness-cloud/dsh-mem0-memory", "@harness-cloud/dsh-graphiti-memory"} {
 		if _, err = s.Create(ctx, owner, name, "1.0.0", "集成扩展", "recommended"); !pluginProblem(err, "PLUGIN_EXISTS") {
 			t.Fatal("recommended plugin was duplicated", name, err)
 		}

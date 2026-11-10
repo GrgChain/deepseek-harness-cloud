@@ -286,3 +286,41 @@ func (s *Service) cancelConnection(owner, id string) {
 		return true
 	})
 }
+
+// SetEnabled changes only the server's desired state; credentials and tool
+// preferences survive disabling. Re-enabling reconnects and discovers tools.
+func (s *Service) SetEnabled(ctx context.Context, p identity.Principal, id string, version int64, enabled bool, trace string) (Connection, error) {
+	tx, err := s.begin(ctx, p, "connectors:manage")
+	if err != nil {
+		return Connection{}, err
+	}
+	defer tx.Rollback(context.Background())
+	c, err := load(ctx, tx, p, id)
+	if err != nil {
+		return c, err
+	}
+	if c.Version != version {
+		return c, conflict()
+	}
+	if c.Enabled != enabled {
+		_, err = tx.Exec(ctx, `UPDATE mcp_connectors SET enabled=$2,version=version+1,updated_at=clock_timestamp() WHERE id=$1`, id, enabled)
+		if err == nil {
+			err = audit(ctx, tx, p, id, "CONNECTOR_ENABLED_CHANGED", trace)
+		}
+		if err != nil {
+			return c, err
+		}
+	}
+	c, err = load(ctx, tx, p, id)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
+	if err != nil {
+		return c, err
+	}
+	s.cancelConnection(p.UserID, id)
+	if enabled && !(c.Auth == "oauth2" && c.Status == "AUTH_REQUIRED") {
+		return s.Sync(ctx, p, id, c.Version, trace)
+	}
+	return c, nil
+}

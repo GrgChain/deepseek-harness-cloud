@@ -10,7 +10,7 @@ V0.2，面向单组织、可信内部团队的 Docker 部署。启动与开发�
 | 部署、升级、备份和排障           | [部署运维](deployment.md)、[安全设计](security.md)                                                                                                                                                                                 |
 | 运行测试、查看覆盖和未完成项     | [测试验收](testing.md)                                                                                                                                                                                                             |
 | 配置记忆与知识库服务             | [上下文服务部署](../deploy/context/README.md)                                                                                                                                                                                      |
-| 配置 MCP 地址、认证和 OAuth      | [连接器部署](../deploy/connectors/README.md)                                                                                                                                                                                       |
+| 配置 MCP、OAuth 并在 DSH 中调用  | [连接器使用流程](../deploy/connectors/README.md#在-dsh-对话中调用)、[部署与复验](../deploy/connectors/README.md)                                                                                                                      |
 | 安装、配置和维护记忆插件         | [分发总览](../infrastructure/plugins/README.md)、[Mem0](../infrastructure/plugins/mem0/README.md)、[Graphiti](../infrastructure/plugins/graphiti/README.md)、[OpenViking 原包说明](../infrastructure/plugins/openviking/README.md) |
 | 验证 Graphiti 原生插件与会话归档 | [Graphiti DSH 测试用例](testing-graphiti-dsh.md)                                                                                                                                                                                   |
 | 核对 Workspace 上游来源及许可    | [上游集成边界](workspace-upstream.md)                                                                                                                                                                                              |
@@ -30,7 +30,7 @@ V0.2，面向单组织、可信内部团队的 Docker 部署。启动与开发�
 | 工作空间运行与上游边界 | [系统设计](design.md)、[上游集成边界](workspace-upstream.md)                                    | [部署运维](deployment.md)、[运行验证](testing.md#10-内嵌-workspace-验证)                        |
 | 记忆、知识库及会话归档 | [功能需求](requirements.md#615-可迁移记忆系统req-21)、[后端实现](backend.md#外接记忆与知识库)   | [服务部署](../deploy/context/README.md)、[记忆复验](testing.md#记忆与知识库复验)                |
 | 技能导入与迁移         | [个人技能包](frontend.md#个人技能包)                                                            | [来源出口配置](deployment.md#技能包来源出口)、[技能验证](testing.md#技能包与来源验证)           |
-| MCP 与 OAuth           | [连接器接口](api.md#工作台连接器req-23api-100111api-115116)                                     | [连接器部署与复验](../deploy/connectors/README.md)                                              |
+| MCP 与 OAuth           | [连接器接口](api.md#工作台连接器req-23api-100111api-115116)、[运行实现](backend.md#工作台连接器mcp) | [使用流程](../deploy/connectors/README.md#在-dsh-对话中调用)、[新空间真实对话验证](testing.md#新空间真实mcp对话2026-11-10) |
 | 原生记忆插件及离线分发 | [插件规则](requirements.md#618-插件req-24)、[包与版本维护](../infrastructure/plugins/README.md) | [Mem0 配置](../infrastructure/plugins/mem0/README.md)、[Graphiti 验收](testing-graphiti-dsh.md) |
 
 ## 文档维护约定
@@ -44,7 +44,7 @@ V0.2，面向单组织、可信内部团队的 Docker 部署。启动与开发�
 | 平台与运行工具 | V0.2；Go工具链1.27.2、Node.js 24                         | [go.mod](../go.mod)、[控制台依赖](../apps/package.json)                                |
 | DSH运行版本    | 0.2.1-alpha.2                                            | [运行依赖](../infrastructure/runtime/package.json)                                     |
 | 随附记忆插件   | Mem0 / Graphiti 0.2.0；OpenViking官方原包0.5.31          | [分发总览](../infrastructure/plugins/README.md)                                        |
-| 平台数据库     | 迁移至67；既有迁移不可覆写                               | [迁移目录](../db/migrations)、[数据设计](data-model.md#当前插件目录与会话归档迁移6167) |
+| 平台数据库     | 迁移至68；既有迁移不可覆写                               | [迁移目录](../db/migrations)、[数据设计](data-model.md#当前插件目录与会话归档迁移6168) |
 | 连接器目录     | 38项；19项默认远程地址，其中9项OAuth                     | [内嵌目录](../services/internal/connectors/catalog.json)                               |
 | 本地初始资源   | 1 CPU、2 GiB内存、10 GiB存储；保留已有配置               | [初始化实现](../services/internal/devlocal/resources.go)                               |
 | IP访问         | 统一HTTPS端口，工作空间路径为`/dsh/<实例UUID>/`          | [部署运维](deployment.md)                                                              |

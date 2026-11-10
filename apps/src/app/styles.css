@@ -860,6 +860,9 @@ h3 {
 .settings-tabs .ant-tabs-tabpane > .settings-section {
   margin-bottom: 0;
 }
+.settings-tabs .ant-tabs-tabpane > .diagnostics-section {
+  margin-bottom: 20px;
+}
 .settings-tabs .ant-tabs-tabpane > .settings-check-results {
   padding: 18px 20px;
 }

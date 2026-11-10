@@ -124,7 +124,7 @@ async function setup(page: Page) {
   );
 }
 
-test('platform configuration separates modules into tabs without model controls or model API requests', async ({
+test('platform configuration combines system checks and connection status without model controls or model API requests', async ({
   page,
 }, info) => {
   await setup(page);
@@ -133,7 +133,7 @@ test('platform configuration separates modules into tabs without model controls 
     if (/\/v1\/(model-|my-)/.test(new URL(r.url()).pathname)) modelRequests.push(r.url());
   });
   await page.goto('/app/settings');
-  await expect(page.getByRole('tab')).toHaveText(['默认资源', '系统上限', '系统检查', '连接状态']);
+  await expect(page.getByRole('tab')).toHaveText(['默认资源', '系统上限', '系统检查']);
   await expect(page.getByRole('tab', { name: '默认资源', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -178,6 +178,10 @@ test('platform configuration separates modules into tabs without model controls 
     animations: 'disabled',
   });
   await page.getByRole('tab', { name: '系统检查', exact: true }).click();
+  const checks = page.getByRole('region', { name: '检查结果', exact: true });
+  const diagnostics = page.getByRole('region', { name: '平台连接状态', exact: true });
+  await expect(checks).toBeVisible();
+  await expect(diagnostics).toBeVisible();
   await page.getByRole('button', { name: '刷新检查结果', exact: true }).click();
   await expect(quota).not.toBeVisible();
   await expect(page.getByText('数据库', { exact: true })).toBeVisible();
@@ -185,28 +189,22 @@ test('platform configuration separates modules into tabs without model controls 
   await expect(page.getByText('默认模型', { exact: true })).toHaveCount(0);
   await expect(page.getByText('外部模型运行适配', { exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: info.outputPath('platform-system-checks.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await page.getByRole('tab', { name: '连接状态', exact: true }).click();
-  const diagnostics = page.getByRole('region', { name: '平台连接状态', exact: true });
   await expect(diagnostics).toBeVisible();
   await diagnostics.getByRole('button', { name: '刷新状态', exact: true }).click();
   await expect(diagnostics.getByText('已连接', { exact: true })).toHaveCount(1);
   await expect(diagnostics.getByText('已就绪', { exact: true })).toHaveCount(2);
-  await expect(page.getByRole('region', { name: '检查结果', exact: true })).not.toBeVisible();
+  await expect(checks).toBeVisible();
   expect(modelRequests).toEqual([]);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({
-    path: info.outputPath('platform-connection-status.png'),
+    path: info.outputPath('platform-system-checks.png'),
     fullPage: true,
     animations: 'disabled',
   });
   await page.getByRole('tab', { name: '默认资源', exact: true }).click();
   await expect(runtime.getByText('2 核', { exact: true })).toBeVisible();
   await expect(diagnostics).not.toBeVisible();
+  await expect(checks).not.toBeVisible();
 });
 
 test('runtime configuration read failure can be retried without writing or requesting model settings', async ({

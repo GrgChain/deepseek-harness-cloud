@@ -4,12 +4,14 @@ import {
   Alert,
   Button,
   Checkbox,
+  Collapse,
   Drawer,
   Empty,
   Form,
   Input,
   InputNumber,
   Modal,
+  Segmented,
   Space,
   Switch,
   Table,
@@ -22,6 +24,7 @@ import { APIError } from '../../api/error';
 import { expireSession, useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { DataPagination, usePagePagination } from '../../shared/components/data-pagination';
 import { client, date, errorText, StatusTag } from './connector-shared';
+import { parameterErrors, toolParameters, ToolParameterInput } from './tool-parameters';
 
 function isRisky(tool: MCPTool) {
   return (
@@ -48,6 +51,7 @@ export function ConnectorDetails({
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [tool, setTool] = useState<MCPTool | null>(null);
+  const [toolConnection, setToolConnection] = useState<Connector | null>(null);
   const [result, setResult] = useState<MCPCall | null>(null);
   const toolsPage = usePagePagination(search);
   const callPage = usePagePagination(connection.id);
@@ -154,7 +158,8 @@ export function ConnectorDetails({
                   />
                 )}
                 <p className="connector-note">
-                  仅勾选的工具可调用。定义变化后需重新启用，发现工具不会执行操作。
+                  连接成功后自动启用发现的工具，可按需停用。创建工作空间时选择此服务，即可在 DSH
+                  对话中调用；工具目录会自动更新。
                 </p>
                 <Table<MCPTool>
                   rowKey="name"
@@ -205,6 +210,7 @@ export function ConnectorDetails({
                           disabled={!invoke || !ready || !t.enabled || !!busy}
                           onClick={() => {
                             setTool(t);
+                            setToolConnection(connection);
                             setResult(null);
                           }}
                         >
@@ -297,6 +303,7 @@ export function ConnectorDetails({
                     },
                     {
                       title: '操作',
+                      hidden: !invoke || !calls.data?.items.some((v) => v.status === 'RUNNING'),
                       render: (_, v) =>
                         v.status === 'RUNNING' && invoke ? (
                           <Button
@@ -331,9 +338,9 @@ export function ConnectorDetails({
       />
       {tool && (
         <ToolCall
-          key={tool.name + connection.version}
+          key={tool.name + (toolConnection ?? connection).version}
           user={user}
-          connection={connection}
+          connection={toolConnection ?? connection}
           tool={tool}
           onClose={() => {
             setTool(null);
@@ -398,7 +405,10 @@ function ToolCall({
   onResult: (v: MCPCall) => Promise<void>;
 }) {
   const cache = useQueryClient();
+  const parameters = toolParameters(tool.input_schema);
+  const [mode, setMode] = useState<'form' | 'json'>(parameters ? 'form' : 'json');
   const [text, setText] = useState('{}');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [timeout, setTimeout] = useState<number>(60);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -408,13 +418,41 @@ function ToolCall({
   const [key] = useState(() => crypto.randomUUID());
   const [uncertain, setUncertain] = useState(false);
   const risky = isRisky(tool);
+  const values = mode === 'form' ? (JSON.parse(text) as Record<string, unknown>) : {};
+  function parseArguments() {
+    const value: unknown = JSON.parse(text);
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error('参数须为JSON对象');
+    if (new TextEncoder().encode(text).length > 900_000) throw new Error('参数过大，请减少内容');
+    return value as Record<string, unknown>;
+  }
+  function changeMode(next: 'form' | 'json') {
+    try {
+      const value = parseArguments();
+      if (
+        next === 'form' &&
+        parameters &&
+        (Object.keys(value).some((name) => !parameters.some((p) => p.name === name)) ||
+          Object.keys(parameterErrors(parameters, value)).some((name) => value[name] !== undefined))
+      )
+        throw new Error('这些参数包含表单无法展示的字段或类型，请继续使用 JSON 填写。');
+      setMode(next);
+      setFieldErrors({});
+      setError('');
+    } catch (cause) {
+      setError(errorText(cause));
+    }
+  }
   function check() {
     try {
-      const value: unknown = JSON.parse(text);
-      if (!value || typeof value !== 'object' || Array.isArray(value))
-        throw new Error('参数须为JSON对象');
-      if (new TextEncoder().encode(text).length > 900_000) throw new Error('参数过大，请减少内容');
-      setPreview(value as Record<string, unknown>);
+      const value = parseArguments();
+      const errors = parameters ? parameterErrors(parameters, value) : {};
+      setFieldErrors(errors);
+      if (Object.keys(errors).length) {
+        setError(mode === 'json' ? Object.values(errors).join('；') : '');
+        return;
+      }
+      setPreview(value);
       setConfirmed(false);
       setRiskConfirmed(false);
       setError('');
@@ -451,25 +489,25 @@ function ToolCall({
   }
   return (
     <Modal
-      className="connector-modal"
+      className="connector-modal connector-tool-call"
       open
       title={`试调用 · ${tool.name}`}
-      width={720}
+      width={680}
       closable={!busy}
       maskClosable={false}
       onCancel={() => {
         if (!busy) onClose();
       }}
       footer={
-        <Space>
+        <div className="connector-call-actions">
           {busy && <Button onClick={onBackground}>查看记录与取消</Button>}
-          <Button disabled={busy} onClick={onClose}>
-            关闭
-          </Button>
           {!preview ? (
-            <Button type="primary" onClick={check}>
-              检查参数
-            </Button>
+            <>
+              <Button onClick={onClose}>关闭</Button>
+              <Button type="primary" onClick={check}>
+                检查参数
+              </Button>
+            </>
           ) : (
             <>
               <Button disabled={busy || uncertain} onClick={() => setPreview(null)}>
@@ -486,42 +524,110 @@ function ToolCall({
               </Button>
             </>
           )}
-        </Space>
+        </div>
       }
     >
       {error && <Alert role="alert" type="error" showIcon message={error} />}
-      <p>
-        服务：{connection.name} · 工具：{tool.name}
-      </p>
-      <p>{tool.description}</p>
+      <div className="connector-call-context">
+        <span>服务 · {connection.name}</span>
+        {tool.description && <p>{tool.description}</p>}
+      </div>
       {!preview ? (
         <>
-          <details>
-            <summary>查看参数JSON Schema</summary>
-            <pre className="connector-json">{JSON.stringify(tool.input_schema, null, 2)}</pre>
-          </details>
-          <Form layout="vertical">
-            <Form.Item label="调用参数（JSON）" htmlFor="connector-arguments">
-              <Input.TextArea
-                id="connector-arguments"
-                rows={10}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
+          <div className="connector-call-toolbar">
+            <h3>调用参数</h3>
+            {parameters && (
+              <Segmented
+                aria-label="参数填写方式"
+                value={mode}
+                options={[
+                  { label: '表单填写', value: 'form' },
+                  { label: 'JSON 填写', value: 'json' },
+                ]}
+                onChange={changeMode}
               />
-            </Form.Item>
-            <Form.Item label="超时（秒）" htmlFor="connector-timeout">
-              <InputNumber
-                id="connector-timeout"
-                min={1}
-                max={120}
-                value={timeout}
-                onChange={(v) => setTimeout(v ?? 60)}
-              />
-            </Form.Item>
+            )}
+          </div>
+          <Form layout="vertical" className="connector-call-form">
+            {mode === 'form' && parameters ? (
+              parameters.length ? (
+                parameters.map((field, index) => (
+                  <Form.Item
+                    key={field.name}
+                    label={field.label}
+                    required={field.required}
+                    htmlFor={`connector-parameter-${index}`}
+                    validateStatus={fieldErrors[field.name] ? 'error' : undefined}
+                    help={fieldErrors[field.name] || field.description}
+                  >
+                    <ToolParameterInput
+                      field={field}
+                      id={`connector-parameter-${index}`}
+                      value={values[field.name]}
+                      onChange={(value) => {
+                        setText(JSON.stringify({ ...values, [field.name]: value }, null, 2));
+                        setFieldErrors((previous) => ({ ...previous, [field.name]: '' }));
+                      }}
+                    />
+                  </Form.Item>
+                ))
+              ) : (
+                <p className="connector-note">此工具无需填写参数，可直接检查并确认调用。</p>
+              )
+            ) : (
+              <Form.Item label="调用参数（JSON）" htmlFor="connector-arguments">
+                <Input.TextArea
+                  id="connector-arguments"
+                  className="connector-arguments-json"
+                  autoSize={{ minRows: 6, maxRows: 12 }}
+                  spellCheck={false}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                />
+              </Form.Item>
+            )}
+            <Collapse
+              ghost
+              className="connector-call-advanced"
+              items={[
+                {
+                  key: 'advanced',
+                  label: '更多设置',
+                  children: (
+                    <>
+                      <Form.Item
+                        label="超时（秒）"
+                        htmlFor="connector-timeout"
+                        extra="默认 60 秒，可设置 1～120 秒。"
+                      >
+                        <InputNumber
+                          id="connector-timeout"
+                          min={1}
+                          max={120}
+                          precision={0}
+                          value={timeout}
+                          onChange={(v) => setTimeout(v ?? 60)}
+                        />
+                      </Form.Item>
+                      <details className="connector-call-schema">
+                        <summary>查看参数JSON Schema</summary>
+                        <pre className="connector-json">
+                          {JSON.stringify(tool.input_schema, null, 2)}
+                        </pre>
+                      </details>
+                    </>
+                  ),
+                },
+              ]}
+            />
           </Form>
         </>
       ) : (
         <>
+          <div className="connector-call-preview-heading">
+            <h3>核对调用参数</h3>
+            <span>超时 {timeout} 秒</span>
+          </div>
           <pre className="connector-json">{JSON.stringify(preview, null, 2)}</pre>
           <div className="connector-confirmations">
             <Checkbox

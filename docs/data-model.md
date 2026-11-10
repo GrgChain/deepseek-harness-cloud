@@ -284,7 +284,7 @@ storage_backups保存组织/Owner/实例/资产复合绑定、冻结容量、模
 
 迁移49新增`connectors:read/manage/invoke`权限，管理和调用均依赖读取；内置角色默认获得本人权限。迁移51扩展`auth_type`为`none/bearer/oauth2`。服务端事务仍须核对当前角色、Owner、配置版本、启用状态及授权目标，数据库外键不代替业务授权。
 
-Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使用`connector-credential`加密上下文；一次性事务的PKCE verifier与客户端信息使用`connector-oauth`上下文。两类密文均纳入主密钥轮换，state本身不持久明文保存。OAuth客户端管理员配置来自私有策略文件，不由列表API读回。
+Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使用`connector-credential`加密上下文；一次性事务的PKCE verifier与客户端信息使用`connector-oauth`上下文。两类密文均纳入主密钥轮换，state本身不持久明文保存。OAuth客户端管理员配置来自私有策略文件，不由列表API读回。服务启停复用连接的`enabled`和`version`，保留凭据及工具选择；发现变化才递增相应配置/目录版本，无需新增迁移。Worker发布的`.hc-mcp-tools.json`只含所选服务身份、版本、工具定义、运行代次和有效期，不含凭据。平台`mcp_calls`不保存正文；DSH会话仍按原生规则保存工具参数和结果。
 
 当前没有企查查五类资源聚合或远端待撤销状态的专用数据结构；第6.17.2节要求的功能应随实现增加契约与迁移，不能把本段视为已实现设计。接口语义见[连接器API](api.md#工作台连接器req-23api-100111api-115116)，现有流程见[连接器后端设计](backend.md#工作台连接器mcp)。
 
@@ -300,7 +300,7 @@ Bearer凭据和OAuth访问/刷新令牌保存在连接原有密文字段，使�
 
 ## 创建工作空间扩展（schema54～55）
 
-`workspace_extensions`按实例唯一保存组织/Owner复合归属、接受时`auth_generation`、非秘密`configuration`、创建时间和`applied_at`；迁移55增加`applied_generation`，与当前启用access_route代次相等才表示本轮加载已确认。JSON仅含连接ID/名称/版本、MCP目录与已授权工具、服务端解析范围及白名单插件准确包版本；外部密钥仍在原连接密文字段，技能正文仍在schema53密文快照。记忆/知识库同时写既有`context_bindings`，随创建事务整体提交。
+`workspace_extensions`按实例唯一保存组织/Owner复合归属、接受时`auth_generation`、非秘密`configuration`、创建时间和`applied_at`；迁移55增加`applied_generation`，与当前启用access_route代次相等才表示本轮加载已确认。JSON仅含连接ID/名称/版本、MCP目录与已授权工具、服务端解析范围及白名单插件准确包版本；外部密钥仍在原连接密文字段，技能正文仍在schema53密文快照。连接器快照中的版本及工具是接受时记录；新适配器按已选服务身份读取当前已启用目录，原快照不随后台发现重写。记忆/知识库同时写既有`context_bindings`，随创建事务整体提交。
 
 API仅SELECT/INSERT快照，Worker仅SELECT及更新应用时间/代次；既有membership列读取额外开放auth_generation用于CREATE执行前复核，不授予身份写权限。`hc_extensions_lock_authority`为固定search_path的SECURITY DEFINER函数，PUBLIC无执行权；受限Worker以匹配组织、Owner、实例和授权代次校验活动身份及RUNNING意图并加锁，返回当前角色。内部WorkspacePrincipal不接受HTTP输入，不伪造Portal会话；每次受控调用仍检查当前功能权限、连接及范围，旧快照不恢复撤销授权。
 
@@ -324,9 +324,9 @@ API仅SELECT/INSERT快照，Worker仅SELECT及更新应用时间/代次；既有
 
 迁移65将Mem0默认插件升级至0.2.0。原始会话保存于伴随服务独立的 `mem0_session_messages`，稳定消息标识去重；`mem0_session_commits` 持久化归档游标及提取回执。只有归档提取后的事实写入现有内容索引，标为自动生成；原始会话不进入记忆导出。原有内容、命名空间及历史迁移不变。
 
-## 当前插件目录与会话归档（迁移61～67）
+## 当前插件目录与会话归档（迁移61～68）
 
-上述迁移61～65段落记录逐次升级的历史。当前默认目录在迁移67后包含三个第三方插件及本项目维护的Mem0、Graphiti插件；两种本地插件均为0.2.0，平台分发包与Worker嵌入包保持字节一致。目录元数据不会自动升级已有工作空间的Profile。
+上述迁移61～65段落记录逐次升级的历史。迁移68移除DSH SSH、DSH Market默认条目及引用它们的个人展示覆盖，保留独立添加的个人条目及离线原包。当前默认目录包含OpenViking及本项目维护的Mem0、Graphiti插件；两种本地插件均为0.2.0，平台分发包与Worker嵌入包保持字节一致。目录元数据不会自动升级已有工作空间的Profile。
 
 迁移66创建的`ip_workspace_ports`为历史端口槽位表。当前IP入口复用控制台HTTPS端口，以`/dsh/<实例UUID>/`分流，不再分配槽位或读写该表；保留迁移及已应用的数据库结构。
 

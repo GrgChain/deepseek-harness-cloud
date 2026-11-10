@@ -238,7 +238,7 @@ func TestExtensionChannelRejectsSymlinksAndOversizedFiles(t *testing.T) {
 	}
 }
 
-func TestWorkspaceRuntimeMCPUsesFrozenToolAuthorizationAndStableReceipts(t *testing.T) {
+func TestWorkspaceRuntimeMCPFollowsBoundServersAndStableReceipts(t *testing.T) {
 	f := newMonitorFixture(t)
 	instance, owner := f.instance(t)
 	source := webapi.ID()
@@ -278,7 +278,7 @@ func TestWorkspaceRuntimeMCPUsesFrozenToolAuthorizationAndStableReceipts(t *test
 	}
 	snapshot := workspaceextensions.Snapshot{Items: []workspaceextensions.Item{{Kind: "connector", ID: source, Name: "MCP", Version: connection.Version, CatalogVersion: connection.CatalogVersion, Tools: []string{"echo"}}}}
 	f.exec(t, `UPDATE workspace_extensions SET configuration=$2 WHERE instance_id=$1`, instance, marshalForTest(snapshot))
-	request := extensionRequest{ID: webapi.ID(), Kind: "connector", SourceID: source, Tool: "echo", Arguments: map[string]any{"text": "runtime echo"}, Confirmed: true}
+	request := extensionRequest{ID: webapi.ID(), Kind: "connector", SourceID: source, ExpectedVersion: connection.Version, CatalogVersion: connection.CatalogVersion, Tool: "echo", Arguments: map[string]any{"text": "runtime echo"}, Confirmed: true}
 	first, e := broker.invoke(f.ctx, instance, request)
 	if e != nil || remoteCalls != 1 || !strings.Contains(string(marshalForTest(first)), "runtime echo") {
 		t.Fatal("runtime tool failed", e, remoteCalls)
@@ -287,15 +287,80 @@ func TestWorkspaceRuntimeMCPUsesFrozenToolAuthorizationAndStableReceipts(t *test
 	if e != nil || remoteCalls != 1 || !replay.(connectors.Call).Replayed {
 		t.Fatal("duplicate effect on replay", e, remoteCalls)
 	}
+	servers, e := broker.mcpServers(f.ctx, instance)
+	if e != nil || len(servers) != 1 || len(servers[0].Tools) != 1 || !strings.Contains(string(servers[0].Tools[0].Schema), "text") {
+		t.Fatal("native catalog unavailable", servers, e)
+	}
+	if strings.Contains(string(marshalForTest(servers)), "workspace-test-token") {
+		t.Fatal("catalog leaked credential")
+	}
+	if servers[0].Version != connection.Version || servers[0].CatalogVersion != connection.CatalogVersion {
+		t.Fatal("native catalog missing confirmation versions", servers[0])
+	}
+	// New tools appear in the existing binding after the background sweep.
+	mcp.AddTool(remote, &mcp.Tool{Name: "new_echo", Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, DestructiveHint: &readonly}}, func(_ context.Context, _ *mcp.CallToolRequest, in struct {
+		Text string `json:"text"`
+	}) (*mcp.CallToolResult, any, error) {
+		remoteCalls++
+		return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: in.Text}}}, nil, nil
+	})
+	broker.refreshMCP(f.ctx)
+	servers, e = broker.mcpServers(f.ctx, instance)
+	if e != nil || len(servers) != 1 || len(servers[0].Tools) != 2 {
+		t.Fatal("new tool not discovered", servers, e)
+	}
+	// A confirmation for an old definition cannot authorize the refreshed catalog.
+	request.ID = webapi.ID()
+	_, e = broker.invoke(f.ctx, instance, request)
+	var problem *webapi.Problem
+	if !errors.As(e, &problem) || problem.Status != 409 || remoteCalls != 1 {
+		t.Fatal("stale catalog confirmation used", e, remoteCalls)
+	}
+	request.ExpectedVersion, request.CatalogVersion = servers[0].Version, servers[0].CatalogVersion
+	request.ID, request.Tool = webapi.ID(), "new_echo"
+	if _, e = broker.invoke(f.ctx, instance, request); e != nil || remoteCalls != 2 {
+		t.Fatal("new tool not callable", e)
+	}
+	// Toggling the service retains the binding and tool preferences.
+	var version int64
+	if e = f.admin.QueryRow(f.ctx, `SELECT version FROM mcp_connectors WHERE id=$1`, source).Scan(&version); e != nil {
+		t.Fatal(e)
+	}
+	connection, e = broker.connectors.SetEnabled(f.ctx, principal, source, version, false, "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	servers, e = broker.mcpServers(f.ctx, instance)
+	if e != nil || len(servers) != 0 {
+		t.Fatal("disabled server advertised", servers, e)
+	}
+	connection, e = broker.connectors.SetEnabled(f.ctx, principal, source, connection.Version, true, "")
+	if e != nil || !connection.Enabled || connection.Status != "READY" || len(connection.Tools) != 2 {
+		t.Fatal("service did not reconnect", e)
+	}
+	request.ID = webapi.ID()
+	_, e = broker.invoke(f.ctx, instance, request)
+	if !errors.As(e, &problem) || problem.Status != 409 || remoteCalls != 2 {
+		t.Fatal("stale service confirmation used after reconnect", e, remoteCalls)
+	}
+	request.ExpectedVersion, request.CatalogVersion = connection.Version, connection.CatalogVersion
+	if _, e = broker.invoke(f.ctx, instance, request); e != nil || remoteCalls != 3 {
+		t.Fatal("binding lost on reconnect", e)
+	}
 	request.Tool = "unselected"
 	request.ID = webapi.ID()
-	if _, e = broker.invoke(f.ctx, instance, request); e == nil || remoteCalls != 1 {
+	if _, e = broker.invoke(f.ctx, instance, request); e == nil || remoteCalls != 3 {
 		t.Fatal("unselected tool invoked", e)
 	}
 	f.exec(t, `UPDATE mcp_connectors SET enabled=false WHERE id=$1`, source)
 	request.Tool = "echo"
-	if _, e = broker.invoke(f.ctx, instance, request); e == nil || remoteCalls != 1 {
+	if _, e = broker.invoke(f.ctx, instance, request); e == nil || remoteCalls != 3 {
 		t.Fatal("disabled connector invoked", e)
+	}
+	f.exec(t, `UPDATE mcp_connectors SET enabled=true WHERE id=$1`, source)
+	f.exec(t, `UPDATE memberships SET auth_generation=2 WHERE org_id=$1 AND user_id=$2`, f.org, owner)
+	if _, e = broker.mcpServers(f.ctx, instance); e == nil {
+		t.Fatal("catalog survived revoked binding authority")
 	}
 }
 

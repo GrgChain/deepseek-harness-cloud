@@ -140,7 +140,7 @@ func testOAuthFlowAtOrigin(t *testing.T, ctx context.Context, s *Service, root *
 		t.Fatal("duplicate query accepted")
 	}
 	conn, err = s.FinishOAuth(ctx, owner, callback, "")
-	if err != nil || conn.Status != "READY" || len(conn.Tools) == 0 || conn.Tools[0].Enabled {
+	if err != nil || conn.Status != "READY" || len(conn.Tools) == 0 || !conn.Tools[0].Enabled {
 		t.Fatal("authorization or verification failed", conn.Status, err)
 	}
 	if _, err = s.FinishOAuth(ctx, owner, callback, ""); err == nil || exchanges.Load() != 1 {

@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Dropdown, Empty, Segmented, Spin, Tag } from 'antd';
+import { Alert, Button, Dropdown, Empty, Segmented, Spin, Switch, Tag } from 'antd';
 import { Ellipsis, ExternalLink, Plus } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -26,6 +26,7 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
     queryKey: scope,
     queryFn: ({ signal }) => client.request<ConnectorList>(user, '', undefined, 'GET', signal),
     retry: false,
+    refetchInterval: 5000,
   });
   useExpiredSession(list.error);
   const manage = hasPermission(user, 'connectors:manage');
@@ -164,6 +165,20 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
                   </Button>
                   {manage && (
                     <>
+                      <Switch
+                        aria-label={`启用服务 ${v.name}`}
+                        checked={v.enabled}
+                        loading={busy === v.id}
+                        disabled={!!busy}
+                        onChange={(enabled) =>
+                          void run(v.id, async () => {
+                            await client.request(user, `/${v.id}/enabled`, {
+                              expected_version: v.version,
+                              enabled,
+                            });
+                          })
+                        }
+                      />
                       <Button
                         disabled={!v.enabled || !!busy}
                         loading={busy === v.id}
@@ -253,7 +268,6 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
               entries: [],
             }
           }
-          endpoints={list.data.endpoints}
           onClose={() => setCatalogOpen(false)}
           onSelect={(template) => {
             setCatalogOpen(false);

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Collapse, Drawer, Empty, Input, Button } from 'antd';
 import { ArrowRight, ExternalLink, Plus, Search } from 'lucide-react';
-import type { ConnectorCatalog, ConnectorPreset, MCPEndpoint } from '../../api/connectors';
+import type { ConnectorCatalog, ConnectorPreset } from '../../api/connectors';
 import { ConnectorIcon } from './connector-logo';
 
 const categories = [
@@ -23,12 +23,10 @@ export function PresetIcon({ preset }: { preset: ConnectorPreset }) {
 
 export function ConnectorCatalogPicker({
   catalog,
-  endpoints,
   onSelect,
   onClose,
 }: {
   catalog: ConnectorCatalog;
-  endpoints: MCPEndpoint[];
   onSelect: (preset: ConnectorPreset | null) => void;
   onClose: () => void;
 }) {
@@ -91,8 +89,7 @@ export function ConnectorCatalogPicker({
       <div className="connector-catalog-list" aria-label="内置连接器目录">
         {entries.length ? (
           entries.map((preset) => {
-            const configured =
-              !!preset.default_url || endpoints.some((e) => e.catalog_id === preset.id);
+            const configured = !!preset.default_url;
             const oauth = configured && preset.auth_kind === 'oauth2';
             const action = oauth ? '授权连接' : '配置连接';
             return (
@@ -123,11 +120,9 @@ export function ConnectorCatalogPicker({
                         ? 'OAuth 授权'
                         : preset.default_url
                           ? '官方默认地址'
-                          : configured
-                            ? '有推荐地址'
-                            : preset.mode === 'gateway' || preset.mode === 'stdio'
-                              ? '需部署网关'
-                              : '使用个人服务地址'}
+                          : preset.mode === 'gateway' || preset.mode === 'stdio'
+                            ? '需部署网关'
+                            : '使用个人服务地址'}
                     </span>
                     <span className="connector-preset-action">
                       {action}

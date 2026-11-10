@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -137,6 +139,21 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 	remote, endpoint, remoteCalls := testMCP(t)
 	endpoint.CatalogID = "notion"
 	s.policy = func() (Policy, error) { return Policy{Endpoints: []Endpoint{endpoint}}, nil }
+	t.Run("saving an enabled server discovers tools without executing them", func(t *testing.T) {
+		h := NewHandler(s, func(context.Context, string, int) error { return nil })
+		body, _ := json.Marshal(Input{Name: "Auto discovered", URL: endpoint.URL, Protocol: "2026-07-28", Auth: "bearer", Credential: "private-test-token", Enabled: true})
+		r := httptest.NewRequest(http.MethodPost, "/v1/connectors", bytes.NewReader(body)).WithContext(ctx)
+		r.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		h.ServeAuthenticated(w, r, owner)
+		var c Connection
+		if w.Code != 201 || json.Unmarshal(w.Body.Bytes(), &c) != nil || c.Status != "READY" || len(c.Tools) != 1 || !c.Tools[0].Enabled || remoteCalls.Load() != 0 {
+			t.Fatal("automatic discovery failed", w.Code, w.Body.String())
+		}
+		if err := s.Delete(ctx, owner, c.ID, Input{ExpectedVersion: c.Version, ConfirmedName: c.Name}, ""); err != nil {
+			t.Fatal(err)
+		}
+	})
 	listed, err := s.List(ctx, owner)
 	if err != nil {
 		t.Fatal(err)
@@ -222,8 +239,12 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 		t.Fatal("cross-owner admin access", err)
 	}
 	conn, err = s.Sync(ctx, owner, conn.ID, conn.Version, "")
-	if err != nil || conn.Status != "READY" || len(conn.Tools) != 1 || conn.Tools[0].Enabled || remoteCalls.Load() != 0 {
+	if err != nil || conn.Status != "READY" || len(conn.Tools) != 1 || !conn.Tools[0].Enabled || remoteCalls.Load() != 0 {
 		t.Fatalf("discover: %#v %v", conn, err)
+	}
+	conn, err = s.SelectTools(ctx, owner, conn.ID, conn.Version, nil, "")
+	if err != nil {
+		t.Fatal(err)
 	}
 	invoke := InvokeInput{ExpectedVersion: conn.Version, CatalogVersion: conn.CatalogVersion, Tool: "echo", Arguments: map[string]any{"text": "私有参数不要存库"}, IdempotencyKey: webapi.ID(), Confirmed: true}
 	if _, err = s.Invoke(ctx, owner, conn.ID, invoke, ""); !problemIs(err, "CONNECTOR_INVALID") {
@@ -275,8 +296,8 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 		t.Fatal("changed definition dispatched", rejected, err)
 	}
 	conn, err = s.Sync(ctx, owner, conn.ID, conn.Version, "")
-	if err != nil || conn.Tools[0].Enabled || conn.Tools[0].Change != "changed" {
-		t.Fatal("definition change retained grant", conn, err)
+	if err != nil || !conn.Tools[0].Enabled || conn.Tools[0].Change != "changed" {
+		t.Fatal("definition change did not preserve preference", conn, err)
 	}
 	// Timeout happens after a synthetic side effect; retries must only read status.
 	entered := make(chan struct{}, 1)

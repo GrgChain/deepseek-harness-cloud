@@ -38,23 +38,25 @@ func NewExtensionBroker(pool *pgxpool.Pool, root string, cipher *security.Secret
 }
 
 type extensionRequest struct {
-	ID             string                         `json:"id"`
-	Generation     string                         `json:"generation"`
-	Kind           string                         `json:"kind"`
-	SourceID       string                         `json:"source_id"`
-	Tool           string                         `json:"tool,omitempty"`
-	Arguments      map[string]any                 `json:"arguments,omitempty"`
-	Query          string                         `json:"query,omitempty"`
-	Action         string                         `json:"action,omitempty"`
-	RecordID       string                         `json:"record_id,omitempty"`
-	Scope          string                         `json:"scope,omitempty"`
-	Confirmed      bool                           `json:"confirmed,omitempty"`
-	Title          string                         `json:"title,omitempty"`
-	Content        string                         `json:"content,omitempty"`
-	Source         string                         `json:"source,omitempty"`
-	Token          string                         `json:"token,omitempty"`
-	RecordVersion  int64                          `json:"record_version,omitempty"`
-	SessionRequest *contextservice.SessionRequest `json:"session_request,omitempty"`
+	ID              string                         `json:"id"`
+	Generation      string                         `json:"generation"`
+	Kind            string                         `json:"kind"`
+	SourceID        string                         `json:"source_id"`
+	ExpectedVersion int64                          `json:"expected_version,omitempty"`
+	CatalogVersion  int64                          `json:"catalog_version,omitempty"`
+	Tool            string                         `json:"tool,omitempty"`
+	Arguments       map[string]any                 `json:"arguments,omitempty"`
+	Query           string                         `json:"query,omitempty"`
+	Action          string                         `json:"action,omitempty"`
+	RecordID        string                         `json:"record_id,omitempty"`
+	Scope           string                         `json:"scope,omitempty"`
+	Confirmed       bool                           `json:"confirmed,omitempty"`
+	Title           string                         `json:"title,omitempty"`
+	Content         string                         `json:"content,omitempty"`
+	Source          string                         `json:"source,omitempty"`
+	Token           string                         `json:"token,omitempty"`
+	RecordVersion   int64                          `json:"record_version,omitempty"`
+	SessionRequest  *contextservice.SessionRequest `json:"session_request,omitempty"`
 }
 
 func privateChannelRead(root *os.Root, name string) ([]byte, error) {
@@ -83,12 +85,25 @@ func (b *ExtensionBroker) Run(ctx context.Context) error {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 	var tasks sync.WaitGroup
+	var catalogs sync.Map
+	catalogSlots := make(chan struct{}, 8)
+	refreshing := make(chan struct{}, 1)
+	var nextRefresh time.Time
 	defer tasks.Wait()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-ticker.C:
+			if time.Now().After(nextRefresh) {
+				select {
+				case refreshing <- struct{}{}:
+					nextRefresh = time.Now().Add(30 * time.Second)
+					tasks.Add(1)
+					go func() { defer tasks.Done(); defer func() { <-refreshing }(); b.refreshMCP(ctx) }()
+				default:
+				}
+			}
 			rows, err := b.pool.Query(ctx, `SELECT e.instance_id::text FROM workspace_extensions e JOIN instances i ON i.id=e.instance_id WHERE i.observed_state='RUNNING' AND i.desired_state='RUNNING' AND i.deleted_at IS NULL`)
 			if err != nil {
 				continue
@@ -102,6 +117,20 @@ func (b *ExtensionBroker) Run(ctx context.Context) error {
 			}
 			rows.Close()
 			for _, id := range ids {
+				if _, publishing := catalogs.LoadOrStore(id, true); !publishing {
+					select {
+					case catalogSlots <- struct{}{}:
+						tasks.Add(1)
+						go func() {
+							defer tasks.Done()
+							defer catalogs.Delete(id)
+							defer func() { <-catalogSlots }()
+							b.publishInstanceMCP(ctx, id)
+						}()
+					default:
+						catalogs.Delete(id)
+					}
+				}
 				if _, busy := b.active.LoadOrStore(id, true); busy {
 					continue
 				}
@@ -234,8 +263,20 @@ func (b *ExtensionBroker) invoke(ctx context.Context, instance string, request e
 	if !current {
 		return nil, identity.ErrForbidden
 	}
-	if request.Kind == "connector" && (!request.Confirmed || !slices.Contains(selected.Tools, request.Tool)) {
-		return nil, identity.ErrForbidden
+	if request.Kind == "connector" {
+		if !request.Confirmed {
+			return nil, identity.ErrForbidden
+		}
+		// A binding grants this server, not a stale copy of its tool catalog.
+		err = tx.QueryRow(ctx, `SELECT version,catalog_version FROM mcp_connectors WHERE id=$1 AND org_id=$2 AND owner_id=$3 AND enabled AND status='READY' AND deleted_at IS NULL`, selected.ID, p.OrganizationID, p.UserID).Scan(&selected.Version, &selected.CatalogVersion)
+		if err != nil {
+			return nil, err
+		}
+		// New native tools bind approval to the published configuration. Old
+		// profiles omit both fields and retain their existing invocation format.
+		if (request.ExpectedVersion != 0 || request.CatalogVersion != 0) && (request.ExpectedVersion != selected.Version || request.CatalogVersion != selected.CatalogVersion) {
+			return nil, webapi.Fail(409, "CONNECTOR_CONFLICT", "MCP 服务或工具定义已更新，请重新发起调用并确认")
+		}
 	}
 	if request.Kind != "connector" && !slices.Contains(selected.Scopes, request.Scope) {
 		return nil, identity.ErrForbidden
