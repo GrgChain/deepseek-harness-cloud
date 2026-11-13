@@ -345,7 +345,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 | 方法与路径                                                       | 权限及用途                                                                                           |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及38种内置连接器目录                                  |
+| `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及20种直连MCP目录                                  |
 | `POST /v1/connectors`、`PUT /v1/connectors/{id}`                 | `connectors:manage`；创建及版本化保存；凭据只写                                                      |
 | `DELETE /v1/connectors/{id}`                                     | 管理权限；`expected_version`、`confirmed_name`确认删除                                               |
 | `POST /v1/connectors/{id}/enabled`                               | 管理权限；`expected_version`、`enabled`启停服务，保留配置及工具偏好；启用时自动发现（API-129）         |
@@ -360,7 +360,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[连接器后端设计](backend.md#工作台连接器mcp)。
 
-`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为19种官方远程服务提供预填地址（其中9种采用OAuth），其余服务按个人部署或应用发布结果填写。`mode`、`auth_kind`描述上游接入要求，不代表平台已运行适配器。批准服务新增可选 `catalog_id`，仅支持已知目录ID；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。内置目录可预填官方地址，允许用户修改；自定义MCP地址默认留空，表单不提供推荐服务选择。旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存已启用的非OAuth服务后自动连接并发现工具；停用配置仅保存，不连接。
+`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为19种官方远程服务提供预填地址（其中9种采用OAuth），Dify按应用发布结果填写。目录版本2只包含 `mode=remote` 的直接兼容Streamable HTTP服务，不展示需要网关或协议适配的条目。`auth_kind`描述上游认证要求。批准服务新增可选 `catalog_id`，支持已知目录ID，并兼容已移除的旧ID以保留已有配置；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。内置目录可预填官方地址，允许用户修改；自定义MCP地址默认留空，表单不提供推荐服务选择。旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存已启用的非OAuth服务后自动连接并发现工具；停用配置仅保存，不连接。
 
 `auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
 

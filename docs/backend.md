@@ -515,7 +515,7 @@ Agent预设默认值通过原生settings API写入持久profile。`settings/desc
 
 `services/internal/connectors` 负责个人 HTTPS 地址与平台出口例外校验、官方Go MCP SDK客户端、Owner隔离的配置与工具快照、手动调用、JSON配置迁移。迁移49新增 `mcp_connectors`、`mcp_calls` 和三项独立权限，迁移50为个人地址及目录关联增加 `endpoint_url/catalog_id`；管理员/成员默认拥有本人权限，自定义角色显式授权。凭据使用 `connector-credential` 加密上下文并纳入密钥轮换；调用意图在出站前持久提交，数据库仅保存状态、版本和请求摘要。调用前重新发现并比较完整工具定义，复核当前权限、配置、目录、启用状态和批准目标。 细节见[连接器部署](../deploy/connectors/README.md)。
 
-内置目录由 `connectors/catalog.json` 编译嵌入，版本化保存38种条目的接入元数据及厂商文档链接。`LoadPolicy` 校验可选 `catalog_id` 与目录一致；19种远程服务（其中9种OAuth）默认提供固定地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
+内置目录由 `connectors/catalog.json` 编译嵌入，版本2保留20种可直接接入的远程服务，移除需要网关、CLI、stdio或旧SSE适配的18种条目。`LoadPolicy` 校验可选 `catalog_id`，保留已移除目录ID的兼容识别，避免已有连接及管理员策略失效；19种服务（其中9种OAuth）提供固定地址，Dify填写应用发布地址，管理员已有绑定时保留原服务。个人公网HTTPS无需预先批准，私网/HTTP仍须完整URL精确例外；目录不部署或执行适配器。目录元数据随本人连接列表返回，本身无需独立数据库迁移。
 
 连接器迁移51增加OAuth类型和一次性加密授权事务，`oauth_http.go`负责固定服务配置、授权元数据及受限出站，`oauth.go`负责动态注册、PKCE、会话绑定、回调和令牌刷新。API契约见[API-115/116](api.md#工作台连接器req-23api-100111api-115116)，参数见[部署与复验](../deploy/connectors/README.md)，数据约束见[迁移49～51](data-model.md#工作台连接器迁移4951)。企查查五类聚合及专用远端解绑尚未实现，当前删除仅擦除本地连接凭据。
 

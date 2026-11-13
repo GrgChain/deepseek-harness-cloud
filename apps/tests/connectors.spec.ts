@@ -465,6 +465,14 @@ test('built-in directory exposes all providers with search categories and honest
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
   const directory = page.getByRole('dialog', { name: '添加连接器', exact: true });
   await expect(directory.getByRole('article')).toHaveCount(catalog.entries.length);
+  await expect(directory.getByText('需部署网关', { exact: true })).toHaveCount(0);
+  await expect(
+    directory.getByRole('article', { name: '内置连接器 飞书 CLI', exact: true }),
+  ).toHaveCount(0);
+  await expect(
+    directory.getByRole('article', { name: '内置连接器 有道云笔记', exact: true }),
+  ).toHaveCount(0);
+  await expect(directory.getByRole('button', { name: '资讯娱乐', exact: true })).toHaveCount(0);
   await expect(directory.locator('.connector-catalog-list')).toHaveCSS('display', 'grid');
   await expect(directory.getByRole('link', { name: '目录来源' })).toHaveCount(0);
   await expect(directory.getByRole('status')).toHaveText(`共 ${catalog.entries.length} 个连接器`);
@@ -523,28 +531,28 @@ test('built-in directory exposes all providers with search categories and honest
   ).toBeVisible();
   await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('');
   await directory.getByRole('button', { name: '出行旅行', exact: true }).click();
-  await expect(directory.getByRole('article')).toHaveCount(5);
+  await expect(directory.getByRole('article')).toHaveCount(1);
   await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('没有此服务');
   await expect(directory.getByText('没有符合条件的连接器')).toBeVisible();
   await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('');
   await directory.getByRole('button', { name: '全部', exact: true }).click();
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('feishu');
+  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('dify');
   await expect(directory.getByRole('article')).toHaveCount(1);
   await directory.getByRole('button', { name: /^配置连接 / }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByText('飞书 CLI', { exact: true })).toBeVisible();
+  await expect(editor.getByText('Dify', { exact: true })).toBeVisible();
   await expect(editor.locator('.connector-preset-icon img')).toHaveAttribute(
     'src',
-    '/connector-logos/feishu-cli.svg',
+    '/connector-logos/dify.svg',
   );
-  await expect(editor.getByLabel('连接器名称')).toHaveValue('飞书 CLI');
+  await expect(editor.getByLabel('连接器名称')).toHaveValue('Dify');
   await expect(editor.getByLabel('服务地址')).toBeEditable();
   await expect(editor.getByLabel('服务地址')).toBeEmpty();
   await expect(editor.getByText('暂未接入', { exact: true })).toHaveCount(0);
   await editor.getByRole('button', { name: /^保\s*存$/ }).click();
   await expect(editor.getByText('请输入 MCP 服务地址', { exact: true })).toBeVisible();
   await editor.getByRole('button', { name: '接入准备' }).click();
-  await expect(editor.getByText('App ID 与 App Secret', { exact: true })).toBeVisible();
+  await expect(editor.getByText('已发布应用或工作流的 MCP 地址', { exact: true })).toBeVisible();
   await expect(editor.getByRole('link', { name: '查看接入文档' })).toHaveAttribute(
     'href',
     /^https:\/\//,
@@ -805,16 +813,16 @@ test('platform settings and copies allow personal addresses while presets retain
   await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
   await editor.getByRole('button', { name: /^取\s*消$/ }).click();
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  await page.getByRole('button', { name: '配置连接 QQ 音乐', exact: true }).click();
+  await page.getByRole('button', { name: '配置连接 Dify', exact: true }).click();
   editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByLabel('连接器名称')).toHaveValue('QQ 音乐');
+  await expect(editor.getByLabel('连接器名称')).toHaveValue('Dify');
   await expect(editor.getByLabel('服务地址')).toBeEmpty();
   await editor.getByLabel('服务地址').fill('https://personal.example.com/mcp');
   await editor.getByRole('button', { name: /^保\s*存$/ }).click();
   await expect(editor).toHaveCount(0);
   expect(calls.saves[0]).toMatchObject({
     url: 'https://personal.example.com/mcp',
-    catalog_id: 'qq-music',
+    catalog_id: 'dify',
   });
   expect(calls.saves[0]).not.toHaveProperty('endpoint_id');
 });
