@@ -5258,13 +5258,23 @@ components:
         category:
           {
             type: string,
-            enum: [office, knowledge, productivity, media, travel, professional, self_hosted],
+            enum:
+              [
+                office,
+                knowledge,
+                productivity,
+                development,
+                media,
+                travel,
+                professional,
+                self_hosted,
+              ],
           }
         mode:
           {
             type: string,
-            enum: [remote, gateway, internal, stdio],
-            description: Upstream integration mode; not an assertion that this platform runs the adapter.,
+            enum: [remote],
+            description: Direct Streamable HTTP integration; services requiring protocol gateways are excluded from the built-in catalog.,
           }
         auth_kind:
           {

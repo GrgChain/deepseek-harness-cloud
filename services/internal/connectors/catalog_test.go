@@ -11,16 +11,18 @@ import (
 
 func TestBuiltinCatalog(t *testing.T) {
 	catalog := builtinCatalog()
-	want := strings.Fields("tencent-docs tencent-ima tencent-meeting tencent-news wechat-reading tencent-lexiang tencent-weiyun qq-mail qq-music fliggy baidu-map ctrip-wendao meituan-travel didi yuandian qcc tencent-ardot youdao-note notion openalex dida365 feishu-cli wecom-cli dingtalk-cli agently-cli obsidian-cli yuque-mcp weknora dify github gitee gitlab codeup context7 linear sentry vercel supabase")
-	if catalog.Version != 1 || len(catalog.Entries) != len(want) {
+	want := strings.Fields("tencent-docs tencent-meeting tencent-lexiang tencent-weiyun didi qcc tencent-ardot notion openalex dida365 dify github gitee gitlab codeup context7 linear sentry vercel supabase")
+	if catalog.Version != 2 || len(catalog.Entries) != len(want) {
 		t.Fatal("incomplete built-in catalog")
 	}
 	seen := map[string]bool{}
 	categories := map[string]bool{"office": true, "knowledge": true, "productivity": true, "media": true, "travel": true, "professional": true, "self_hosted": true, "development": true}
-	modes := map[string]bool{"remote": true, "gateway": true, "internal": true, "stdio": true}
 	for _, entry := range catalog.Entries {
-		if seen[entry.ID] || !endpointID.MatchString(entry.ID) || entry.Name == "" || entry.Description == "" || entry.SetupHint == "" || len(entry.Requirements) == 0 || !categories[entry.Category] || !modes[entry.Mode] {
+		if seen[entry.ID] || !endpointID.MatchString(entry.ID) || entry.Name == "" || entry.Description == "" || entry.SetupHint == "" || len(entry.Requirements) == 0 || !categories[entry.Category] || entry.Mode != "remote" {
 			t.Fatal("invalid catalog entry", entry.ID)
+		}
+		if entry.DefaultURL == "" && entry.ID != "dify" {
+			t.Fatal("catalog entry needs an external adapter", entry.ID)
 		}
 		for _, link := range []string{entry.DocURL, entry.GuideURL, catalog.SourceURL} {
 			u, err := url.Parse(link)
@@ -61,6 +63,9 @@ func TestCatalogBindingsDoNotApproveNetworkTargets(t *testing.T) {
 	}{
 		{"", "https://mcp.example.com/mcp", true},
 		{"notion", "https://mcp.example.com/mcp", true},
+		// Removing presets must not invalidate existing deployment policies.
+		{"feishu-cli", "https://mcp.example.com/mcp", true},
+		{"youdao-note", "https://mcp.example.com/mcp", true},
 		{"not-a-connector", "https://mcp.example.com/mcp", false},
 		{"notion", "http://127.0.0.1/mcp", false},
 		{"notion", "https://mcp.example.com/mcp?token=secret", false},

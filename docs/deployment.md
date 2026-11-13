@@ -556,7 +556,7 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 ## 工作台连接器（MCP）
 
-API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，38种目录条目仍可填写个人公网HTTPS地址，其中19种远程服务提供默认地址（含9种OAuth）；其余条目按实际部署或厂商配置填写兼容MCP地址。私网/HTTP例外只对精确批准URL生效。
+API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，20种可直接接入的远程目录服务仍可填写个人公网HTTPS地址，其中19种提供默认地址（含9种OAuth），Dify填写应用或工作流发布地址。需要网关、CLI、stdio或旧SSE适配的条目不再展示，已有连接及旧目录策略绑定保留。私网/HTTP例外只对精确批准URL生效。
 
 执行当前全部迁移及受限角色授权（当前至68；连接器表来自49～51），再更新平台API和Worker进程；两者使用同一份私有出口策略，Worker负责目录刷新及新空间的适配器安装。使用新的逐工具调用流程须创建并选择连接器的新空间，已初始化Profile保留；DSH源码及运行镜像不变。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[连接器实网验证边界](../deploy/connectors/README.md#实网验证边界)。
 

@@ -151,9 +151,7 @@ export function ConnectorEditor({
               <>
                 {preset.id === 'dify'
                   ? '此地址由你的 Dify 应用或工作流发布后生成。'
-                  : preset.mode === 'gateway' || preset.mode === 'stdio'
-                    ? '此服务没有统一的公共 MCP 地址，请填写你部署的 MCP 网关地址。'
-                    : '此服务需通过兼容网关接入，请填写网关地址。'}{' '}
+                  : '填写此服务的 Streamable HTTP MCP 地址。'}{' '}
                 <a href={preset.guide_url} target="_blank" rel="noopener noreferrer">
                   获取服务地址
                 </a>

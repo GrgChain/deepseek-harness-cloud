@@ -159,7 +159,7 @@ func TestMCPConnectionsWithPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	list := listed.(map[string]any)
-	if len(list["catalog"].(Catalog).Entries) != 38 || list["endpoints"].([]Endpoint)[0].CatalogID != "notion" {
+	if len(list["catalog"].(Catalog).Entries) != 20 || list["endpoints"].([]Endpoint)[0].CatalogID != "notion" {
 		t.Fatal("catalog metadata or approved binding missing")
 	}
 	// Each account can configure a public service without a platform binding.

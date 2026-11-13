@@ -71,13 +71,10 @@ test('live workbench connects discovers authorizes calls and manages personal se
     await expect(page.getByRole('button', { name: '导入配置', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: '导出配置', exact: true })).toHaveCount(0);
     const before = await (await page.request.get('/v1/connectors')).json();
-    expect(before.catalog.entries).toHaveLength(38);
+    expect(before.catalog.entries).toHaveLength(20);
     expect(before.catalog.entries.map((v: { id: string }) => v.id)).toEqual(
       expect.arrayContaining([
         'tencent-docs',
-        'feishu-cli',
-        'yuque-mcp',
-        'weknora',
         'dify',
         'github',
         'gitee',
@@ -189,11 +186,11 @@ test('live workbench connects discovers authorizes calls and manages personal se
     }
     await page.getByRole('button', { name: '添加连接器', exact: true }).click();
     const directory = page.getByRole('dialog', { name: '添加连接器', exact: true });
-    await expect(directory.getByRole('article')).toHaveCount(38);
-    await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('yuque');
+    await expect(directory.getByRole('article')).toHaveCount(20);
+    await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('dify');
     await directory.getByRole('button', { name: /^配置连接 / }).click();
     const preparation = page.getByRole('dialog', { name: '添加连接器', exact: true });
-    await expect(preparation.getByText('语雀（官方 MCP）', { exact: true })).toBeVisible();
+    await expect(preparation.getByText('Dify', { exact: true })).toBeVisible();
     await expect(preparation.getByLabel('服务地址')).toBeEditable();
     await expect(preparation.getByLabel('服务地址')).toBeEmpty();
     await preparation.getByRole('button', { name: /^保\s*存$/ }).click();
@@ -206,8 +203,8 @@ test('live workbench connects discovers authorizes calls and manages personal se
     await preparation.getByRole('button', { name: /^取\s*消$/ }).click();
     expect((await (await page.request.get('/v1/connectors')).json()).items).toHaveLength(0);
     await page.getByRole('button', { name: '添加连接器' }).click();
-    await page.getByRole('textbox', { name: '搜索内置连接器' }).fill('yuque');
-    await page.getByRole('button', { name: '配置连接 语雀（官方 MCP）', exact: true }).click();
+    await page.getByRole('textbox', { name: '搜索内置连接器' }).fill('dify');
+    await page.getByRole('button', { name: '配置连接 Dify', exact: true }).click();
     const editor = page.getByRole('dialog', { name: '添加连接器' });
     const name = '真实连接 ' + suffix;
     await editor.getByLabel('连接器名称').fill(name);
@@ -241,7 +238,7 @@ test('live workbench connects discovers authorizes calls and manages personal se
     await result.getByRole('button', { name: /^关\s*闭$/ }).click();
     const connection = (await (await page.request.get('/v1/connectors')).json()).items[0];
     expect(connection.endpoint_id).toBe('personal');
-    expect(connection.catalog_id).toBe('yuque-mcp');
+    expect(connection.catalog_id).toBe('dify');
     expect(connection.url).toBe('http://127.0.0.1:18781/mcp');
     expect((await admin.request.get(`/v1/connectors/${connection.id}/calls`)).status()).toBe(404);
     await page.getByRole('tab', { name: '调用记录' }).click();

@@ -47,5 +47,14 @@ func knownCatalogID(id string) bool {
 			return true
 		}
 	}
+	// Retired IDs remain valid for saved connections and endpoint policies.
+	// They are not advertised and do not grant network access.
+	switch id {
+	case "tencent-ima", "tencent-news", "wechat-reading", "qq-mail", "qq-music",
+		"fliggy", "baidu-map", "ctrip-wendao", "meituan-travel", "yuandian",
+		"youdao-note", "feishu-cli", "wecom-cli", "dingtalk-cli", "agently-cli",
+		"obsidian-cli", "yuque-mcp", "weknora":
+		return true
+	}
 	return false
 }

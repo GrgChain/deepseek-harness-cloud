@@ -63,7 +63,10 @@ export function ConnectorCatalogPicker({
           onChange={(e) => setSearch(e.target.value)}
         />
         <nav className="connector-catalog-categories" aria-label="连接器分类">
-          {[['all', '全部'], ...categories].map(([id, label]) => (
+          {[
+            ['all', '全部'],
+            ...categories.filter(([id]) => catalog.entries.some((entry) => entry.category === id)),
+          ].map(([id, label]) => (
             <button
               type="button"
               key={id}
@@ -120,9 +123,7 @@ export function ConnectorCatalogPicker({
                         ? 'OAuth 授权'
                         : preset.default_url
                           ? '官方默认地址'
-                          : preset.mode === 'gateway' || preset.mode === 'stdio'
-                            ? '需部署网关'
-                            : '使用个人服务地址'}
+                          : '使用个人服务地址'}
                     </span>
                     <span className="connector-preset-action">
                       {action}
