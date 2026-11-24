@@ -411,7 +411,6 @@ test('connector save errors retain fields', async ({ page }) => {
   );
   await page.goto('/app/connectors');
   await page.getByRole('button', { name: '添加连接器' }).click();
-  await page.getByRole('button', { name: '自定义 MCP', exact: true }).click();
   const modal = page.getByRole('dialog', { name: '添加连接器' });
   await modal.getByLabel('连接器名称').fill('保留名称');
   await modal.getByLabel('服务地址').fill('https://personal.example.com/mcp');
@@ -436,8 +435,8 @@ test('personal MCP starts empty without recommended services and accepts an owne
   });
   await page.goto('/app/connectors');
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  await page.getByRole('button', { name: '自定义 MCP', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
+  await expect(editor.getByRole('button', { name: '返回选择', exact: true })).toHaveCount(0);
   await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
   await expect(editor.getByLabel('服务地址')).toBeEmpty();
   await editor.getByRole('button', { name: /更多设置/ }).click();
@@ -457,337 +456,23 @@ test('personal MCP starts empty without recommended services and accepts an owne
   expect(saved).not.toHaveProperty('endpoint_id');
 });
 
-test('built-in directory exposes all providers with search categories and honest setup state', async ({
+test('connector catalog has no built-in templates and opens custom editor directly', async ({
   page,
-}, info) => {
-  const calls = await setup(page);
+}) => {
+  expect(catalog.entries).toHaveLength(0);
+  await setup(page);
   await page.goto('/app/connectors');
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  const directory = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(directory.getByRole('article')).toHaveCount(catalog.entries.length);
-  await expect(directory.getByText('需部署网关', { exact: true })).toHaveCount(0);
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 飞书 CLI', exact: true }),
-  ).toHaveCount(0);
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 有道云笔记', exact: true }),
-  ).toHaveCount(0);
-  await expect(directory.getByRole('button', { name: '资讯娱乐', exact: true })).toHaveCount(0);
-  await expect(directory.locator('.connector-catalog-list')).toHaveCSS('display', 'grid');
-  await expect(directory.getByRole('link', { name: '目录来源' })).toHaveCount(0);
-  await expect(directory.getByRole('status')).toHaveText(`共 ${catalog.entries.length} 个连接器`);
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 Notion', exact: true }),
-  ).toContainText('OAuth 授权');
-  const logos = directory.locator('.connector-preset-icon img');
-  await expect(logos).toHaveCount(catalog.entries.length);
-  await expect
-    .poll(() =>
-      logos.evaluateAll((images) =>
-        images.every(
-          (image) => image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0,
-        ),
-      ),
-    )
-    .toBe(true);
-  for (const preset of catalog.entries)
-    await expect(
-      directory
-        .getByRole('article', { name: '内置连接器 ' + preset.name, exact: true })
-        .locator('img'),
-    ).toHaveAttribute('src', new RegExp(`/connector-logos/${preset.id}\\.(svg|png)$`));
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: info.outputPath('connector-catalog.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await directory.getByRole('button', { name: '开发工具', exact: true }).click();
-  await expect(directory.getByRole('button', { name: '开发工具', exact: true })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
-  await expect(directory.getByRole('article')).toHaveCount(9);
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 GitHub', exact: true }),
-  ).toContainText('官方默认地址');
-  for (const name of ['Gitee', 'GitLab', 'Codeup'])
-    await expect(
-      directory.getByRole('article', { name: '内置连接器 ' + name, exact: true }),
-    ).toContainText('官方默认地址');
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 Sentry', exact: true }),
-  ).toContainText('OAuth 授权');
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: info.outputPath('connector-development-catalog.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('文档');
-  await expect(directory.getByRole('article')).toHaveCount(2);
-  await expect(
-    directory.getByRole('article', { name: '内置连接器 Context7', exact: true }),
-  ).toBeVisible();
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('');
-  await directory.getByRole('button', { name: '出行旅行', exact: true }).click();
-  await expect(directory.getByRole('article')).toHaveCount(1);
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('没有此服务');
-  await expect(directory.getByText('没有符合条件的连接器')).toBeVisible();
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('');
-  await directory.getByRole('button', { name: '全部', exact: true }).click();
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('dify');
-  await expect(directory.getByRole('article')).toHaveCount(1);
-  await directory.getByRole('button', { name: /^配置连接 / }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByText('Dify', { exact: true })).toBeVisible();
-  await expect(editor.locator('.connector-preset-icon img')).toHaveAttribute(
-    'src',
-    '/connector-logos/dify.svg',
-  );
-  await expect(editor.getByLabel('连接器名称')).toHaveValue('Dify');
-  await expect(editor.getByLabel('服务地址')).toBeEditable();
+  await expect(editor.getByLabel('连接器名称')).toBeEmpty();
   await expect(editor.getByLabel('服务地址')).toBeEmpty();
-  await expect(editor.getByText('暂未接入', { exact: true })).toHaveCount(0);
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor.getByText('请输入 MCP 服务地址', { exact: true })).toBeVisible();
-  await editor.getByRole('button', { name: '接入准备' }).click();
-  await expect(editor.getByText('已发布应用或工作流的 MCP 地址', { exact: true })).toBeVisible();
-  await expect(editor.getByRole('link', { name: '查看接入文档' })).toHaveAttribute(
-    'href',
-    /^https:\/\//,
-  );
-  expect(calls.saves).toHaveLength(0);
-  await page.screenshot({
-    path: info.outputPath('connector-catalog-setup.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  const cancel = editor.getByRole('button', { name: /^取\s*消$/ });
-  await expect(cancel).toBeInViewport();
-  await editor.getByRole('button', { name: '返回选择', exact: true }).click();
-  await expect(
-    page.getByRole('dialog', { name: '添加连接器', exact: true }).getByRole('article'),
-  ).toHaveCount(catalog.entries.length);
-});
-test('built-in configuration uses official defaults and preserves personal setup without recommended services', async ({
-  page,
-}, info) => {
-  const calls = await setup(page);
-  await page.goto('/app/connectors');
-  await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  const directory = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill('notion');
-  await directory.getByRole('button', { name: /^授权连接 / }).click();
-  const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByLabel('连接器名称')).toHaveValue('Notion');
-  await expect(editor.getByLabel('服务地址')).toHaveValue('https://mcp.notion.com/mcp');
-  await expect(editor.getByText('暂未接入', { exact: true })).toHaveCount(0);
-  await expect(editor.getByLabel('服务地址')).toBeEditable();
-  await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
-  await editor.getByLabel('服务地址').fill('https://mcp.example.com/notion');
-  await editor.getByLabel('认证方式').press('ArrowDown');
-  await page.getByRole('option', { name: 'Bearer Token', exact: true }).click();
-  await editor.getByLabel('服务凭据', { exact: true }).fill('private-test-token');
-  await page.screenshot({
-    path: info.outputPath('connector-editor.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor).toHaveCount(0);
-  expect(calls.saves).toHaveLength(1);
-  expect(calls.saves[0]).toMatchObject({
-    name: 'Notion',
-    url: 'https://mcp.example.com/notion',
-    catalog_id: 'notion',
-    auth_type: 'bearer',
-    credential: 'private-test-token',
-    protocol_version: '2026-07-28',
-    description: '官方 MCP：搜索、读写页面与数据库',
-    enabled: true,
-  });
-  expect(calls.saves[0]).not.toHaveProperty('endpoint_id');
-  const row = page.getByRole('article', { name: '连接器 Notion', exact: true });
-  await row.getByRole('button', { name: 'Notion 更多操作' }).click();
-  await page.getByRole('menuitem', { name: '设置', exact: true }).click();
-  await page
-    .getByRole('dialog', { name: '连接器设置' })
-    .getByRole('button', { name: '接入准备' })
-    .click();
-  await expect(page.getByRole('dialog', { name: '连接器设置' })).toContainText(
-    '在官方页面登录并授权后自动返回工作台',
-  );
+  await expect(editor.getByRole('button', { name: '返回选择', exact: true })).toHaveCount(0);
 });
 
-test('official defaults prefill addresses and native credentials while personal deployments explain their address', async ({
-  page,
-}, info) => {
-  test.setTimeout(60_000);
-  await setup(page);
-  const saves: Record<string, unknown>[] = [];
-  await page.route('**/v1/connectors', (r) => {
-    if (r.request().method() === 'POST') {
-      const body = r.request().postDataJSON();
-      saves.push(body);
-      return r.fulfill({ status: 201, json: { ...fixture, ...body, endpoint_id: 'personal' } });
-    }
-    return r.fulfill({ json: { items: [], endpoints: [], catalog } });
-  });
-  await page.goto('/app/connectors');
-  for (const preset of catalog.entries.filter(
-    (v: { default_url?: string; auth_kind: string }) => v.default_url && v.auth_kind !== 'oauth2',
-  )) {
-    await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-    await page.getByRole('textbox', { name: '搜索内置连接器' }).fill(preset.id);
-    await page.getByRole('button', { name: '配置连接 ' + preset.name, exact: true }).click();
-    const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-    await expect(editor.getByLabel('服务地址')).toHaveValue(preset.default_url);
-    await expect(editor.getByLabel('服务地址')).toBeEditable();
-    await expect(editor.getByText('API Key / Token', { exact: true })).toBeVisible();
-    await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-    await expect(
-      editor.getByText('请输入此服务的 Token 或 API Key', { exact: true }),
-    ).toBeVisible();
-    if (preset.id === 'tencent-lexiang') {
-      await expect(editor.getByText('请输入乐享企业标识', { exact: true })).toBeVisible();
-      await editor.getByLabel('企业标识 company_from').fill('my-company');
-    }
-    await editor.getByLabel('服务凭据', { exact: true }).fill('personal-token');
-    if (preset.id === 'tencent-docs')
-      await page.screenshot({
-        path: info.outputPath('official-default.png'),
-        fullPage: true,
-        animations: 'disabled',
-      });
-    await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-    await expect(editor).toHaveCount(0);
-    expect(saves.at(-1)).toMatchObject({
-      url: preset.default_url,
-      catalog_id: preset.id,
-      auth_type: 'bearer',
-      protocol_version: '2026-07-28',
-    });
-    expect(saves.at(-1)).not.toHaveProperty('company_from');
-    expect(saves.at(-1)?.credential).toBe(
-      preset.id === 'tencent-lexiang'
-        ? JSON.stringify({ token: 'personal-token', company_from: 'my-company' })
-        : 'personal-token',
-    );
-  }
-  await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  await page.getByRole('button', { name: '配置连接 Dify', exact: true }).click();
-  const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByLabel('服务地址')).toBeEmpty();
-  await expect(
-    editor.getByText('此地址由你的 Dify 应用或工作流发布后生成。', { exact: false }),
-  ).toBeVisible();
-  await expect(editor.getByRole('link', { name: '获取服务地址', exact: true })).toHaveAttribute(
-    'href',
-    'https://docs.dify.ai/',
-  );
-});
-
-test('editing the native Lexiang company requires its matching token and keeps the credential private', async ({
+test('platform settings and copies allow personal addresses without built-in templates', async ({
   page,
 }) => {
   await setup(page);
-  const connection = {
-    ...fixture,
-    endpoint_id: 'personal',
-    catalog_id: 'tencent-lexiang',
-    url: 'https://mcp.lexiang-app.com/mcp',
-    auth_type: 'bearer',
-    protocol_version: '2025-11-25',
-  };
-  const saves: Record<string, unknown>[] = [];
-  await page.route('**/v1/connectors', (r) =>
-    r.fulfill({ json: { items: [connection], endpoints: [], catalog } }),
-  );
-  await page.route(`**/v1/connectors/${id}`, (r) => {
-    saves.push(r.request().postDataJSON());
-    return r.fulfill({ json: connection });
-  });
-  await page.goto('/app/connectors');
-  await page.getByRole('button', { name: '业务工具 更多操作' }).click();
-  await page.getByRole('menuitem', { name: '设置', exact: true }).click();
-  let editor = page.getByRole('dialog', { name: '连接器设置', exact: true });
-  await expect(editor.getByLabel('企业标识 company_from')).toBeEmpty();
-  await expect(editor.getByLabel('服务凭据')).toBeEmpty();
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor).toHaveCount(0);
-  expect(saves[0]).toMatchObject({ credential: '', protocol_version: '2025-11-25' });
-  await page.getByRole('button', { name: '业务工具 更多操作' }).click();
-  await page.getByRole('menuitem', { name: '设置', exact: true }).click();
-  editor = page.getByRole('dialog', { name: '连接器设置', exact: true });
-  await editor.getByLabel('企业标识 company_from').fill('new-company');
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor.getByText('请输入此服务的 Token 或 API Key', { exact: true })).toBeVisible();
-  expect(saves).toHaveLength(1);
-  await editor.getByLabel('服务凭据').fill('new-token');
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor).toHaveCount(0);
-  expect(saves[1]).toMatchObject({
-    credential: JSON.stringify({ token: 'new-token', company_from: 'new-company' }),
-  });
-  expect(saves[1]).not.toHaveProperty('company_from');
-});
-
-test('all directory connectors accept personal configuration without platform bindings', async ({
-  page,
-}) => {
-  test.setTimeout(120_000);
-  await setup(page);
-  const saves: Record<string, unknown>[] = [];
-  await page.route('**/v1/connectors', (r) => {
-    if (r.request().method() === 'POST') {
-      const body = r.request().postDataJSON();
-      saves.push(body);
-      return r.fulfill({ status: 201, json: { ...fixture, ...body, endpoint_id: 'personal' } });
-    }
-    return r.fulfill({ json: { items: [], endpoints: [], catalog } });
-  });
-  await page.goto('/app/connectors');
-  for (const preset of catalog.entries) {
-    await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-    const directory = page.getByRole('dialog', { name: '添加连接器', exact: true });
-    await directory.getByRole('textbox', { name: '搜索内置连接器' }).fill(preset.id);
-    await directory
-      .getByRole('button', {
-        name:
-          (preset.default_url && preset.auth_kind === 'oauth2' ? '授权连接 ' : '配置连接 ') +
-          preset.name,
-        exact: true,
-      })
-      .click();
-    const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-    await expect(editor.getByLabel('连接器名称')).toHaveValue(preset.name);
-    await expect(editor.getByLabel('服务地址')).toBeEditable();
-    await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
-    await expect(editor.getByText('暂未接入', { exact: true })).toHaveCount(0);
-    await expect(editor.getByLabel('服务地址')).toHaveValue(preset.default_url ?? '');
-    await editor.getByLabel('服务地址').fill('https://personal.example.com/' + preset.id);
-    await editor.getByLabel('认证方式').press('ArrowDown');
-    await page.getByRole('option', { name: 'Bearer Token', exact: true }).click();
-    await editor.getByLabel('服务凭据', { exact: true }).fill('personal-token');
-    await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-    await expect(editor).toHaveCount(0);
-    expect(saves.at(-1)).toMatchObject({
-      name: preset.name,
-      catalog_id: preset.id,
-      url: 'https://personal.example.com/' + preset.id,
-      auth_type: 'bearer',
-      credential: 'personal-token',
-    });
-    expect(saves.at(-1)).not.toHaveProperty('endpoint_id');
-  }
-  expect(saves).toHaveLength(catalog.entries.length);
-});
-
-test('platform settings and copies allow personal addresses while presets retain their catalog', async ({
-  page,
-}) => {
-  const calls = await setup(page);
   let update: Record<string, unknown> | undefined;
   await page.route(`**/v1/connectors/${id}`, (r) => {
     update = r.request().postDataJSON();
@@ -812,19 +497,6 @@ test('platform settings and copies allow personal addresses while presets retain
   await expect(editor.getByLabel('服务地址')).toBeEditable();
   await expect(editor.getByLabel('推荐服务')).toHaveCount(0);
   await editor.getByRole('button', { name: /^取\s*消$/ }).click();
-  await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  await page.getByRole('button', { name: '配置连接 Dify', exact: true }).click();
-  editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
-  await expect(editor.getByLabel('连接器名称')).toHaveValue('Dify');
-  await expect(editor.getByLabel('服务地址')).toBeEmpty();
-  await editor.getByLabel('服务地址').fill('https://personal.example.com/mcp');
-  await editor.getByRole('button', { name: /^保\s*存$/ }).click();
-  await expect(editor).toHaveCount(0);
-  expect(calls.saves[0]).toMatchObject({
-    url: 'https://personal.example.com/mcp',
-    catalog_id: 'dify',
-  });
-  expect(calls.saves[0]).not.toHaveProperty('endpoint_id');
 });
 
 test('personal preset edits retain credentials only for the same address and copies require new credentials', async ({
@@ -962,7 +634,6 @@ test('OAuth failures retain configuration and retry updates the saved connection
   });
   await page.goto('/app/connectors');
   await page.getByRole('button', { name: '添加连接器', exact: true }).click();
-  await page.getByRole('button', { name: '自定义 MCP', exact: true }).click();
   const editor = page.getByRole('dialog', { name: '添加连接器', exact: true });
   await editor.getByLabel('连接器名称').fill('我的 OAuth');
   await editor.getByLabel('服务地址').fill('https://custom.example/mcp');

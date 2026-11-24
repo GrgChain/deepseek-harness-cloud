@@ -70,6 +70,7 @@ export function ConnectorEditor({
     credential: '',
   };
   async function save() {
+    if (busy) return;
     try {
       const { company_from, ...fields } = await form.validateFields();
       const credential =
@@ -88,7 +89,7 @@ export function ConnectorEditor({
           ...fields,
           protocol_version: previous?.protocol_version ?? '2026-07-28',
           credential,
-          catalog_id: preset?.id ?? '',
+          catalog_id: preset?.id ?? previous?.catalog_id ?? '',
           expected_version: existing?.version ?? 0,
         },
         existing ? 'PUT' : 'POST',
@@ -115,6 +116,10 @@ export function ConnectorEditor({
       okText={authType === 'oauth2' && enabled ? '授权连接' : '保存'}
       cancelText="取消"
       confirmLoading={busy}
+      closable={!busy}
+      maskClosable={!busy}
+      keyboard={!busy}
+      cancelButtonProps={{ disabled: busy }}
       onCancel={() => {
         if (!busy) onClose();
       }}

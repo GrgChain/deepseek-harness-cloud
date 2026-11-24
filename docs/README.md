@@ -45,7 +45,7 @@ V0.2，面向单组织、可信内部团队的 Docker 部署。启动与开发�
 | DSH运行版本    | 0.2.1-alpha.2                                            | [运行依赖](../infrastructure/runtime/package.json)                                     |
 | 随附记忆插件   | Mem0 / Graphiti 0.2.0；OpenViking官方原包0.5.31          | [分发总览](../infrastructure/plugins/README.md)                                        |
 | 平台数据库     | 迁移至68；既有迁移不可覆写                               | [迁移目录](../db/migrations)、[数据设计](data-model.md#当前插件目录与会话归档迁移6168) |
-| 连接器目录     | 38项；19项默认远程地址，其中9项OAuth                     | [内嵌目录](../services/internal/connectors/catalog.json)                               |
+| 连接器目录     | 无内置模板（`entries` 为空；保留旧目录ID兼容）           | [内嵌目录](../services/internal/connectors/catalog.json)                               |
 | 本地初始资源   | 1 CPU、2 GiB内存、10 GiB存储；保留已有配置               | [初始化实现](../services/internal/devlocal/resources.go)                               |
 | IP访问         | 统一HTTPS端口，工作空间路径为`/dsh/<实例UUID>/`          | [部署运维](deployment.md)                                                              |
 | 工程检查       | 可分别执行静态检查、单元测试和构建；格式聚合入口配置缺失 | [当前限制与命令](testing.md#工程检查现状)                                              |

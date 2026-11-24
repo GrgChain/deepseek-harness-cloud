@@ -18,7 +18,7 @@
 - [实例数量统一上限升级（schema31）](#实例数量统一上限升级schema31)
 - [模型提供商账号默认模型升级（schema32）](#模型提供商账号默认模型升级schema32)
 - [DSH账号模型切换运行环境](#dsh账号模型切换运行环境)
-- [默认用户资源配置部署与维护](#默认用户资源配置部署与维护)
+- [默认资源配置部署与维护](#默认资源配置部署与维护)
 - [默认用户资源配额升级（schema39）](#默认用户资源配额升级schema39)
 - [个人模型工作空间执行升级（schema40）](#个人模型工作空间执行升级schema40)
 - [系统资源默认上限升级（schema41）](#系统资源默认上限升级schema41)
@@ -88,17 +88,19 @@ DSH 运行镜像基于固定 digest 的 Ubuntu 24.04 LTS，预装 Node.js 24.21.
 
 Access JSON 使用 `schema_version=1`，含 `organization_id`、`workspace_organization_id`、`control_user_id`、`workspace_engine`、`environment`、`data_key_file`、`data_key_id`、`portal_origin`、`instance_domain`。Gateway 只读取 Worker 发布的加密原生会话；所有请求在平台PG中核验 Workspace/Build/参数归属和当前平台授权。`make access-init` 在无活跃实例时生成独立站点证书与配置，本地 Vite 开发服务或构建后的静态preview提供同站 HTTPS 和固定回环 Gateway 转发；正式入口部署清单及恢复演练仍待完成。
 
-IP 访问可与域名访问同时启用。更新服务后，在本机运行 `HC_PUBLIC_IP=192.168.20.171 make ip-access-init`，再重启 API 和 Gateway。该命令保留原有身份、域名和运行中工作空间配置，使用现有开发 CA 为指定 IP 签发独立证书；地址须为本机可监听的 IP。控制台入口为 `https://192.168.20.171:42013`，工作空间使用同一入口下的 `/dsh/<实例UUID>/`，静态资源、插件及 WebSocket 均在此路径下转发。可通过 `HC_IP_PORTAL_PORT` 调整统一端口。使用者需信任开发 CA，网络只需放行该 HTTPS 端口。
+本地使用仅 IP 入口。更新服务后，在本机运行 `HC_IP_ONLY=true HC_PUBLIC_IP=192.168.20.171 make ip-access-init`，再重启 API、控制台和 Gateway。首次部署须先运行 `make access-init` 初始化内部访问配置；已有环境直接更新 IP 配置即可。该命令保留原有身份和运行中工作空间配置，使用现有开发 CA 为指定 IP 签发独立证书；地址须为本机可监听的 IP。控制台入口为 `https://192.168.20.171:42013`，工作空间使用同一入口下的 `/dsh/<实例UUID>/`，静态资源、插件及 WebSocket 均在此路径下转发。可通过 `HC_IP_PORTAL_PORT` 调整统一端口。使用者需信任开发 CA，网络只需放行该 HTTPS 端口，无需配置域名解析。
 
 连接器 OAuth 在 IP 入口发起时使用已批准的 IP 控制台回调；外部 OAuth 应用须登记对应的 `/v1/connectors/oauth/callback` 地址。入口转发保持各 API 自身的长任务和流式预算。使用系统代理的浏览器应将此内网 IP 设为直连；本机已验证系统代理可能使 IP WebSocket 握手超时，直连正常。
 
 正式环境在私有 Access JSON 中配置可选 `ip_access`：`address`、`portal_port`、`certificate_file`、`key_file`、`portal_upstream`，以及自签 CA 时的 `upstream_ca_file`。证书必须包含指定 IP 的 SAN，证书和私钥使用绝对路径、0600/0400 权限。`portal_upstream` 是固定回环 HTTP/HTTPS 控制台入口，TLS 上游按原控制台域名验证证书。IP 入口由 Gateway 终止 TLS，数据库、API、Worker 和模型入口继续使用原来的私有监听。域名 `portal_origin` 和 OIDC issuer 保持稳定；不应为了增加 IP 访问而迁移用户身份或修改运行中实例的原生 authority。旧配置中的 `workspace_port_start/end` 可继续读取，但不再创建端口监听或分配；已应用迁移66的历史端口表保留，当前入口不依赖该表。
 
+Access JSON 的 `ip_only: true` 要求同时配置 `ip_access`；控制台开发/preview服务拒绝 Portal 与实例域名的 HTTP 和 WebSocket 请求，回环 Gateway 仅保留健康检查，工作空间经 IP 挂载进入。内部 `portal_origin`、实例 authority、证书及 OIDC issuer 用于既有认证和上游校验，不再作为浏览器访问入口。旧配置省略 `ip_only` 时保持原有行为；`HC_IP_ONLY` 未设置时，初始化命令保留当前值。
+
 Portal 增量构建保留 `apps/dist` 中原有的带摘要静态资源，供已打开页面继续加载 PDF、Office 等按需模块；发布时也须保留这些资源，不能只替换 HTML 后立即清空旧资源。PDF 模块加载失败时检查当前页面与最新 HTML 的入口版本，版本变化自动刷新一次并恢复原文件预览；连续失败不循环刷新，仍提供原文件下载与手动刷新入口。
 
 本机浏览器应信任`.local/auth/cert.pem`开发CA；只为控制台接受一次证书警告时，新实例Host的跨站fetch仍可能被浏览器拒绝。入口连接失败后保留原无opener窗口，导航到该实例`/__dsh/connect`供确认站点安全连接，然后返回控制台重新执行完整交接。该公开静态页无Cookie/挑战/票据/原生会话副作用，拒绝查询参数和非GET，严格CSP及禁止嵌入；不得把票据、密钥或工作正文带入确认URL。正式部署使用浏览器信任的DNS/TLS证书。
 
-Worker 的 `GET /internal/preflight` 只接受回环来源、精确内部 Host 和无 query 的 GET，返回非秘密的固定域名/端口/镜像及 Workspace、Docker、容量状态。容量不足只阻断新运行接受，不阻断已接受任务的安全停止。API 只探测固定回环 Worker 18081/Gateway 18082，并用系统 CA 或 HC_ACCESS_CA_FILE 验证实例域 HTTPS；API 不挂 Docker socket、不读原卷。创建前检查另显示模板运行校验、计算容量和剩余额度，空或不完整 manifest 不能开放创建。计算按当前 MemAvailable 扣除8GiB控制面预留并以4GiB基线规格保守计槽，CPU扣除4核后按每实例2核计槽；初始批准取较小槽数，最多5，仅限制创建并发，不压低系统 CPU/内存额度。新组织使用数据库默认额度，已有保存额度保持不变。预检与Worker启动另按所选规格检查实际空闲CPU/内存，保留相同控制面余量。
+Worker 的 `GET /internal/preflight` 只接受回环来源、精确内部 Host 和无 query 的 GET，返回非秘密的固定域名/端口/镜像及 Workspace、Docker、容量状态。容量不足只阻断新运行接受，不阻断已接受任务的安全停止。API 只探测固定回环 Worker 18081/Gateway 18082，并用系统 CA 或 HC_ACCESS_CA_FILE 验证实例域 HTTPS；启用 `ip_only` 后，入口探测改为批准 IP 的 `/dsh/<固定探测UUID>/`，验证 TLS、实际工作空间路由及未认证拒绝响应，不再请求域名入口。API 不挂 Docker socket、不读原卷。创建前检查另显示模板运行校验、计算容量和剩余额度，空或不完整 manifest 不能开放创建。计算按当前 MemAvailable 扣除8GiB控制面预留并以4GiB基线规格保守计槽，CPU扣除4核后按每实例2核计槽；初始批准取较小槽数，最多5，仅限制创建并发，不压低系统 CPU/内存额度。新组织使用数据库默认额度，已有保存额度保持不变。预检与Worker启动另按所选规格检查实际空闲CPU/内存，保留相同控制面余量。
 
 ## 3 安装与初始化规格
 
@@ -111,7 +113,7 @@ Worker 的 `GET /internal/preflight` 只接受回环来源、精确内部 Host �
 
 已实现的本地初始化、迁移、登录和 Worker 命令见 README；本机备份/恢复/回收CLI已实现并完成隔离演练；本机日备份/定时器已完成演练，正式安装、独立故障域备份和恢复授权切换仍待完成。DSH原生适配未通过D0时预检明确NATIVE_ADAPTER_UNVERIFIED，阻止创建/进入，不允许关闭原生认证代替。
 
-本地服务的 `make run-auth`、`make run-worker`、`make run-gateway` 和 `make run-model-gateway` 会先执行 `make local-bootstrap`。它使用本地运维身份执行迁移，只补缺失的账号组织、组织配额、工作空间身份和模板。系统资源上限先独立初始化为 20 个实例、40 vCPU、80 GiB 内存和 200 GiB 持久存储，后续运行环境校验失败也不阻断配额读取。运行环境存在时仍须通过已有源码、固定镜像和契约证据核验，随后补齐默认用户资源配置（1 核、2 GiB、10 GiB、每用户 2 个实例、保留 7 天）。每次初始化还会为尚未分配配额且无已有占用的初始用户补齐默认规格乘以实例数的额度，已有个人额度保留。并发启动串行初始化，重复执行保留已保存的配额、默认值、账号密码和模型配置。清空本地数据库后保留 `.local`，再启动服务即可恢复基础配置；单独修复可执行 `make local-bootstrap`。直接运行服务二进制仍使用受限身份，不执行迁移或运行批准。
+本地服务的 `make run-auth`、`make run-worker`、`make run-gateway` 和 `make run-model-gateway` 会先执行 `make local-bootstrap`。它使用本地运维身份执行迁移，只补缺失的账号组织、组织配额、工作空间身份和模板。系统资源上限先独立初始化为 20 个实例、40 vCPU、80 GiB 内存和 200 GiB 持久存储，后续运行环境校验失败也不阻断配额读取。运行环境存在时仍须通过已有源码、固定镜像和契约证据核验，随后补齐默认资源配置（1 核、2 GiB、10 GiB、每用户 2 个实例、保留 7 天）。每次初始化还会为尚未分配配额且无已有占用的初始用户补齐默认规格乘以实例数的额度，已有个人额度保留。并发启动串行初始化，重复执行保留已保存的配额、默认值、账号密码和模型配置。清空本地数据库后保留 `.local`，再启动服务即可恢复基础配置；单独修复可执行 `make local-bootstrap`。直接运行服务二进制仍使用受限身份，不执行迁移或运行批准。
 
 ## 4 观测与故障处置
 
@@ -331,7 +333,7 @@ Cookie 名称 Portal=`__Host-hc_session`、Gateway=`__Host-hc_access`、挑战=`
 
 必须提供 HTTPS Portal URL、实例域名后缀/通配 TLS、固定组织 UUID、OIDC issuer/client/secret/允许主体列表、主体→Workspace Owner UUID 映射、内嵌Workspace控制主体、固定Terraform二进制/摘要/Provider镜像目录、PostgreSQL DSN、Redis ACL、32-byte 数据加密主密钥文件、镜像 digest/上游 commit/模板版本/Provider 锁、模型允许列表、独立数据盘和备份目标。
 
-模型允许列表最多100个ID、16个批准endpoint；组织保留一个默认连接，个人最多20个未归档外部模型连接；个人默认或显式选择只影响本人的DSH。支持DeepSeek直连与平台模型网关 Messages网关。网关目录查询10秒、单请求、256KiB/100项上限，模型探测继续30秒/最多2次上游请求/单次128输出tokens/结果5分钟，必须将网关重试纳入预算；受控校验路由关闭额外重试/回退。Portal/Gateway HTTP代理连接池、DB池和任务并发必须有界：API/Gateway各最多10个PG连接，Worker最多5个；Gateway每实例最多20个活动WS，超额429；HTTP上传上限10MiB，WS采用有界流式转发；更大附件不属于初始版承诺。
+模型允许列表最多100个ID、16个批准endpoint；组织保留一个默认连接，个人最多20个未归档外部模型连接；个人默认或显式选择只影响本人的DSH。支持DeepSeek直连与平台模型网关 Messages网关。网关目录查询10秒、单请求、256KiB/100项上限，模型探测继续30秒/最多2次上游请求/单次128输出tokens/结果5分钟；网关客户端的响应头及单请求传输上限同为30秒，调用方的目录查询等更短期限仍生效，必须将网关重试纳入预算；受控校验路由关闭额外重试/回退。Portal/Gateway HTTP代理连接池、DB池和任务并发必须有界：API/Gateway各最多10个PG连接，Worker最多5个；Gateway每实例最多20个活动WS，超额429；HTTP上传上限10MiB，WS采用有界流式转发；更大附件不属于初始版承诺。
 
 这些值是环境输入，不是等待开发人员自行选择的协议。缺失或格式错误启动失败；密钥文件只向必要可信进程只读挂载。禁止用默认管理密码、浮动 latest 或开发免认证模式开放网络。
 
@@ -450,7 +452,7 @@ Workspace 客户端通过 `NewEmbedded` 直接访问平台 PostgreSQL；配置�
 
 已有运行实例显式应用新版时，Worker须同时部署兼容模板前驱与target_snapshot核对逻辑；仅更新API会使旧Worker拒绝新模板并保留UNCERTAIN。部署修复Worker后原受理操作可自动对账完成，不能修改操作状态跳过校验。
 
-## 默认用户资源配置部署与维护
+## 默认资源配置部署与维护
 
 部署 schema34 前备份数据库，执行 migrate 和 dev-grants，更新 API/Worker/Portal。迁移允许没有组织模型时保存运行默认值，并为既有默认值补充 7 天保留期限；不自动批准未知镜像或模板。资源批准仍须核对固定源码、镜像摘要、实际运行/存储/网络/Workspace 契约与 Gateway 证据，真实模型能力按用户账号单独验收，不作为初始化资源默认值的前置条件。
 
@@ -556,7 +558,7 @@ Office 字体修复沿用完整设置服务版本（模板`46ca7eb2-9576-4766-8b
 
 ## 工作台连接器（MCP）
 
-API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。未配置策略文件时，20种可直接接入的远程目录服务仍可填写个人公网HTTPS地址，其中19种提供默认地址（含9种OAuth），Dify填写应用或工作流发布地址。需要网关、CLI、stdio或旧SSE适配的条目不再展示，已有连接及旧目录策略绑定保留。私网/HTTP例外只对精确批准URL生效。
+API读取私有0600文件 `HC_CONNECTOR_ENDPOINTS_FILE`；本机 `make run-auth` 自动识别 `.local/connectors/endpoints.json`。内置连接器模板已全部移除，不再注入默认内置端点；未配置策略文件时用户可直接填写个人公网HTTPS MCP地址，已有个人连接及旧目录策略绑定继续兼容保留。私网/HTTP例外只对精确批准URL生效。
 
 执行当前全部迁移及受限角色授权（当前至68；连接器表来自49～51），再更新平台API和Worker进程；两者使用同一份私有出口策略，Worker负责目录刷新及新空间的适配器安装。使用新的逐工具调用流程须创建并选择连接器的新空间，已初始化Profile保留；DSH源码及运行镜像不变。OAuth回调固定为 `HC_PUBLIC_URL/v1/connectors/oauth/callback`，须与源站、TLS和登录会话一致，并满足厂商回调登记要求。无法动态注册时使用策略文件中的私有 `oauth_clients`；企查查当前本机自定义域名的注册限制见[连接器实网验证边界](../deploy/connectors/README.md#实网验证边界)。
 

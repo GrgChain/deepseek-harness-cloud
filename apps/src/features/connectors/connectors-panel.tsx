@@ -10,7 +10,6 @@ import { DataPagination, usePagePagination } from '../../shared/components/data-
 import { DeleteConfirmation } from '../../shared/components/delete-confirmation';
 import { ListSearch } from '../../shared/components/list-search';
 import { expireSession, useExpiredSession } from '../../shared/hooks/use-expired-session';
-import { ConnectorCatalogPicker } from './connector-catalog';
 import { ConnectorDetails } from './connector-details';
 import { ConnectorIcon } from './connector-logo';
 import { authorizeConnector } from './connector-oauth';
@@ -38,7 +37,6 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
   const [duplicate, setDuplicate] = useState<Connector | null>(null);
   const [deleting, setDeleting] = useState<Connector | null>(null);
   const [confirmedName, setConfirmedName] = useState('');
-  const [catalogOpen, setCatalogOpen] = useState(false);
   const [preset, setPreset] = useState<ConnectorPreset | null>(null);
   const [filter, setFilter] = useState('全部');
   const page = usePagePagination(JSON.stringify([search, filter]));
@@ -68,6 +66,7 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
     await cache.invalidateQueries({ queryKey: scope });
   }
   async function run(id: string, task: () => Promise<void>) {
+    if (busy) return;
     setBusy(id);
     setError('');
     try {
@@ -89,7 +88,7 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
             type="primary"
             icon={<Plus size={16} aria-hidden="true" />}
             disabled={!list.data || list.isError}
-            onClick={() => setCatalogOpen(true)}
+            onClick={() => edit('new')}
           >
             添加连接器
           </Button>
@@ -259,22 +258,6 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
         loading={list.isFetching}
         failed={list.isError}
       />
-      {catalogOpen && list.data && (
-        <ConnectorCatalogPicker
-          catalog={
-            list.data.catalog ?? {
-              version: 1,
-              source_url: 'https://github.com/TencentCloud/Octop/blob/main/docs/connectors.md',
-              entries: [],
-            }
-          }
-          onClose={() => setCatalogOpen(false)}
-          onSelect={(template) => {
-            setCatalogOpen(false);
-            edit('new', null, template);
-          }}
-        />
-      )}
       {editor && (
         <ConnectorEditor
           key={(editor === 'new' ? 'new' : editor.id) + ':' + (preset?.id ?? 'custom')}
@@ -283,14 +266,6 @@ export function ConnectorsPanel({ user }: { user: CurrentUser }) {
           duplicate={duplicate}
           preset={preset}
           endpoints={list.data?.endpoints ?? []}
-          onBack={
-            editor === 'new'
-              ? () => {
-                  setEditor(null);
-                  setCatalogOpen(true);
-                }
-              : undefined
-          }
           onClose={() => {
             setEditor(null);
             void refresh();
