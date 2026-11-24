@@ -54,7 +54,22 @@ func TestLoadBootstrapConfiguration(t *testing.T) {
 		if c.HTTPAddress != want {
 			t.Fatalf("%s: listener %s, want %s", role, c.HTTPAddress, want)
 		}
+		wantConns := map[string]int32{"api": 12, "worker": 6, "gateway": 8}[role]
+		if c.DatabaseMaxConns != wantConns {
+			t.Fatalf("%s: max conns %d, want %d", role, c.DatabaseMaxConns, wantConns)
+		}
 	}
+	values["HC_DB_MAX_CONNS"] = "24"
+	if c, err := load("api"); err != nil || c.DatabaseMaxConns != 24 {
+		t.Fatalf("custom HC_DB_MAX_CONNS failed: %v (%d)", err, c.DatabaseMaxConns)
+	}
+	for _, invalid := range []string{"0", "-1", "65", "abc"} {
+		values["HC_DB_MAX_CONNS"] = invalid
+		if _, err := load("api"); err == nil {
+			t.Fatalf("invalid HC_DB_MAX_CONNS=%q accepted", invalid)
+		}
+	}
+	delete(values, "HC_DB_MAX_CONNS")
 	if _, err := load("untrusted"); err == nil {
 		t.Fatal("unknown role accepted")
 	}

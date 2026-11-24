@@ -1,6 +1,7 @@
 """Native OSS backends; no local vector index or fallback search engine."""
 import json
 import os
+import threading
 import uuid
 
 import httpx
@@ -11,13 +12,17 @@ import document_chunks
 MODEL = "BAAI/bge-small-zh-v1.5"
 DIMENSIONS = 512
 _embedding = None
+_embedding_lock = threading.Lock()
 
 
 def embedding():
     global _embedding
-    if _embedding is None:
-        _embedding = TextEmbedding(MODEL, cache_dir="/models", threads=2)
-    return _embedding
+    if _embedding is not None:
+        return _embedding
+    with _embedding_lock:
+        if _embedding is None:
+            _embedding = TextEmbedding(MODEL, cache_dir="/models", threads=2)
+        return _embedding
 
 
 def embed(texts, query=False):
@@ -30,29 +35,35 @@ class Vectors:
         from embedding_provider import EmbeddingProvider
 
         self.embedder = EmbeddingProvider(embedding_config)
-        self.backend, self.namespace = backend, namespace
-        self.collection = ("Hc" if backend == "weaviate" else "hc_") + namespace
-        self.url = service.url if service else os.environ[backend.upper() + "_URL"]
-        key = service.token if service else os.environ["HC_CONTEXT_TEST_KEY"]
-        headers = {"api-key": key} if backend == "qdrant" else {"Authorization": "Bearer " + key}
-        transport = None
-        if service:
-            from milvus_service import MilvusTransport, service_url
+        try:
+            self.backend, self.namespace = backend, namespace
+            self.collection = ("Hc" if backend == "weaviate" else "hc_") + namespace
+            self.url = service.url if service else os.environ[backend.upper() + "_URL"]
+            key = service.token if service else os.environ["HC_CONTEXT_TEST_KEY"]
+            headers = (
+                {"api-key": key} if backend == "qdrant" else {"Authorization": "Bearer " + key}
+            )
+            transport = None
+            if service:
+                from milvus_service import MilvusTransport, service_url
 
-            if backend not in ("milvus", "weaviate", "qdrant"):
-                raise ValueError("Custom service backend not supported")
-            service_url(self.url)
-            transport = MilvusTransport()
-            if not key:
-                headers = {}
-        self.http = httpx.Client(
-            base_url=self.url,
-            headers=headers,
-            timeout=12,
-            trust_env=False,
-            transport=transport,
-            follow_redirects=False,
-        )
+                if backend not in ("milvus", "weaviate", "qdrant"):
+                    raise ValueError("Custom service backend not supported")
+                service_url(self.url)
+                transport = MilvusTransport()
+                if not key:
+                    headers = {}
+            self.http = httpx.Client(
+                base_url=self.url,
+                headers=headers,
+                timeout=12,
+                trust_env=False,
+                transport=transport,
+                follow_redirects=False,
+            )
+        except Exception:
+            self.embedder.close()
+            raise
 
     def request(self, method, path, data=None):
         response = self.http.request(method, path, json=data)
@@ -153,16 +164,19 @@ class Vectors:
                 rows.append({"class": c, "id": identity, "vector": vector, "properties": payload})
             else:
                 rows.append({"id": identity, "vector": vector, **payload})
-        if self.backend == "qdrant":
-            self.request("PUT", "/collections/" + c + "/points?wait=true", {"points": rows})
-        elif self.backend == "weaviate":
-            result = self.request("POST", "/v1/batch/objects", {"objects": rows})
-            if any(item.get("result", {}).get("errors") for item in result):
-                raise RuntimeError("partial indexing failure")
-        else:
-            self.request(
-                "POST", "/v2/vectordb/entities/upsert", {"collectionName": c, "data": rows}
-            )
+        batch_size = 128
+        for offset in range(0, len(rows), batch_size):
+            batch = rows[offset : offset + batch_size]
+            if self.backend == "qdrant":
+                self.request("PUT", "/collections/" + c + "/points?wait=true", {"points": batch})
+            elif self.backend == "weaviate":
+                result = self.request("POST", "/v1/batch/objects", {"objects": batch})
+                if any(item.get("result", {}).get("errors") for item in result):
+                    raise RuntimeError("partial indexing failure")
+            else:
+                self.request(
+                    "POST", "/v2/vectordb/entities/upsert", {"collectionName": c, "data": batch}
+                )
 
     def search(self, query, scope, limit):
         vector = self.embedder.embed([query], query=True)[0]
@@ -191,21 +205,28 @@ class Vectors:
                 + str(limit)
                 + "){record_id scope version chunk _additional{distance}}}}"
             )
-            result = self.request("POST", "/v1/graphql", {"query": expr})["data"]["Get"][c]
-            return [{**x, "score": 1 - x["_additional"]["distance"]} for x in result]
-        result = self.request(
-            "POST",
-            "/v2/vectordb/entities/search",
-            {
-                "collectionName": c,
-                "data": [vector],
-                "annsField": "vector",
-                "limit": limit,
-                "filter": "scope == " + json.dumps(scope),
-                "consistencyLevel": "Strong",
-                "outputFields": ["record_id", "scope", "version", "chunk"],
-            },
-        )["data"]
+            result = self.request("POST", "/v1/graphql", {"query": expr})["data"]["Get"][c] or []
+            return [
+                {**x, "score": 1 - x["_additional"]["distance"]}
+                for x in result
+                if x.get("_additional", {}).get("distance") is not None
+            ]
+        result = (
+            self.request(
+                "POST",
+                "/v2/vectordb/entities/search",
+                {
+                    "collectionName": c,
+                    "data": [vector],
+                    "annsField": "vector",
+                    "limit": limit,
+                    "filter": "scope == " + json.dumps(scope),
+                    "consistencyLevel": "Strong",
+                    "outputFields": ["record_id", "scope", "version", "chunk"],
+                },
+            )["data"]
+            or []
+        )
         return [{**x, "score": x["distance"]} for x in result]
 
     def delete(self, record_id, version=None):

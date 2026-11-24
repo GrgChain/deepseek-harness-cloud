@@ -20,28 +20,37 @@ class VikingMemory:
 
     def __init__(self, namespace, service=None):
         self.namespace = namespace
-        self.keys = sqlite3.connect("/data/viking-keys.db")
-        self.keys.execute(
-            "CREATE TABLE IF NOT EXISTS tenant_keys(namespace TEXT PRIMARY KEY, key TEXT)"
-        )
-        self.root_key = service.token if service else os.environ["HC_CONTEXT_TEST_KEY"]
-        if not self.root_key:
-            raise ValueError("OpenViking administrator API key required")
-        saved = self.keys.execute(
-            "SELECT key FROM tenant_keys WHERE namespace=?", (namespace,)
-        ).fetchone()
-        self.has_tenant = bool(saved)
-        self.http = httpx.Client(
-            base_url=service_url(service.url) if service else os.environ["OPENVIKING_URL"],
-            headers={
-                "X-API-Key": saved[0] if saved else self.root_key,
-                "X-OpenViking-Account": "hc_" + namespace,
-                "X-OpenViking-User": "owner",
-            },
-            timeout=180,
-            trust_env=False,
-            transport=MilvusTransport() if service else None,
-        )
+        self.keys = sqlite3.connect("/data/viking-keys.db", timeout=5)
+        try:
+            self.keys.execute("PRAGMA journal_mode=WAL")
+            self.keys.execute("PRAGMA synchronous=FULL")
+            if not self.keys.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='tenant_keys'"
+            ).fetchone():
+                self.keys.execute(
+                    "CREATE TABLE IF NOT EXISTS tenant_keys(namespace TEXT PRIMARY KEY, key TEXT)"
+                )
+            self.root_key = service.token if service else os.environ["HC_CONTEXT_TEST_KEY"]
+            if not self.root_key:
+                raise ValueError("OpenViking administrator API key required")
+            saved = self.keys.execute(
+                "SELECT key FROM tenant_keys WHERE namespace=?", (namespace,)
+            ).fetchone()
+            self.has_tenant = bool(saved)
+            self.http = httpx.Client(
+                base_url=service_url(service.url) if service else os.environ["OPENVIKING_URL"],
+                headers={
+                    "X-API-Key": saved[0] if saved else self.root_key,
+                    "X-OpenViking-Account": "hc_" + namespace,
+                    "X-OpenViking-User": "owner",
+                },
+                timeout=180,
+                trust_env=False,
+                transport=MilvusTransport() if service else None,
+            )
+        except Exception:
+            self.keys.close()
+            raise
 
     def request(self, method, path, data=None, params=None, missing=False):
         response = self.http.request(method, path, json=data, params=params)

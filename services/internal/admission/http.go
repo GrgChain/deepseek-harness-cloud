@@ -39,6 +39,7 @@ type httpChecks struct {
 	transport             *http.Transport
 	rules                 access.Rules
 	workerURL, gatewayURL string
+	ingressURL            string
 }
 
 func newHTTPChecks(rules access.Rules, environment, workerURL, gatewayURL, caPath string) (*httpChecks, error) {
@@ -78,7 +79,7 @@ func newHTTPChecks(rules access.Rules, environment, workerURL, gatewayURL, caPat
 		return dialer.DialContext(ctx, network, address)
 	}
 	client := &http.Client{Transport: transport, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	return &httpChecks{client, transport, rules, workerURL, gatewayURL}, nil
+	return &httpChecks{client: client, transport: transport, rules: rules, workerURL: workerURL, gatewayURL: gatewayURL, ingressURL: ingress.String() + "/"}, nil
 }
 func (p *httpChecks) Close() { p.transport.CloseIdleConnections() }
 func (p *httpChecks) get(ctx context.Context, address string) (int, http.Header, []byte, error) {
@@ -123,8 +124,7 @@ func (p *httpChecks) gateway(ctx context.Context) error {
 	return nil
 }
 func (p *httpChecks) ingress(ctx context.Context) error {
-	address := p.rules.URL(p.rules.Host("00000000-0000-4000-8000-000000000001")) + "/"
-	code, headers, body, err := p.get(ctx, address)
+	code, headers, body, err := p.get(ctx, p.ingressURL)
 	var result struct {
 		Code      string `json:"code"`
 		Message   string `json:"message"`

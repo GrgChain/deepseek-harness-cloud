@@ -1,6 +1,6 @@
 import { createServer, connect } from 'node:http2';
 import { EventEmitter, once } from 'node:events';
-import { expect, test } from 'vitest';
+import { expect, test, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import { localAccess, proxyResponseHeaders } from './local-access';
 
@@ -77,4 +77,37 @@ test('browser reset before an upgrade completes does not escape the local HTTPS 
     socket.emit('error', Object.assign(new Error('reset'), { code: 'ECONNRESET' })),
   ).not.toThrow();
   socket.destroy();
+});
+
+test('IP-only mode rejects portal and workspace domains for HTTP and WebSocket', () => {
+  const httpServer = new EventEmitter();
+  let middleware: Function;
+  const plugin = localAccess({ ipOnly: true });
+  (plugin.configureServer as Function)({
+    middlewares: { use: (handler: Function) => (middleware = handler) },
+    httpServer,
+    config: { server: { port: 42013 } },
+  });
+  for (const host of [
+    'portal.harness.localhost:42013',
+    'i-796c8262e76d452dbddcb87a83e2ee53.harness.localhost:42013',
+  ]) {
+    const request = {
+      headers: { host, 'x-hc-public-origin': 'https://192.168.1.20:42013' },
+      url: '/',
+      method: 'GET',
+    };
+    const response = { writeHead: vi.fn(), end: vi.fn() };
+    const next = vi.fn();
+    middleware!(request, response, next);
+    expect(response.writeHead).toHaveBeenCalledWith(404);
+    expect(response.end).toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+    const socket = new PassThrough();
+    httpServer.emit('upgrade', request, socket, Buffer.alloc(0));
+    expect(socket.destroyed).toBe(true);
+  }
+  const next = vi.fn();
+  middleware!({ headers: { host: '127.0.0.1:42013' } }, {}, next);
+  expect(next).toHaveBeenCalledOnce();
 });

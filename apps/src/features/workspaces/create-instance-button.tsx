@@ -716,11 +716,13 @@ export function CreateInstanceButton({
                             )}
                             onChange={(ids: string[]) => {
                               setSelectedSkills(
-                                ids.map(
-                                  (id) =>
-                                    selectedSkills.find((item) => item.id === id) ??
-                                    skills.data!.find((item) => item.id === id)!,
-                                ),
+                                ids
+                                  .map(
+                                    (id) =>
+                                      selectedSkills.find((item) => item.id === id) ??
+                                      skills.data?.find((item) => item.id === id),
+                                  )
+                                  .filter((item): item is Skill => item !== undefined),
                               );
                               create.reset();
                             }}

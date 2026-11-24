@@ -33,7 +33,7 @@ class MilvusTransport(httpx.BaseTransport):
         )
         if not addresses:
             raise ValueError("Milvus address unavailable")
-        ips = []
+        ipv4, ipv6 = [], []
         for _, _, _, _, address in addresses:
             ip = ipaddress.ip_address(address[0])
             ip = getattr(ip, "ipv4_mapped", None) or ip
@@ -48,13 +48,23 @@ class MilvusTransport(httpx.BaseTransport):
                 raise ValueError("Milvus address denied")
             if original.scheme == "http" and not ip.is_private:
                 raise ValueError("Public Milvus service requires HTTPS")
-            ips.append(str(ip))
-        # Send to the checked IP, preserving the virtual host and TLS identity.
-        request.url = original.copy_with(host=ips[0])
+            bucket = ipv4 if ip.version == 4 else ipv6
+            addr = str(ip)
+            if addr not in bucket:
+                bucket.append(addr)
+        ips = ipv4 + ipv6
+        # Send to a checked IP, preferring IPv4 and falling back across validated IPs.
         request.headers["Host"] = original.netloc.decode("ascii")
         request.extensions["sni_hostname"] = original.host
+        last_error = None
         try:
-            return self.transport.handle_request(request)
+            for ip_addr in ips:
+                request.url = original.copy_with(host=ip_addr)
+                try:
+                    return self.transport.handle_request(request)
+                except httpx.ConnectError as exc:
+                    last_error = exc
+            raise last_error
         finally:
             request.url = original
 

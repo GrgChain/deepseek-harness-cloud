@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/access"
@@ -37,7 +38,8 @@ func TestIPAccessInitializationPreservesExistingDeploymentAndIdentities(t *testi
 		t.Fatal(err)
 	}
 	t.Setenv("HC_PUBLIC_IP", "192.168.1.20")
-	for range 2 {
+	for _, ipOnly := range []bool{false, true} {
+		t.Setenv("HC_IP_ONLY", strconv.FormatBool(ipOnly))
 		if err := initLocalIPAccess(); err != nil {
 			t.Fatal(err)
 		}
@@ -46,7 +48,7 @@ func TestIPAccessInitializationPreservesExistingDeploymentAndIdentities(t *testi
 			t.Fatal(err)
 		}
 		o := updated.IPAccess
-		if o == nil || o.Origin(o.PortalPort) != "https://192.168.1.20:42013" {
+		if o == nil || o.Origin(o.PortalPort) != "https://192.168.1.20:42013" || updated.IPOnly != ipOnly {
 			t.Fatal("IP entry not configured")
 		}
 		certificate, err := tls.LoadX509KeyPair(o.CertificateFile, o.KeyFile)
@@ -64,6 +66,7 @@ func TestIPAccessInitializationPreservesExistingDeploymentAndIdentities(t *testi
 			}
 		}
 		updated.IPAccess = nil
+		updated.IPOnly = false
 		if !reflect.DeepEqual(original, updated) {
 			t.Fatal("IP initialization changed existing deployment facts")
 		}

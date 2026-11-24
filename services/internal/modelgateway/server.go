@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"reflect"
 	"strings"
@@ -50,7 +51,8 @@ func writeError(w http.ResponseWriter, status int, code string) {
 	writeJSON(w, status, map[string]any{"error": map[string]string{"type": code, "message": "Model request unavailable"}})
 }
 func decode(w http.ResponseWriter, r *http.Request, value any) error {
-	if r.Header.Get("Content-Type") != "application/json" {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err != nil || mediaType != "application/json" {
 		return errProtocol
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
@@ -206,6 +208,10 @@ func (s *Server) authorize(ctx context.Context, hash []byte) (Route, []byte, err
 // An explicit account request may use only the anchor credential's own account.
 // Probe/management calls retain their single-route contract.
 func (s *Server) authorizeRoute(ctx context.Context, hash []byte, alias string) (Route, []byte, error) {
+	return s.authorizeRouteWithKey(ctx, hash, alias, true)
+}
+
+func (s *Server) authorizeRouteWithKey(ctx context.Context, hash []byte, alias string, decryptKey bool) (Route, []byte, error) {
 	var route Route
 	var raw, frozen []byte
 	var env security.Envelope
@@ -239,25 +245,50 @@ func (s *Server) authorizeRoute(ctx context.Context, hash []byte, alias string) 
 	if err != nil || json.Unmarshal(raw, &route.Params) != nil || !approvedParams(route.Params, s.customBases...) || freezeErr != nil || !reflect.DeepEqual(route.Params, approved) {
 		return route, nil, errProtocol
 	}
+	if !decryptKey {
+		return route, nil, nil
+	}
 	key, err := s.cipher.Decrypt(env, security.Context{Environment: s.environment, OrganizationID: route.Org, RecordID: fmt.Sprintf("%s/%s/%s/%d", route.Owner, route.Connection, secret, bound), Purpose: "provider-key"})
 	return route, key, err
 }
+
+func validRouteUUID(value string) bool {
+	if len(value) != 36 {
+		return false
+	}
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if i == 8 || i == 13 || i == 18 || i == 23 {
+			if c != '-' {
+				return false
+			}
+			continue
+		}
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')) {
+			return false
+		}
+	}
+	return true
+}
+
 func (s *Server) management(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	switch r.Method + " " + r.URL.Path {
 	case "GET /v2/model/info":
 		id := r.URL.Query().Get("modelId")
-		var alias string
-		var raw []byte
-		err := s.pool.QueryRow(ctx, `SELECT alias,parameters FROM model_gateway_routes WHERE id::text=$1 AND enabled`, id).Scan(&alias, &raw)
 		data := []any{}
-		if err == nil {
-			data = append(data, map[string]any{"model_name": alias, "provider_params": json.RawMessage(raw), "model_info": map[string]string{"id": id}})
-		}
-		if err != nil && err != pgx.ErrNoRows {
-			writeError(w, 503, "UNAVAILABLE")
-			return
+		if validRouteUUID(id) {
+			var alias string
+			var raw []byte
+			err := s.pool.QueryRow(ctx, `SELECT alias,parameters FROM model_gateway_routes WHERE id=$1 AND enabled`, id).Scan(&alias, &raw)
+			if err == nil {
+				data = append(data, map[string]any{"model_name": alias, "provider_params": json.RawMessage(raw), "model_info": map[string]string{"id": id}})
+			}
+			if err != nil && err != pgx.ErrNoRows {
+				writeError(w, 503, "UNAVAILABLE")
+				return
+			}
 		}
 		writeJSON(w, 200, map[string]any{"data": data})
 	case "POST /model/new":
@@ -270,14 +301,18 @@ func (s *Server) management(w http.ResponseWriter, r *http.Request) {
 			writeError(w, 400, "INVALID_REQUEST")
 			return
 		}
+		if !validRouteUUID(v.ID) {
+			writeJSON(w, 200, map[string]bool{"deleted": true})
+			return
+		}
 		tx, err := s.pool.Begin(ctx)
 		if err != nil {
 			writeError(w, 503, "UNAVAILABLE")
 			return
 		}
 		defer tx.Rollback(context.Background())
-		if _, err = tx.Exec(ctx, `UPDATE model_gateway_routes SET enabled=false WHERE id::text=$1`, v.ID); err == nil {
-			_, err = tx.Exec(ctx, `UPDATE model_gateway_keys SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE route_id::text=$1`, v.ID)
+		if _, err = tx.Exec(ctx, `UPDATE model_gateway_routes SET enabled=false WHERE id=$1`, v.ID); err == nil {
+			_, err = tx.Exec(ctx, `UPDATE model_gateway_keys SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE route_id=$1`, v.ID)
 		}
 		if err == nil {
 			err = tx.Commit(ctx)

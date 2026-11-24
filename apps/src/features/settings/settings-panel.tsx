@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Alert, Button, Space, Spin, Tabs, Tag } from 'antd';
-import type { CurrentUser } from '../../api/identity';
+import { Alert, Button, Progress, Skeleton, Space, Spin, Table, Tabs, Tag } from 'antd';
+import { hasPermission, type CurrentUser } from '../../api/identity';
 import { SettingsClient } from '../../api/settings';
 import { RuntimeDefaultsEditor } from './runtime-defaults-editor';
-import { OrganizationQuotaPanel } from '../resource-quotas/organization-quota-panel';
+import { formatQuotaNumber, quotaDimensions } from '../resource-quotas/quota-format';
 import { useTransientNotice } from '../../shared/hooks/use-transient-notice';
 import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 
@@ -28,7 +28,7 @@ const checkNames: Record<string, string> = {
   access: '工作台入口',
   template: '运行模板',
   spec: '运行规格',
-  defaults: '默认用户资源配置',
+  defaults: '默认资源配置',
   maintenance: '维护状态',
 };
 const reasons: Record<string, string> = {
@@ -41,7 +41,7 @@ const reasons: Record<string, string> = {
   RUNTIME_NOT_CONFIGURED: '运行环境尚未接入',
   TEMPLATE_NOT_CONFIGURED: '尚未批准运行模板',
   SPEC_NOT_CONFIGURED: '尚未批准运行规格',
-  DEFAULTS_NOT_CONFIGURED: '请先初始化默认用户资源配置',
+  DEFAULTS_NOT_CONFIGURED: '请先初始化默认资源配置',
   DEPENDENCY_UNAVAILABLE: '依赖暂不可用',
   MAINTENANCE: '维护中',
 };
@@ -67,12 +67,30 @@ export function SettingsPanel({
     queryFn: ({ signal }) => client.defaults(user, signal),
     retry: false,
   });
+  const quotaKey = ['management', user.id, 'organization-quota'];
+  const quota = useQuery({
+    queryKey: quotaKey,
+    queryFn: ({ signal }) => client.organizationQuota(user, signal),
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+  const canEdit = hasPermission(user, 'defaults:write');
   const refresh = () => {
     void cache.invalidateQueries({ queryKey: prefix });
+    void cache.invalidateQueries({ queryKey: quotaKey });
   };
-  const failed = [preflight, defaults].find((result) => result.isError);
+  const failed = [preflight, defaults, quota].find((result) => result.isError);
   useExpiredSession(failed?.error);
   const configuration = defaults.data;
+  const quotaRows = quota.data
+    ? quotaDimensions.map((dimension) => ({
+        key: dimension.key,
+        label: dimension.label,
+        unit: dimension.unit,
+        used: quota.data.usage[dimension.key] / dimension.scale,
+        limit: quota.data.limits[dimension.key] / dimension.scale,
+      }))
+    : [];
   return (
     <div className="settings-modules">
       {notice && (
@@ -88,100 +106,190 @@ export function SettingsPanel({
             label: '默认资源',
             children: (
               <>
-                {defaults.isError && (
+                {(defaults.isError || quota.isError) && (
                   <Alert
                     className="settings-module-error"
                     showIcon
                     type="error"
-                    message={defaults.error.message}
+                    message={(defaults.error ?? quota.error)?.message ?? '无法读取资源配置'}
                     action={<Button onClick={refresh}>重新加载</Button>}
                   />
                 )}
                 <section
                   className="settings-section runtime-defaults-section"
-                  aria-label="默认用户资源配置"
+                  aria-label="默认资源配置"
                 >
                   <div className="section-top">
                     <div className="settings-card-heading">
-                      <h2>默认用户资源配置</h2>
+                      <h2>默认资源配置</h2>
                       <p>
-                        设置新用户默认 CPU、内存、存储和实例上限，并设定后续删除数据的保留期限。
+                        设置新用户默认工作空间规格、实例上限与数据保留期限，并统一管控全系统可分配资源总量上限。
                       </p>
                     </div>
                     <Space wrap>
-                      <Button onClick={refresh} loading={defaults.isFetching}>
+                      <Button onClick={refresh} loading={defaults.isFetching || quota.isFetching}>
                         刷新
                       </Button>
                       {defaults.isSuccess && (
                         <RuntimeDefaultsEditor
                           user={user}
                           configuration={configuration}
-                          onSaved={(value) => {
-                            cache.setQueryData([...prefix, 'defaults'], value);
+                          quota={quota.data}
+                          onSaved={({ defaults: savedDefaults, quota: savedQuota }) => {
+                            if (savedDefaults) {
+                              cache.setQueryData([...prefix, 'defaults'], savedDefaults);
+                            }
+                            if (savedQuota) {
+                              cache.setQueryData(quotaKey, savedQuota);
+                            }
                             void cache.invalidateQueries({ queryKey: prefix });
+                            void cache.invalidateQueries({ queryKey: quotaKey });
                             void cache.invalidateQueries({
                               queryKey: ['management', user.id, 'user-quota'],
                             });
-                            setNotice('默认用户资源配置已保存');
+                            setNotice(
+                              savedDefaults && savedQuota
+                                ? '默认资源配置与系统资源上限已保存'
+                                : savedQuota
+                                  ? '系统资源上限已保存'
+                                  : '默认资源配置已保存',
+                            );
                           }}
                         />
                       )}
                     </Space>
                   </div>
-                  {defaults.isPending ? (
-                    <Spin aria-label="加载运行配置" />
-                  ) : configuration ? (
-                    <div className="runtime-config-groups">
-                      <section aria-label="资源规格">
-                        <h3>工作空间规格</h3>
-                        <dl className="runtime-config-grid">
-                          <div>
-                            <dt>CPU</dt>
-                            <dd>{configuration.spec.cpu_millicores / 1000} 核</dd>
-                          </div>
-                          <div>
-                            <dt>内存</dt>
-                            <dd>{configuration.spec.memory_bytes / 2 ** 30} GiB</dd>
-                          </div>
-                          <div>
-                            <dt>持久存储</dt>
-                            <dd>{configuration.spec.storage_bytes / 2 ** 30} GiB</dd>
-                          </div>
-                        </dl>
-                      </section>
-                      <section aria-label="实例策略">
-                        <h3>实例策略</h3>
-                        <dl className="runtime-config-grid">
-                          <div>
-                            <dt>每用户默认实例上限</dt>
-                            <dd>{configuration.max_user_instances} 个</dd>
-                          </div>
-                          <div>
-                            <dt>数据保留期限</dt>
-                            <dd>{configuration.retention_days} 天</dd>
-                          </div>
-                        </dl>
-                      </section>
-                    </div>
-                  ) : (
-                    !defaults.isError && (
-                      <Alert type="info" showIcon message="尚未初始化默认用户资源配置" />
-                    )
+                  {!canEdit && (
+                    <Alert
+                      type="info"
+                      showIcon
+                      message="当前账户仅可查看默认资源配置与系统资源上限"
+                      style={{ marginBottom: 16 }}
+                    />
                   )}
+                  <div className="runtime-config-groups">
+                    {defaults.isPending ? (
+                      <Spin aria-label="加载运行配置" />
+                    ) : configuration ? (
+                      <>
+                        <section aria-label="资源规格">
+                          <h3>工作空间规格</h3>
+                          <dl className="runtime-config-grid">
+                            <div>
+                              <dt>CPU</dt>
+                              <dd>{configuration.spec.cpu_millicores / 1000} 核</dd>
+                            </div>
+                            <div>
+                              <dt>内存</dt>
+                              <dd>{configuration.spec.memory_bytes / 2 ** 30} GiB</dd>
+                            </div>
+                            <div>
+                              <dt>持久存储</dt>
+                              <dd>{configuration.spec.storage_bytes / 2 ** 30} GiB</dd>
+                            </div>
+                          </dl>
+                        </section>
+                        <section aria-label="实例策略">
+                          <h3>实例策略</h3>
+                          <dl className="runtime-config-grid">
+                            <div>
+                              <dt>每用户默认实例上限</dt>
+                              <dd>{configuration.max_user_instances} 个</dd>
+                            </div>
+                            <div>
+                              <dt>数据保留期限</dt>
+                              <dd>{configuration.retention_days} 天</dd>
+                            </div>
+                          </dl>
+                        </section>
+                      </>
+                    ) : (
+                      !defaults.isError && (
+                        <Alert type="info" showIcon message="尚未初始化默认资源配置" />
+                      )
+                    )}
+                    <section className="organization-quota-subsection" aria-label="系统资源上限">
+                      <div className="organization-quota-subsection-header">
+                        <h3>系统资源上限</h3>
+                        <span>
+                          系统上限不得低于当前占用、默认单用户实例上限（
+                          {configuration?.max_user_instances ??
+                            quota.data?.default_user_instances ??
+                            '—'}{' '}
+                          个）或已分配的用户额度。
+                        </span>
+                      </div>
+                      {quota.isPending ? (
+                        <Skeleton active paragraph={{ rows: 4 }} />
+                      ) : (
+                        quota.data && (
+                          <Table
+                            className="data-table users-table organization-quota-table"
+                            size="middle"
+                            rowKey="key"
+                            tableLayout="fixed"
+                            dataSource={quotaRows}
+                            pagination={false}
+                            scroll={{ x: 585 }}
+                            columns={[
+                              { title: '资源', dataIndex: 'label', width: 120 },
+                              {
+                                title: '当前占用',
+                                key: 'usage',
+                                width: 150,
+                                render: (_, row) => (
+                                  <span className="quota-table-value">
+                                    <strong>{formatQuotaNumber(row.used)}</strong>
+                                    <span> {row.unit}</span>
+                                  </span>
+                                ),
+                              },
+                              {
+                                title: '系统上限',
+                                key: 'limit',
+                                width: 150,
+                                render: (_, row) => (
+                                  <span className="quota-table-value">
+                                    <strong>{formatQuotaNumber(row.limit)}</strong>
+                                    <span> {row.unit}</span>
+                                  </span>
+                                ),
+                              },
+                              {
+                                title: '使用率',
+                                key: 'progress',
+                                width: 165,
+                                render: (_, row) => (
+                                  <div className="organization-quota-progress">
+                                    <Progress
+                                      percent={
+                                        row.limit === 0
+                                          ? row.used === 0
+                                            ? 0
+                                            : 100
+                                          : Math.min(100, (row.used / row.limit) * 100)
+                                      }
+                                      showInfo={false}
+                                      size="small"
+                                      status={row.used > row.limit ? 'exception' : 'normal'}
+                                    />
+                                    <span>
+                                      {formatQuotaNumber(
+                                        row.limit === 0 ? 0 : (row.used / row.limit) * 100,
+                                      )}
+                                      %
+                                    </span>
+                                  </div>
+                                ),
+                              },
+                            ]}
+                          />
+                        )
+                      )}
+                    </section>
+                  </div>
                 </section>
               </>
-            ),
-          },
-          {
-            key: 'quota',
-            label: '系统上限',
-            children: (
-              <section
-                className="settings-section organization-quota-section"
-                aria-label="系统资源上限"
-              >
-                <OrganizationQuotaPanel user={user} />
-              </section>
             ),
           },
           {

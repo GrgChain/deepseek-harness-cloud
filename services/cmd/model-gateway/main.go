@@ -34,7 +34,11 @@ func run() error {
 	if err != nil {
 		return errors.New("invalid model gateway database")
 	}
-	c.MaxConns = 5
+	maxConns, err := config.ParseDatabaseMaxConns(os.Getenv("HC_DB_MAX_CONNS"), 8)
+	if err != nil {
+		return err
+	}
+	c.MaxConns = maxConns
 	c.MinConns = 0
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

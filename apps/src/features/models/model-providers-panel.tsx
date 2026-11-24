@@ -300,7 +300,9 @@ export function ModelProvidersPanel({ user }: { user: CurrentUser }) {
                                 !!model.validation?.checked_at && (
                                   <Button
                                     loading={
-                                      command.isPending && command.variables?.model.id === model.id
+                                      command.isPending &&
+                                      command.variables?.action === 'validate' &&
+                                      command.variables?.model.id === model.id
                                     }
                                     disabled={
                                       busy ||

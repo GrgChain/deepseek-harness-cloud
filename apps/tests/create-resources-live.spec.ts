@@ -70,7 +70,7 @@ test('live member selects approved CPU memory and sees the model provider select
       .getByRole('button', { name: '取消', exact: true })
       .click();
     await page.goto('/app/settings');
-    const runtime = page.getByRole('region', { name: '默认用户资源配置', exact: true });
+    const runtime = page.getByRole('region', { name: '默认资源配置', exact: true });
     await expect(runtime).toBeVisible();
     await expect(runtime.getByText('10 GiB', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '配置模型连接', exact: true })).toHaveCount(0);

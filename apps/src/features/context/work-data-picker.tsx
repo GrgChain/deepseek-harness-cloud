@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Alert,
   Breadcrumb,
@@ -13,9 +13,10 @@ import {
   Tooltip,
 } from 'antd';
 import { ChevronLeft, ChevronRight, FileText, Folder } from 'lucide-react';
+import { APIError } from '../../api/error';
 import { StorageClient, type StorageDirectoryEntry } from '../../api/storage';
 import type { CurrentUser } from '../../api/identity';
-import { useExpiredSession } from '../../shared/hooks/use-expired-session';
+import { expireSession, useExpiredSession } from '../../shared/hooks/use-expired-session';
 import { documentMaxBytes, extractDocumentText, supportedDocument } from './document-import';
 
 const storage = new StorageClient();
@@ -28,6 +29,7 @@ export function WorkDataPicker({
   onClose: () => void;
   onSelected: (content: string, title: string, source: string) => Promise<void>;
 }) {
+  const cache = useQueryClient();
   const [asset, setAsset] = useState('');
   const [assetName, setAssetName] = useState('');
   const [root, setRoot] = useState<'workspace' | 'dsh'>('workspace');
@@ -58,6 +60,7 @@ export function WorkDataPicker({
     setError('');
   }
   async function choose(row: StorageDirectoryEntry) {
+    if (busy) return;
     const relative = [path, row.name].filter(Boolean).join('/');
     if (row.type === 'DIRECTORY') {
       navigate(relative);
@@ -71,6 +74,7 @@ export function WorkDataPicker({
       await onSelected(content, row.name, `工作数据：/data/${root}/${relative}`);
       onClose();
     } catch (cause) {
+      if (cause instanceof APIError && cause.status === 401) expireSession(cache);
       setError(cause instanceof Error ? cause.message : '读取失败，请重试');
     } finally {
       setBusy(false);
@@ -80,7 +84,11 @@ export function WorkDataPicker({
     row.type === 'DIRECTORY' ||
     (row.type === 'FILE' && supportedDocument(row.name) && row.size_bytes <= documentMaxBytes);
   const options = (assets.data?.items ?? [])
-    .filter((v) => !['RECLAIMED', 'DESTROYED'].includes(v.status))
+    .filter(
+      (v) =>
+        ['READY', 'RETAINED'].includes(v.status) &&
+        ['RUNNING', 'STOPPED', 'DELETED'].includes(v.workspace_state),
+    )
     .map((v) => ({ value: v.id, label: v.workspace_name }));
   if (asset && !options.some((v) => v.value === asset))
     options.unshift({ value: asset, label: assetName });
@@ -97,6 +105,7 @@ export function WorkDataPicker({
       }
       closable={!busy}
       maskClosable={!busy}
+      keyboard={!busy}
       onCancel={() => {
         if (!busy) onClose();
       }}

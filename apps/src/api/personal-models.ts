@@ -1,5 +1,5 @@
 import type { CurrentUser } from './identity';
-import { APIError } from './error';
+import { apiFetch } from './http';
 import { type Health } from './settings';
 
 export interface PersonalModel {
@@ -62,26 +62,20 @@ export class PersonalModelsClient {
     signal?: AbortSignal,
     method?: string,
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(path.endsWith(':validate') ? 36_000 : 10_000);
-    const response = await this.fetcher(path, {
-      method: method ?? (body === undefined ? 'GET' : 'POST'),
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers:
-        body === undefined
-          ? undefined
-          : {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': user.csrf_token,
-              ...(key ? { 'Idempotency-Key': key } : {}),
-            },
-      body: body === undefined ? undefined : JSON.stringify(body),
+    const timeoutMs = path.endsWith(':validate')
+      ? 36_000
+      : path.endsWith(':sync')
+        ? 30_000
+        : 10_000;
+    const response = await apiFetch(path, {
+      method,
+      user,
+      body,
+      headers: key ? { 'Idempotency-Key': key } : undefined,
+      timeoutMs,
+      signal,
+      fetcher: this.fetcher,
     });
-    if (!response.ok) {
-      const error = (await response.json().catch(() => ({}))) as { code?: string };
-      throw new APIError(response.status, error.code ?? 'DEPENDENCY_UNAVAILABLE');
-    }
     return response.json() as Promise<T>;
   }
   list(user: CurrentUser, signal?: AbortSignal) {

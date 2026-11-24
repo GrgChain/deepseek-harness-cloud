@@ -5,6 +5,12 @@ import { randomBytes } from 'node:crypto';
 export async function mountSessionMemory(ctx, item, request) {
   const prefix = '/' + randomBytes(24).toString('hex');
   const server = http.createServer(async (req, res) => {
+    const controller = new AbortController();
+    const abort = () => {
+      if (!res.writableEnded) controller.abort();
+    };
+    req.once('aborted', abort);
+    res.once('close', abort);
     try {
       if (!req.url?.startsWith(prefix + '/')) {
         res.writeHead(404).end();
@@ -15,7 +21,8 @@ export async function mountSessionMemory(ctx, item, request) {
       for await (const chunk of req) {
         size += chunk.length;
         if (size > 512 * 1024) {
-          res.writeHead(413).end();
+          res.writeHead(413, { connection: 'close' }).end();
+          req.destroy();
           return;
         }
         chunks.push(chunk);
@@ -31,16 +38,26 @@ export async function mountSessionMemory(ctx, item, request) {
           res.writeHead(404).end();
           return;
         }
-        const input = path === '/search' ? JSON.parse(body) : null;
-        if (
-          input &&
-          (Object.keys(input).length !== 1 ||
+        let input = null;
+        if (path === '/search') {
+          try {
+            input = JSON.parse(body);
+          } catch {
+            res.writeHead(400).end();
+            return;
+          }
+          if (
+            !input ||
+            typeof input !== 'object' ||
+            Array.isArray(input) ||
+            Object.keys(input).length !== 1 ||
             typeof input.query !== 'string' ||
             !input.query.trim() ||
-            input.query.length > 4000)
-        ) {
-          res.writeHead(400).end();
-          return;
+            input.query.length > 4000
+          ) {
+            res.writeHead(400).end();
+            return;
+          }
         }
         const result = await request(
           {
@@ -54,7 +71,7 @@ export async function mountSessionMemory(ctx, item, request) {
                   session_request: { method: 'POST', path, body },
                 }),
           },
-          {},
+          { signal: controller.signal },
         );
         res.writeHead(200, { 'content-type': 'application/json' }).end(result);
         return;
@@ -73,7 +90,7 @@ export async function mountSessionMemory(ctx, item, request) {
               headers,
             },
           },
-          {},
+          { signal: controller.signal },
         ),
       );
       res.writeHead(result.status, result.headers).end(result.body);
@@ -87,7 +104,11 @@ export async function mountSessionMemory(ctx, item, request) {
     server.listen(0, '127.0.0.1', resolve);
   });
   ctx.effect(
-    () => () => new Promise((resolve) => server.close(resolve)),
+    () => () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(resolve);
+      }),
     'cloudSessionMemory.close()',
   );
   // Credentials are deliberately empty. The scoped companion authenticates

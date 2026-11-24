@@ -1,4 +1,5 @@
 import { APIError } from './error';
+import { apiFetch } from './http';
 import type { CurrentUser } from './identity';
 
 export type ContextKind = 'memory' | 'knowledge';
@@ -82,6 +83,18 @@ export interface MemoryArchive {
   automatic_entries?: { uri: string; content: string; updated_at?: string }[];
   sha256: string;
 }
+const contextPassthroughCodes = new Set([
+  'CONTEXT_INVALID',
+  'CONTEXT_UNAVAILABLE',
+  'CONTEXT_DISABLED',
+  'CONTEXT_UNSUPPORTED',
+  'CONTEXT_PENDING',
+  'ENDPOINT_NOT_APPROVED',
+  'NOT_FOUND',
+  'VERSION_CONFLICT',
+  'PAYLOAD_TOO_LARGE',
+]);
+
 export class ContextClient {
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   async request<T>(
@@ -93,40 +106,16 @@ export class ContextClient {
     signal?: AbortSignal,
     wire?: { body?: string; response?: 'text' },
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(
-      kind === 'memory' && /\/(export|preview)$/.test(path) ? 95_000 : 22_000,
-    );
-    const response = await this.fetcher(`/v1/context/${kind}${path}`, {
+    const response = await apiFetch(`/v1/context/${kind}${path}`, {
       method,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers:
-        body === undefined
-          ? undefined
-          : { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
-      body: body === undefined ? undefined : (wire?.body ?? JSON.stringify(body)),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      user,
+      body,
+      rawBody: body === undefined ? undefined : wire?.body,
+      timeoutMs: kind === 'memory' && /\/(export|preview)$/.test(path) ? 95_000 : 22_000,
+      signal,
+      fetcher: this.fetcher,
+      passthroughError: (code) => contextPassthroughCodes.has(code),
     });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      const error = new APIError(response.status, problem.code ?? 'DEPENDENCY_UNAVAILABLE');
-      if (
-        [
-          'CONTEXT_INVALID',
-          'CONTEXT_UNAVAILABLE',
-          'CONTEXT_DISABLED',
-          'CONTEXT_UNSUPPORTED',
-          'CONTEXT_PENDING',
-          'ENDPOINT_NOT_APPROVED',
-          'NOT_FOUND',
-          'VERSION_CONFLICT',
-          'PAYLOAD_TOO_LARGE',
-        ].includes(problem.code) &&
-        typeof problem.message === 'string'
-      )
-        error.message = problem.message;
-      throw error;
-    }
     return wire?.response === 'text' ? ((await response.text()) as T) : response.json();
   }
   list(user: CurrentUser, kind: ContextKind, signal?: AbortSignal) {
@@ -137,12 +126,20 @@ export class ContextClient {
     connection: ContextConnection,
     action: string,
     body: Record<string, unknown> = {},
+    signal?: AbortSignal,
   ) {
-    return this.request<T>(user, connection.kind, `/${connection.id}/${action}`, {
-      expected_version: connection.version,
-      ...body,
-      scope: undefined,
-    });
+    return this.request<T>(
+      user,
+      connection.kind,
+      `/${connection.id}/${action}`,
+      {
+        expected_version: connection.version,
+        ...body,
+        scope: undefined,
+      },
+      'POST',
+      signal,
+    );
   }
   exportArchive(user: CurrentUser, connection: ContextConnection) {
     return this.request<string>(

@@ -65,6 +65,7 @@ def parse(data):
             or not 1 <= len(gateway["addresses"]) <= 16
         ):
             raise ValueError("Invalid gateway fence")
+        canonical = []
         for item in gateway["addresses"]:
             network = ipaddress.ip_network(item, strict=True)
             if (
@@ -77,6 +78,8 @@ def parse(data):
                 or network.network_address.is_reserved
             ):
                 raise ValueError("Invalid gateway address")
+            canonical.append(str(network))
+        gateway["addresses"] = canonical
     return value
 
 
@@ -173,8 +176,13 @@ def execute(action, config):
             if action != "install":
                 raise ValueError("Network fence missing")
             command(binary, "-N", chain)
-            for entry in entries:
-                command(binary, "-A", chain, *entry)
+            try:
+                for entry in entries:
+                    command(binary, "-A", chain, *entry)
+            except Exception:
+                command(binary, "-F", chain, check=False)
+                command(binary, "-X", chain, check=False)
+                raise
         # Fail closed on extra rules as well as missing rules. Never replace an
         # unexpected chain that could be owned by another deployment.
         listed = command(binary, "-S", chain).stdout.splitlines()

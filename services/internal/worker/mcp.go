@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -13,6 +14,12 @@ import (
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/workspaceextensions"
 )
+
+type cachedMCPCatalog struct {
+	generation  string
+	serversJSON []byte
+	expiresAt   time.Time
+}
 
 type runtimeMCPServer struct {
 	ID             string            `json:"id"`
@@ -91,11 +98,25 @@ func (b *ExtensionBroker) mcpServers(ctx context.Context, instance string) ([]ru
 func (b *ExtensionBroker) publishMCP(ctx context.Context, instance string, root *os.Root, generation string) error {
 	servers, err := b.mcpServers(ctx, instance)
 	if err != nil {
+		b.mcpCache.Delete(instance)
 		// Withdraw the previous catalog on revoked ownership or unavailable auth.
 		_ = root.Remove(".hc-mcp-tools.json")
 		return err
 	}
-	raw, err := json.Marshal(map[string]any{"generation": generation, "expires_at": time.Now().Add(15 * time.Second).UnixMilli(), "servers": servers})
+	serversJSON, err := json.Marshal(servers)
+	if err != nil {
+		return err
+	}
+	if prev, ok := b.mcpCache.Load(instance); ok {
+		cached := prev.(cachedMCPCatalog)
+		if cached.generation == generation && bytes.Equal(cached.serversJSON, serversJSON) && time.Until(cached.expiresAt) > 10*time.Second {
+			if _, statErr := root.Stat(".hc-mcp-tools.json"); statErr == nil {
+				return nil
+			}
+		}
+	}
+	expiresAt := time.Now().Add(15 * time.Second)
+	raw, err := json.Marshal(map[string]any{"generation": generation, "expires_at": expiresAt.UnixMilli(), "servers": servers})
 	if err != nil {
 		return err
 	}
@@ -113,7 +134,11 @@ func (b *ExtensionBroker) publishMCP(ctx context.Context, instance string, root 
 	if closeErr != nil {
 		return closeErr
 	}
-	return root.Rename(temp, ".hc-mcp-tools.json")
+	if err := root.Rename(temp, ".hc-mcp-tools.json"); err != nil {
+		return err
+	}
+	b.mcpCache.Store(instance, cachedMCPCatalog{generation: generation, serversJSON: serversJSON, expiresAt: expiresAt})
+	return nil
 }
 
 // Refresh bound servers without blocking the private invocation channel. A

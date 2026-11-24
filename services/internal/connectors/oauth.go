@@ -96,6 +96,7 @@ func (s *Service) StartOAuth(ctx context.Context, p identity.Principal, id strin
 	if pending >= 5 {
 		return nil, invalid("待完成的授权过多，请稍后重试")
 	}
+	_, _ = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout = '15s'")
 	config, m, err := s.oauthConfiguration(ctx, e)
 	if err != nil {
 		return nil, err
@@ -278,6 +279,7 @@ func (s *Service) FinishOAuth(ctx context.Context, p identity.Principal, q url.V
 	if e != auth.Endpoint {
 		return c, conflict()
 	}
+	_, _ = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout = '15s'")
 	tokens, err := s.exchangeToken(ctx, auth, url.Values{"grant_type": {"authorization_code"}, "code": {q.Get("code")}, "redirect_uri": {auth.Redirect}, "code_verifier": {auth.Verifier}}, "")
 	if err != nil {
 		return c, err
@@ -342,6 +344,7 @@ func (s *Service) credential(ctx context.Context, tx pgx.Tx, p identity.Principa
 		if t.RefreshToken == "" {
 			return "", errAuth
 		}
+		_, _ = tx.Exec(ctx, "SET LOCAL idle_in_transaction_session_timeout = '15s'")
 		fresh, err := s.exchangeToken(ctx, t.Context, url.Values{"grant_type": {"refresh_token"}, "refresh_token": {t.RefreshToken}}, t.RefreshToken)
 		if err != nil {
 			return "", err

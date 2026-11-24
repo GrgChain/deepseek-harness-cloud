@@ -28,7 +28,7 @@ export function proxyResponseHeaders(
 // The local development HTTPS listener routes only fixed instance authorities
 // to the loopback Gateway. Gateway performs all authorization and upstream
 // selection; the Vite process never reads native cookies or model credentials.
-export function localAccess(): Plugin {
+export function localAccess({ ipOnly = false }: { ipOnly?: boolean } = {}): Plugin {
   const authority = (req: IncomingMessage) =>
     String(req.headers.host ?? req.headers[':authority'] ?? '');
   const forward = (req: IncomingMessage) => {
@@ -52,7 +52,7 @@ export function localAccess(): Plugin {
   const install = (server: Pick<ViteDevServer, 'middlewares' | 'httpServer'>, port: number) => {
     const instance = new RegExp('^i-[a-f0-9]{32}\\.harness\\.localhost:' + port + '$');
     const portal = new Set([
-      'portal.harness.localhost:' + port,
+      ...(!ipOnly ? ['portal.harness.localhost:' + port] : []),
       '127.0.0.1:' + port,
       'localhost:' + port,
     ]);
@@ -62,7 +62,7 @@ export function localAccess(): Plugin {
         next();
         return;
       }
-      if (!instance.test(host)) {
+      if (ipOnly || !instance.test(host)) {
         res.writeHead(404);
         res.end();
         return;
@@ -88,7 +88,7 @@ export function localAccess(): Plugin {
       (req: IncomingMessage, socket: Socket, head: Buffer) => {
         const host = authority(req);
         if (portal.has(host)) return;
-        if (!instance.test(host)) {
+        if (ipOnly || !instance.test(host)) {
           socket.destroy();
           return;
         }

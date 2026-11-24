@@ -2,7 +2,13 @@ import { useEffect, useId, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Alert, Button, Drawer, Form, Input, InputNumber, Select, Spin } from 'antd';
 import { hasPermission, type CurrentUser } from '../../api/identity';
-import { SettingsClient, type Defaults } from '../../api/settings';
+import {
+  SettingsClient,
+  type Defaults,
+  type OrganizationQuota,
+  type OrganizationQuotaLimits,
+} from '../../api/settings';
+import { formatQuotaNumber, quotaDimensions } from '../resource-quotas/quota-format';
 import { useExpiredSession } from '../../shared/hooks/use-expired-session';
 
 const client = new SettingsClient();
@@ -14,19 +20,33 @@ interface Fields {
   storage: number;
   max_user_instances: number;
   retention_days: number;
+  quota_max_instances?: number;
+  quota_cpu_millicores?: number;
+  quota_memory_bytes?: number;
+  quota_storage_bytes?: number;
 }
+
+const quotaFieldNames: Record<keyof OrganizationQuotaLimits, keyof Fields> = {
+  max_instances: 'quota_max_instances',
+  cpu_millicores: 'quota_cpu_millicores',
+  memory_bytes: 'quota_memory_bytes',
+  storage_bytes: 'quota_storage_bytes',
+};
 
 export function RuntimeDefaultsEditor({
   user,
   configuration,
+  quota,
   onSaved,
 }: {
   user: CurrentUser;
   configuration: Defaults | null | undefined;
-  onSaved: (value: Defaults) => void;
+  quota?: OrganizationQuota | null;
+  onSaved: (result: { defaults?: Defaults; quota?: OrganizationQuota }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [base, setBase] = useState(configuration);
+  const [baseQuota, setBaseQuota] = useState(quota);
   const [form] = Form.useForm<Fields>();
   const formID = useId();
   const canEdit = hasPermission(user, 'defaults:write');
@@ -58,24 +78,84 @@ export function RuntimeDefaultsEditor({
           item.spec.storage_bytes === values.storage * GiB,
       );
       if (!item || templates.isError) throw new Error('所选运行规格不可用，请重新加载');
-      return client.saveRuntimeDefaults(user, {
-        version: base?.version ?? 0,
-        template_id: item.id,
-        template_version: item.template_version,
-        spec_id: item.spec.id,
-        max_user_instances: values.max_user_instances,
-        retention_days: values.retention_days,
-      });
+      const nextLimits = baseQuota
+        ? (Object.fromEntries(
+            quotaDimensions.map((d) => {
+              const raw = values[quotaFieldNames[d.key]] as number | undefined;
+              return [d.key, raw !== undefined ? raw * d.scale : baseQuota.limits[d.key]];
+            }),
+          ) as unknown as OrganizationQuotaLimits)
+        : null;
+      const quotaChanged =
+        !!baseQuota &&
+        !!nextLimits &&
+        quotaDimensions.some((d) => nextLimits[d.key] !== baseQuota.limits[d.key]);
+      const defaultsChanged =
+        !base ||
+        base.template_id !== item.id ||
+        base.template_version !== item.template_version ||
+        base.spec_id !== item.spec.id ||
+        base.max_user_instances !== values.max_user_instances ||
+        base.retention_days !== values.retention_days;
+
+      let savedDefaults: Defaults | undefined;
+      let savedQuota: OrganizationQuota | undefined;
+
+      if (quotaChanged && nextLimits && baseQuota) {
+        const raiseQuotaFirst = values.max_user_instances > baseQuota.limits.max_instances;
+        if (raiseQuotaFirst) {
+          savedQuota = await client.saveOrganizationQuota(user, nextLimits, baseQuota.version);
+          setBaseQuota(savedQuota);
+        }
+        if (defaultsChanged) {
+          savedDefaults = await client.saveRuntimeDefaults(user, {
+            version: base?.version ?? 0,
+            template_id: item.id,
+            template_version: item.template_version,
+            spec_id: item.spec.id,
+            max_user_instances: values.max_user_instances,
+            retention_days: values.retention_days,
+          });
+          setBase(savedDefaults);
+        }
+        if (!raiseQuotaFirst) {
+          const userInstancesChanged =
+            defaultsChanged && values.max_user_instances !== baseQuota.default_user_instances;
+          const expectedQuotaVersion = userInstancesChanged
+            ? baseQuota.version + 1
+            : baseQuota.version;
+          savedQuota = await client.saveOrganizationQuota(user, nextLimits, expectedQuotaVersion);
+          setBaseQuota(savedQuota);
+        }
+      } else {
+        savedDefaults = await client.saveRuntimeDefaults(user, {
+          version: base?.version ?? 0,
+          template_id: item.id,
+          template_version: item.template_version,
+          spec_id: item.spec.id,
+          max_user_instances: values.max_user_instances,
+          retention_days: values.retention_days,
+        });
+        setBase(savedDefaults);
+      }
+      return { defaults: savedDefaults, quota: savedQuota };
     },
-    onSuccess: (value) => {
+    onSuccess: (result) => {
       setOpen(false);
-      onSaved(value);
+      onSaved(result);
     },
   });
   const reload = useMutation({
-    mutationFn: () => client.defaults(user),
-    onSuccess: (value) => {
-      setBase(value);
+    mutationFn: async () => {
+      const [nextDefaults, nextQuota] = await Promise.all([
+        client.defaults(user),
+        baseQuota ? client.organizationQuota(user).catch(() => baseQuota) : Promise.resolve(null),
+      ]);
+      return { defaults: nextDefaults, quota: nextQuota };
+    },
+    onSuccess: ({ defaults: nextDefaults, quota: nextQuota }) => {
+      setBase(nextDefaults);
+      setBaseQuota(nextQuota);
       form.resetFields();
       save.reset();
     },
@@ -95,6 +175,11 @@ export function RuntimeDefaultsEditor({
       ) ??
       items.find((item) => item.spec.storage_bytes === 10 * GiB) ??
       items[0];
+    const quotaInitial = baseQuota
+      ? Object.fromEntries(
+          quotaDimensions.map((d) => [quotaFieldNames[d.key], baseQuota.limits[d.key] / d.scale]),
+        )
+      : {};
     form.setFieldsValue({
       template: item.id + ':' + item.template_version,
       cpu: item.spec.cpu_millicores,
@@ -102,12 +187,14 @@ export function RuntimeDefaultsEditor({
       storage: item.spec.storage_bytes / GiB,
       max_user_instances: base?.max_user_instances ?? 2,
       retention_days: base?.retention_days ?? 7,
+      ...quotaInitial,
     });
-  }, [open, templates.data, base, form]);
+  }, [open, templates.data, base, baseQuota, form]);
   const show = () => {
     save.reset();
     reload.reset();
     setBase(configuration);
+    setBaseQuota(quota);
     form.resetFields();
     setOpen(true);
   };
@@ -145,7 +232,7 @@ export function RuntimeDefaultsEditor({
         {configuration ? '修改配置' : '初始化配置'}
       </Button>
       <Drawer
-        title={configuration ? '修改默认用户资源配置' : '初始化默认用户资源配置'}
+        title={configuration ? '修改默认资源配置' : '初始化默认资源配置'}
         width={560}
         open={open}
         onClose={() => {
@@ -262,6 +349,66 @@ export function RuntimeDefaultsEditor({
                 style={{ width: '100%' }}
               />
             </Form.Item>
+            {baseQuota && (
+              <div className="runtime-defaults-drawer-quota">
+                <div className="runtime-defaults-drawer-heading">
+                  <h4>系统资源上限</h4>
+                  <span>不能低于当前占用、默认单用户实例上限或已分配的用户额度</span>
+                </div>
+                <div className="organization-quota-fields">
+                  {quotaDimensions.map((dimension) => {
+                    const used = baseQuota.usage[dimension.key] / dimension.scale;
+                    const fieldName = quotaFieldNames[dimension.key];
+                    return (
+                      <Form.Item
+                        key={dimension.key}
+                        name={fieldName}
+                        dependencies={
+                          dimension.key === 'max_instances' ? ['max_user_instances'] : undefined
+                        }
+                        label={`${dimension.label}上限（${dimension.unit}）`}
+                        extra={`当前占用：${formatQuotaNumber(used)} ${dimension.unit}`}
+                        rules={[
+                          { required: true, message: '请填写系统资源上限' },
+                          {
+                            validator: (_, value: number | null | undefined) => {
+                              if (
+                                value == null ||
+                                !Number.isSafeInteger(value * dimension.scale) ||
+                                value < 1
+                              )
+                                return Promise.reject(new Error('请输入大于 0 的有效数值'));
+                              if (value < used)
+                                return Promise.reject(
+                                  new Error(
+                                    `不能低于当前占用 ${formatQuotaNumber(used)} ${dimension.unit}`,
+                                  ),
+                                );
+                              if (
+                                dimension.key === 'max_instances' &&
+                                typeof form.getFieldValue('max_user_instances') === 'number' &&
+                                value < form.getFieldValue('max_user_instances')
+                              )
+                                return Promise.reject(
+                                  new Error('实例总上限不能低于每用户默认实例上限'),
+                                );
+                              return Promise.resolve();
+                            },
+                          },
+                        ]}
+                      >
+                        <InputNumber
+                          aria-label={`系统${dimension.label}上限`}
+                          min={dimension.step}
+                          step={dimension.step}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </Form>
         )}
         {(save.isError || reload.isError) && (

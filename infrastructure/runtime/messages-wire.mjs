@@ -16,11 +16,12 @@ export function serializeMessages(options, config) {
   if (options.model !== config.model || options.reasoningEffort !== undefined)
     fail('UNSUPPORTED_OPTION');
   const messages = [];
-  let system = options.system ?? '';
+  const systemParts = options.system ? [options.system] : [];
   for (const message of options.messages) {
     if (message.role === 'system') {
       if (message.content.some((block) => block.type !== 'text')) fail('UNSUPPORTED_CONTENT');
-      system = message.content.map((block) => block.text).join('');
+      const part = message.content.map((block) => block.text).join('');
+      if (part) systemParts.push(part);
       continue;
     }
     if (!['user', 'assistant', 'tool'].includes(message.role)) fail('UNSUPPORTED_CONTENT');
@@ -56,6 +57,7 @@ export function serializeMessages(options, config) {
   const maxTokens = options.maxTokens ?? Math.min(4096, config.max_output_tokens);
   if (!Number.isSafeInteger(maxTokens) || maxTokens < 1 || maxTokens > config.max_output_tokens)
     fail('UNSUPPORTED_OPTION');
+  const system = systemParts.join('\n\n');
   return {
     model: config.model,
     max_tokens: maxTokens,

@@ -22,6 +22,7 @@ export function ReleaseStorage({ asset, user }: { asset: StorageAsset; user: Cur
   );
   const pending = asset.status === 'RECLAIM_PENDING' || (submitted && asset.status !== 'DELETED');
   async function release() {
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
@@ -29,7 +30,7 @@ export function ReleaseStorage({ asset, user }: { asset: StorageAsset; user: Cur
       setSubmitted(true);
       setOpen(false);
       void cache.invalidateQueries({ queryKey: ['storage'] });
-      void cache.invalidateQueries({ queryKey: ['preflight'] });
+      void cache.invalidateQueries({ queryKey: ['settings', user.id, 'preflight'] });
     } catch (e) {
       if (e instanceof APIError && e.status === 401) expireSession(cache);
       setError(e instanceof Error ? e.message : '释放结果待确认，请刷新查看');

@@ -1,5 +1,5 @@
 import type { CurrentUser } from './identity';
-import { APIError } from './error';
+import { apiFetch } from './http';
 
 export interface Permission {
   id: string;
@@ -129,38 +129,17 @@ export class ManagementClient {
     key?: string,
     signal?: AbortSignal,
   ): Promise<T> {
-    const response = await this.fetcher(path, {
+    const response = await apiFetch(path, {
+      fetcher: this.fetcher,
       method,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
-        : AbortSignal.timeout(10_000),
-      headers:
-        method === 'GET'
-          ? undefined
-          : {
-              'Content-Type': 'application/json',
-              'X-CSRF-Token': user.csrf_token,
-              ...(key ? { 'Idempotency-Key': key } : {}),
-            },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      user,
+      body,
+      headers: key ? { 'Idempotency-Key': key } : undefined,
+      signal,
+      timeoutMs: 10_000,
+      errorMessages: messages,
+      passthroughError: (code) => code === 'IDENTITY_INVALID',
     });
-    if (!response.ok) {
-      const result: { code?: unknown; message?: unknown } = await response.json().catch(() => ({}));
-      const error = new APIError(
-        response.status,
-        typeof result.code === 'string' ? result.code : 'DEPENDENCY_UNAVAILABLE',
-      );
-      if (messages[error.code]) error.message = messages[error.code];
-      if (
-        error.code === 'IDENTITY_INVALID' &&
-        typeof result.message === 'string' &&
-        result.message.trim()
-      )
-        error.message = result.message;
-      throw error;
-    }
     return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
   }
   private query(filter: ListFilter) {
@@ -211,7 +190,7 @@ export class ManagementClient {
   }
   userQuota(user: CurrentUser, targetId: string, signal?: AbortSignal) {
     return this.request<UserQuota>(
-      '/v1/users/' + targetId + ':quota',
+      '/v1/users/' + encodeURIComponent(targetId) + ':quota',
       user,
       'GET',
       undefined,
@@ -225,22 +204,27 @@ export class ManagementClient {
     limits: UserQuotaLimits,
     expectedVersion: number,
   ) {
-    return this.request<UserQuota>('/v1/users/' + targetId + ':quota', user, 'PUT', {
-      limits,
-      expected_version: expectedVersion,
-    });
+    return this.request<UserQuota>(
+      '/v1/users/' + encodeURIComponent(targetId) + ':quota',
+      user,
+      'PUT',
+      {
+        limits,
+        expected_version: expectedVersion,
+      },
+    );
   }
   createUser(user: CurrentUser, input: UserCreateInput, key: string) {
     return this.request<ManagedUser>('/v1/users', user, 'POST', input, key);
   }
   editUser(user: CurrentUser, target: ManagedUser, input: { display_name: string; email: string }) {
-    return this.request<ManagedUser>('/v1/users/' + target.id, user, 'PUT', {
+    return this.request<ManagedUser>('/v1/users/' + encodeURIComponent(target.id), user, 'PUT', {
       ...input,
       expected_version: target.version,
     });
   }
   deleteUser(user: CurrentUser, target: ManagedUser, confirmedName: string) {
-    return this.request<void>('/v1/users/' + target.id, user, 'DELETE', {
+    return this.request<void>('/v1/users/' + encodeURIComponent(target.id), user, 'DELETE', {
       expected_version: target.version,
       confirmed_name: confirmedName,
     });
@@ -251,14 +235,19 @@ export class ManagementClient {
     action: UserAction,
     input: Omit<UserActionInput, 'expected_version'> = {},
   ) {
-    return this.request<ManagedUser>('/v1/users/' + target.id + ':' + action, user, 'POST', {
-      ...input,
-      expected_version: target.version,
-    });
+    return this.request<ManagedUser>(
+      '/v1/users/' + encodeURIComponent(target.id) + ':' + action,
+      user,
+      'POST',
+      {
+        ...input,
+        expected_version: target.version,
+      },
+    );
   }
   saveRole(user: CurrentUser, input: RoleInput, target?: ManagedRole, key?: string) {
     return this.request<ManagedRole>(
-      target ? '/v1/roles/' + target.id : '/v1/roles',
+      target ? '/v1/roles/' + encodeURIComponent(target.id) : '/v1/roles',
       user,
       target ? 'PUT' : 'POST',
       input,
@@ -266,7 +255,7 @@ export class ManagementClient {
     );
   }
   deleteRole(user: CurrentUser, target: ManagedRole) {
-    return this.request<void>('/v1/roles/' + target.id, user, 'DELETE', {
+    return this.request<void>('/v1/roles/' + encodeURIComponent(target.id), user, 'DELETE', {
       expected_version: target.version,
     });
   }

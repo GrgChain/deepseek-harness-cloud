@@ -1,4 +1,4 @@
-import { APIError } from './error';
+import { apiFetch } from './http';
 import type { CurrentUser } from './identity';
 export interface MCPTool {
   name: string;
@@ -74,7 +74,20 @@ export interface MCPCall {
   replayed?: boolean;
   result?: unknown;
 }
+const connectorPassthroughCodes = new Set([
+  'CONNECTOR_INVALID',
+  'CONNECTOR_UNAVAILABLE',
+  'CONNECTOR_BUSY',
+  'CONNECTOR_CONFLICT',
+  'ENDPOINT_NOT_APPROVED',
+  'VERSION_CONFLICT',
+  'IDEMPOTENCY_CONFLICT',
+  'PAYLOAD_TOO_LARGE',
+  'NOT_FOUND',
+]);
+
 export class ConnectorsClient {
+  constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   async request<T>(
     user: CurrentUser,
     path = '',
@@ -82,36 +95,15 @@ export class ConnectorsClient {
     method = body === undefined ? 'GET' : 'POST',
     signal?: AbortSignal,
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(127_000);
-    const response = await fetch('/v1/connectors' + path, {
+    const response = await apiFetch('/v1/connectors' + path, {
       method,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers:
-        body === undefined
-          ? undefined
-          : { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
+      user,
+      body,
+      timeoutMs: 127_000,
+      signal,
+      fetcher: this.fetcher,
+      passthroughError: (code) => connectorPassthroughCodes.has(code),
     });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      const error = new APIError(response.status, problem.code ?? 'DEPENDENCY_UNAVAILABLE');
-      if (
-        [
-          'CONNECTOR_INVALID',
-          'CONNECTOR_UNAVAILABLE',
-          'CONNECTOR_BUSY',
-          'ENDPOINT_NOT_APPROVED',
-          'VERSION_CONFLICT',
-          'IDEMPOTENCY_CONFLICT',
-          'NOT_FOUND',
-        ].includes(problem.code) &&
-        typeof problem.message === 'string'
-      )
-        error.message = problem.message;
-      throw error;
-    }
     return response.json();
   }
 }

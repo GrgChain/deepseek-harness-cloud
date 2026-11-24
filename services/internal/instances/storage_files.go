@@ -276,6 +276,18 @@ func (s *QueryService) waitStorageFileRequest(ctx context.Context, p identity.Pr
 	defer cancel()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
+	cleanupPending := func() ([]byte, []byte, string, error) {
+		cleanup, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+		_, cleanupErr := s.pool.Exec(cleanup, `DELETE FROM storage_browse_requests WHERE id=$1 AND org_id=$2 AND owner_id=$3`, id, p.OrganizationID, p.UserID)
+		cleanupCancel()
+		if cleanupErr != nil {
+			return nil, nil, "", cleanupErr
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return nil, nil, "", context.Canceled
+		}
+		return nil, nil, "", webapi.Fail(504, "STORAGE_TIMEOUT", "数据读取超时，请稍后重试")
+	}
 	for {
 		var status string
 		var code *string
@@ -286,6 +298,9 @@ func (s *QueryService) waitStorageFileRequest(ctx context.Context, p identity.Pr
 			return nil, nil, "", webapi.Fail(503, "STORAGE_UNAVAILABLE", "数据读取请求已过期，请重试")
 		}
 		if err != nil {
+			if wait.Err() != nil {
+				return cleanupPending()
+			}
 			return nil, nil, "", err
 		}
 		errorCode := ""
@@ -329,16 +344,7 @@ func (s *QueryService) waitStorageFileRequest(ctx context.Context, p identity.Pr
 		}
 		select {
 		case <-wait.Done():
-			cleanup, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
-			_, cleanupErr := s.pool.Exec(cleanup, `DELETE FROM storage_browse_requests WHERE id=$1 AND org_id=$2 AND owner_id=$3`, id, p.OrganizationID, p.UserID)
-			cleanupCancel()
-			if cleanupErr != nil {
-				return nil, nil, "", cleanupErr
-			}
-			if errors.Is(ctx.Err(), context.Canceled) {
-				return nil, nil, "", context.Canceled
-			}
-			return nil, nil, "", webapi.Fail(504, "STORAGE_TIMEOUT", "数据读取超时，请稍后重试")
+			return cleanupPending()
 		case <-ticker.C:
 		}
 	}

@@ -91,6 +91,9 @@ func NewIPEntry(runtime *Runtime, gateway http.Handler) (*IPEntry, error) {
 	entry.portal = &httputil.ReverseProxy{Transport: transport, FlushInterval: -1, ErrorLog: log.New(io.Discard, "", 0), Rewrite: func(p *httputil.ProxyRequest) {
 		p.SetURL(upstream)
 		p.Out.Host = canonical.Host
+		if runtime.Options.IPOnly {
+			p.Out.Host = upstream.Host
+		}
 		stripForwarding(p.Out.Header)
 		p.Out.Header.Set("X-HC-Public-Origin", o.Origin(o.PortalPort))
 		if singleOrigin(p.In, o.Origin(o.PortalPort)) {
@@ -268,8 +271,11 @@ func (e *IPEntry) Start(ctx context.Context) error {
 	if err != nil {
 		return errors.New("IP access TLS port is unavailable")
 	}
-	e.server = &http.Server{Handler: e.handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, ErrorLog: log.New(io.Discard, "", 0)}
-	go func() { _ = e.server.Serve(tls.NewListener(listener, e.tls)) }()
+	server := &http.Server{Handler: e.handler(), ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 32 << 10, ErrorLog: log.New(io.Discard, "", 0)}
+	e.mu.Lock()
+	e.server = server
+	e.mu.Unlock()
+	go func() { _ = server.Serve(tls.NewListener(listener, e.tls)) }()
 	return nil
 }
 

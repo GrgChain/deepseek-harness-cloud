@@ -314,11 +314,16 @@ export async function apply(ctx) {
           ) &&
           !!ctx.get(memoryBundle[2]));
       if (!valid || !memoryReady) return;
-      await fs.writeFile(
-        channel + '.hc-extensions-ready.json',
-        JSON.stringify({ generation: runtime.runtime_generation }),
-        { mode: 0o600 },
-      );
+      const readyTemp = channel + `.hc-extensions-ready-${randomUUID()}.tmp`;
+      try {
+        await fs.writeFile(readyTemp, JSON.stringify({ generation: runtime.runtime_generation }), {
+          mode: 0o600,
+        });
+        await fs.rename(readyTemp, channel + '.hc-extensions-ready.json');
+      } catch (err) {
+        await fs.unlink(readyTemp).catch(() => {});
+        throw err;
+      }
     })
     .catch(() => {});
 }

@@ -27,6 +27,11 @@ services:
       - '127.0.0.1:56379:6379'
     volumes:
       - ../../.local/redis.conf:/run/secrets/redis.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'out=$$(redis-cli ping 2>&1) && echo "$$out" | grep -qE "^(PONG|NOAUTH)"']
+      interval: 2s
+      timeout: 2s
+      retries: 30
     restart: unless-stopped
 
 volumes:

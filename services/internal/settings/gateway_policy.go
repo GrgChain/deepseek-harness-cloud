@@ -189,7 +189,9 @@ func (g Gateway) HTTPClient() *http.Client {
 	if len(g.ca) > 0 {
 		roots.AppendCertsFromPEM(g.ca)
 	}
-	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, ResponseHeaderTimeout: 10 * time.Second, ForceAttemptHTTP2: true, MaxConnsPerHost: 2, DisableKeepAlives: true}
+	// Model probes have a 30-second total budget. A slower first response must
+	// not be cut short by a smaller transport limit; shorter callers still cancel.
+	transport := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}, ResponseHeaderTimeout: 30 * time.Second, ForceAttemptHTTP2: true, MaxConnsPerHost: 2, DisableKeepAlives: true}
 	transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, p, err := net.SplitHostPort(address)
 		if err != nil || host != origin.Hostname() || p != port {
@@ -206,7 +208,7 @@ func (g Gateway) HTTPClient() *http.Client {
 		}
 		return (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, network, net.JoinHostPort(ips[0].String(), port))
 	}
-	return &http.Client{Transport: transport, Timeout: 14 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	return &http.Client{Transport: transport, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 }
 func (m ModelManifest) MatchesResponse(id string) bool { return slices.Contains(m.ResponseModels, id) }
 

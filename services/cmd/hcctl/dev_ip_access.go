@@ -33,6 +33,12 @@ func initLocalIPAccess() error {
 	if err != nil || o.Environment != "local" {
 		return invalid
 	}
+	if value := os.Getenv("HC_IP_ONLY"); value != "" {
+		o.IPOnly, err = strconv.ParseBool(value)
+		if err != nil {
+			return invalid
+		}
+	}
 	ip := net.ParseIP(os.Getenv("HC_PUBLIC_IP"))
 	if ip == nil {
 		return invalid

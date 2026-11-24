@@ -30,7 +30,10 @@ body {
   display: grid;
   place-items: center;
   padding: 48px 32px;
-  background: linear-gradient(135deg, #eaf0fc, #f7f9fc 50%, #edf2f9);
+  background:
+    radial-gradient(circle at 12% 16%, rgba(59, 130, 246, 0.14), transparent 40%),
+    radial-gradient(circle at 88% 84%, rgba(6, 182, 212, 0.12), transparent 42%),
+    linear-gradient(135deg, #eef4fd, #f8fafc 52%, #edf3fb);
 }
 main {
   display: grid;
@@ -38,38 +41,60 @@ main {
   width: min(100%, 1080px);
   min-height: 660px;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 20px;
+  border: 1px solid rgba(203, 213, 225, 0.85);
+  border-radius: 22px;
   background: var(--surface);
-  box-shadow: 0 24px 80px #1720330c;
+  box-shadow:
+    0 4px 12px rgba(15, 23, 42, 0.04),
+    0 28px 80px rgba(15, 23, 42, 0.1);
 }
 .product-panel {
+  position: relative;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   padding: 44px;
-  background: #111c30;
+  background:
+    radial-gradient(circle at 82% 14%, rgba(56, 189, 248, 0.18), transparent 44%),
+    radial-gradient(circle at 16% 88%, rgba(37, 99, 235, 0.22), transparent 48%),
+    linear-gradient(160deg, #0f172a 0%, #111c30 56%, #0b1322 100%);
   color: #fff;
+}
+.product-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.06) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(circle at 50% 45%, #000 35%, transparent 90%);
+}
+.product-panel > * {
+  position: relative;
+  z-index: 1;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 12px;
   font-size: 21px;
-  font-weight: 650;
-  letter-spacing: -0.6px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
 }
 .mark {
   display: grid;
   place-items: center;
-  background: var(--primary);
-  color: var(--surface);
   width: 40px;
   height: 40px;
   border-radius: 11px;
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
 }
 .mark svg {
-  width: 27px;
-  height: 27px;
+  width: 40px;
+  height: 40px;
+  display: block;
 }
 .product-story {
   margin: auto 0;
@@ -230,19 +255,26 @@ a:focus-visible {
   height: 48px;
   margin-top: 28px;
   border: 0;
-  border-radius: 8px;
-  background: var(--primary);
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
   color: var(--surface);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s;
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.24);
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
 }
 .submit:hover {
-  background: #1d4ed8;
+  background: linear-gradient(135deg, #1d4ed8, #1e40af);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.3);
+  transform: translateY(-1px);
 }
 .submit:active {
   background: #1e40af;
+  transform: translateY(0);
 }
 .submit:disabled {
   cursor: wait;

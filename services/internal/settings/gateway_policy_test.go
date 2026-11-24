@@ -1,9 +1,45 @@
 package settings
 
 import (
+	"context"
+	"io"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestGatewayProbeCanWaitForModelWithinCallerBudget(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-time.After(15 * time.Second):
+			_, _ = io.WriteString(w, "synthetic model response")
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	client := (Gateway{Endpoint: server.URL}).HTTPClient()
+	transport := client.Transport.(*http.Transport)
+	transport.DialContext = (&net.Dialer{}).DialContext
+	defer transport.CloseIdleConnections()
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)
+	response, err := client.Do(request)
+	if err != nil {
+		t.Fatal("gateway ended the model request before the caller budget", err)
+	}
+	response.Body.Close()
+	short, stop := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer stop()
+	request, _ = http.NewRequestWithContext(short, http.MethodGet, server.URL, nil)
+	if response, err := client.Do(request); err == nil {
+		response.Body.Close()
+		t.Fatal("gateway ignored the caller deadline")
+	}
+}
 
 func TestGatewayMayUsePlatformDatabaseCatalog(t *testing.T) {
 	p, err := ParsePolicy([]byte(`{"schema_version":1,"gateways":[{"endpoint":"https://models.enterprise.example:14000","revision":"v1","addresses":["10.50.0.10/32"],"models":[],"probe_retries_disabled":true,"probe_fallbacks_disabled":true}]}`))

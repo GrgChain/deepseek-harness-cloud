@@ -215,6 +215,9 @@ var graphitiSessionArchive string
 //go:embed migrations/000068_remove_retired_plugins.sql
 var removeRetiredPlugins string
 
+//go:embed migrations/000069_cleanup_and_hot_indexes.sql
+var cleanupAndHotIndexes string
+
 type migration struct {
 	version int64
 	sql     string
@@ -290,6 +293,7 @@ func migrations() []migration {
 		{66, ipWorkspaceAccess},
 		{67, graphitiSessionArchive},
 		{68, removeRetiredPlugins},
+		{69, cleanupAndHotIndexes},
 	}
 }
 func checksumOf(sql string) string {

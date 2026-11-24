@@ -28,6 +28,8 @@ class NetworkContractTest(unittest.TestCase):
             "gateway": {"addresses": ["10.50.0.10/32"], "port": 14000},
         }
         self.assertEqual(helper.parse(json.dumps(value)), value)
+        bare = {**value, "gateway": {"addresses": ["10.50.0.10"], "port": 14000}}
+        self.assertEqual(helper.parse(json.dumps(bare))["gateway"]["addresses"], ["10.50.0.10/32"])
         entries = helper.rules(value)[1][-1]
         approved = [
             "-d",

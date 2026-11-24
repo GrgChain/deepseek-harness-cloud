@@ -129,7 +129,7 @@ func readSSE(reader io.Reader, handle func(string, string) error) error {
 			kind = ""
 			continue
 		}
-		if strings.HasPrefix(line, ":") {
+		if strings.HasPrefix(line, ":") || strings.HasPrefix(line, "id:") || strings.HasPrefix(line, "retry:") {
 			continue
 		}
 		if strings.HasPrefix(line, "data:") {

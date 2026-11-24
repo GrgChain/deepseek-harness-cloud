@@ -39,11 +39,11 @@ export function OrganizationQuotaPanel({ user }: { user: CurrentUser }) {
     },
   });
   useEffect(() => {
-    if (quota.data)
+    if (open && quota.data)
       form.setFieldsValue(
         Object.fromEntries(quotaDimensions.map((d) => [d.key, quota.data.limits[d.key] / d.scale])),
       );
-  }, [quota.data, form]);
+  }, [open, quota.data, form]);
   const error = mutation.error ?? quota.error;
   useExpiredSession(error);
   const reload = () => {

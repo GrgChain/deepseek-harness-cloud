@@ -36,8 +36,7 @@ func (s *Server) accountModels(ctx context.Context, hash []byte, anchor Route) (
 	}
 	models := []accountModel{}
 	for _, alias := range aliases {
-		route, key, e := s.authorizeRoute(ctx, hash, alias)
-		clear(key)
+		route, _, e := s.authorizeRouteWithKey(ctx, hash, alias, false)
 		if e != nil {
 			continue
 		}

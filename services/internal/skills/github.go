@@ -84,7 +84,7 @@ func fetchGitHubSource(ctx context.Context, client *http.Client, location github
 	}
 	defer os.Remove(archive.Name())
 	defer archive.Close()
-	if _, err = downloadSourceTo(ctx, client, location.archiveURL(), 0, githubArchiveURL, archive); err != nil {
+	if _, err = downloadSourceTo(ctx, client, location.archiveURL(), maxImportExpandedBytes, githubArchiveURL, archive); err != nil {
 		return nil, err
 	}
 	info, err := archive.Stat()
@@ -145,9 +145,9 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 				if e != nil {
 					return nil, invalid("GitHub 技能文件无法读取")
 				}
-				content, e := io.ReadAll(reader)
+				content, e := io.ReadAll(io.LimitReader(reader, MaxFile+1))
 				reader.Close()
-				if e != nil {
+				if e != nil || len(content) > MaxFile {
 					continue
 				}
 				doc, e := parseDocument(content)
@@ -195,10 +195,13 @@ func githubReadArchive(reader io.ReaderAt, size int64, directory, selected strin
 			if err != nil {
 				return nil, invalid("GitHub 技能文件无法读取")
 			}
-			content, err := io.ReadAll(reader)
+			content, err := io.ReadAll(io.LimitReader(reader, MaxFile+1))
 			reader.Close()
 			if err != nil {
 				return nil, invalid("GitHub 技能读取失败")
+			}
+			if len(content) > MaxFile {
+				return nil, invalid("技能单文件不能超过 1 MiB")
 			}
 			bundle.Files[relative] = content
 		}

@@ -210,9 +210,11 @@ def execute(
             "device": "/dev/hc-cloud/" + config["asset_id"],
         }
     finally:
-        if mounted:
-            command("umount", str(mountpoint))
-        os.close(lock)
+        try:
+            if mounted:
+                command("umount", str(mountpoint))
+        finally:
+            os.close(lock)
         # The loop device remains owned by this independent asset. Compute
         # destruction never detaches or deletes it.
 

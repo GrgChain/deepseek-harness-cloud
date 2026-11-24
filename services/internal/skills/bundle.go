@@ -19,10 +19,12 @@ import (
 )
 
 const (
-	MaxUpload = 5 << 20
-	MaxFile   = 1 << 20
-	MaxBundle = 12 << 20
-	MaxFiles  = 128
+	MaxUpload              = 5 << 20
+	MaxFile                = 1 << 20
+	MaxBundle              = 12 << 20
+	MaxFiles               = 128
+	maxImportEntries       = 2000
+	maxImportExpandedBytes = 128 << 20
 )
 
 var namePattern = regexp.MustCompile(`^[\p{Han}a-z0-9]+(?:-[\p{Han}a-z0-9]+)*$`)
@@ -274,8 +276,12 @@ func parseImport(filename string, data []byte) ([]Bundle, error) {
 	if err != nil {
 		return nil, invalid("ZIP 文件无法读取")
 	}
+	if len(z.File) > maxImportEntries {
+		return nil, webapi.Fail(413, "PAYLOAD_TOO_LARGE", "ZIP 包含文件数量超过限制")
+	}
 	files := map[string][]byte{}
 	seen := map[string]bool{}
+	var totalExpanded int64
 	for _, entry := range z.File {
 		name := strings.TrimSuffix(entry.Name, "/")
 		if !safePath(name) || seen[strings.ToLower(name)] || entry.Mode()&(^entry.Mode().Perm()) != 0 && !entry.FileInfo().IsDir() {
@@ -285,15 +291,20 @@ func parseImport(filename string, data []byte) ([]Bundle, error) {
 		if entry.FileInfo().IsDir() {
 			continue
 		}
+		remaining := maxImportExpandedBytes - totalExpanded
 		reader, err := entry.Open()
 		if err != nil {
 			return nil, invalid("ZIP 文件无法解压")
 		}
-		content, readErr := io.ReadAll(reader)
+		content, readErr := io.ReadAll(io.LimitReader(reader, remaining+1))
 		reader.Close()
 		if readErr != nil {
 			return nil, invalid("ZIP 内容无效")
 		}
+		if int64(len(content)) > remaining {
+			return nil, webapi.Fail(413, "PAYLOAD_TOO_LARGE", "ZIP 解压后总大小超过 128 MiB 限制")
+		}
+		totalExpanded += int64(len(content))
 		files[entry.Name] = content
 	}
 	// A single wrapper folder may surround one Skill or a multi-Skill export.

@@ -89,13 +89,19 @@ class GraphMemory:
     def __init__(self, namespace, service=None):
         self.namespace = namespace
         self.service = service
-        self.db = sqlite3.connect("/data/graphiti-map.db")
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS episodes(namespace TEXT, id TEXT, version INTEGER, scope TEXT, episode TEXT, graph TEXT, PRIMARY KEY(namespace,id,version))"
-        )
-        self.db.execute(
-            "CREATE TABLE IF NOT EXISTS extractions(namespace TEXT, id TEXT, facts TEXT, PRIMARY KEY(namespace,id))"
-        )
+        self.db = sqlite3.connect("/data/graphiti-map.db", timeout=5)
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("PRAGMA synchronous=FULL")
+        ready = self.db.execute(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('episodes','extractions')"
+        ).fetchone()[0]
+        if ready < 2:
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS episodes(namespace TEXT, id TEXT, version INTEGER, scope TEXT, episode TEXT, graph TEXT, PRIMARY KEY(namespace,id,version))"
+            )
+            self.db.execute(
+                "CREATE TABLE IF NOT EXISTS extractions(namespace TEXT, id TEXT, facts TEXT, PRIMARY KEY(namespace,id))"
+            )
 
     async def client(self):
         model = json.loads(base64.b64decode(os.environ["HC_CONTEXT_MODEL_CONFIG"]))
@@ -111,10 +117,16 @@ class GraphMemory:
             user, password, resolver = graphiti_target(self.service)
             driver = await asyncio.to_thread(Neo4jDriver, self.service.url, user, password)
             old = driver.client
-            driver.client = AsyncGraphDatabase.driver(
-                self.service.url, auth=(user, password), resolver=resolver
-            )
-            await old.close()
+            try:
+                driver.client = AsyncGraphDatabase.driver(
+                    self.service.url,
+                    auth=(user, password),
+                    resolver=resolver,
+                    connection_timeout=15.0,
+                    connection_acquisition_timeout=30.0,
+                )
+            finally:
+                await old.close()
             return Graphiti(
                 graph_driver=driver,
                 llm_client=OpenAIClient(cfg, max_tokens=4096),
@@ -143,9 +155,13 @@ class GraphMemory:
             try:
                 return await action(client)
             finally:
-                await client.close()
-                await client.llm_client.client.close()
-                await client.cross_encoder.client.close()
+                try:
+                    await client.close()
+                finally:
+                    try:
+                        await client.llm_client.client.close()
+                    finally:
+                        await client.cross_encoder.client.close()
 
         return asyncio.run(execute())
 

@@ -3,6 +3,7 @@ package contextservice
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -44,6 +45,10 @@ func parseDocument(w http.ResponseWriter, r *http.Request) (any, error) {
 	}
 	data, err := io.ReadAll(io.LimitReader(part, maxDocumentBytes+1))
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return nil, webapi.Fail(413, "PAYLOAD_TOO_LARGE", "文件不能超过 16 MiB")
+		}
 		return nil, invalid("无法读取上传的文件")
 	}
 	if len(data) == 0 {
@@ -85,11 +90,11 @@ func parseDocument(w http.ResponseWriter, r *http.Request) (any, error) {
 	defer client.CloseIdleConnections()
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, webapi.Fail(503, "CONTEXT_INVALID", "文档解析服务暂不可用，请稍后重试")
+		return nil, webapi.Fail(503, "CONTEXT_UNAVAILABLE", "文档解析服务暂不可用，请稍后重试")
 	}
 	defer response.Body.Close()
 	if response.StatusCode >= 500 {
-		return nil, webapi.Fail(503, "CONTEXT_INVALID", "文档解析服务暂不可用，请稍后重试")
+		return nil, webapi.Fail(503, "CONTEXT_UNAVAILABLE", "文档解析服务暂不可用，请稍后重试")
 	}
 	if response.StatusCode != http.StatusOK {
 		return nil, invalid("文档解析失败，请检查文件格式及内容")

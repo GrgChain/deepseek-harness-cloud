@@ -1,14 +1,16 @@
 """Mem0 storage/recall and explicit session-commit extraction."""
-import os
-import hashlib
-import uuid
 import base64
+import hashlib
 import json
+import os
+import threading
+import uuid
 import httpx
 from milvus_service import MilvusTransport, service_url
 
 _memory = None
 _inference_memory = None
+_memory_lock = threading.Lock()
 
 
 def memory(infer=False):
@@ -16,48 +18,52 @@ def memory(infer=False):
 
     global _memory, _inference_memory
     current = _inference_memory if infer else _memory
-    if current is None:
-        llm = {"api_key": "disabled-manual-memory-only", "model": "disabled"}
-        if infer:
-            model = json.loads(base64.b64decode(os.environ["HC_CONTEXT_MODEL_CONFIG"]))
-            llm = {
-                "api_key": model["api_key"],
-                "model": model["model"],
-                "openai_base_url": model["api_base"],
-                "temperature": 0,
-                "max_tokens": 4096,
-            }
-        current = Memory.from_config(
-            {
-                "version": "v1.1",
-                "vector_store": {
-                    "provider": "qdrant",
-                    "config": {
-                        "url": os.environ["QDRANT_URL"],
-                        "api_key": os.environ["HC_CONTEXT_TEST_KEY"],
-                        "collection_name": os.environ.get(
-                            "HC_MEM0_COLLECTION", "hc_explicit_memories"
-                        ),
-                        "embedding_model_dims": 512,
+    if current is not None:
+        return current
+    with _memory_lock:
+        current = _inference_memory if infer else _memory
+        if current is None:
+            llm = {"api_key": "disabled-manual-memory-only", "model": "disabled"}
+            if infer:
+                model = json.loads(base64.b64decode(os.environ["HC_CONTEXT_MODEL_CONFIG"]))
+                llm = {
+                    "api_key": model["api_key"],
+                    "model": model["model"],
+                    "openai_base_url": model["api_base"],
+                    "temperature": 0,
+                    "max_tokens": 4096,
+                }
+            current = Memory.from_config(
+                {
+                    "version": "v1.1",
+                    "vector_store": {
+                        "provider": "qdrant",
+                        "config": {
+                            "url": os.environ["QDRANT_URL"],
+                            "api_key": os.environ["HC_CONTEXT_TEST_KEY"],
+                            "collection_name": os.environ.get(
+                                "HC_MEM0_COLLECTION", "hc_explicit_memories"
+                            ),
+                            "embedding_model_dims": 512,
+                        },
                     },
-                },
-                "embedder": {
-                    "provider": "fastembed",
-                    "config": {
-                        "model": "BAAI/bge-small-zh-v1.5",
-                        "model_kwargs": {"cache_dir": "/models", "threads": 2},
+                    "embedder": {
+                        "provider": "fastembed",
+                        "config": {
+                            "model": "BAAI/bge-small-zh-v1.5",
+                            "model_kwargs": {"cache_dir": "/models", "threads": 2},
+                        },
                     },
-                },
-                # Manual writes never invoke inference or need a model key.
-                "llm": {"provider": "openai", "config": llm},
-                "history_db_path": "/data/mem0-history.db",
-            }
-        )
-        if infer:
-            _inference_memory = current
-        else:
-            _memory = current
-    return current
+                    # Manual writes never invoke inference or need a model key.
+                    "llm": {"provider": "openai", "config": llm},
+                    "history_db_path": "/data/mem0-history.db",
+                }
+            )
+            if infer:
+                _inference_memory = current
+            else:
+                _memory = current
+        return current
 
 
 class Memories:

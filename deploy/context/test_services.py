@@ -144,7 +144,9 @@ class Mem0RESTService(unittest.TestCase):
             "http://127.0.0.1:18583/memories",
             json.dumps(
                 {
-                    "messages": [{"role": "user", "content": "Invalid requests must not invoke an LLM"}],
+                    "messages": [
+                        {"role": "user", "content": "Invalid requests must not invoke an LLM"}
+                    ],
                     "user_id": "test",
                     "agent_id": "test",
                     "metadata": {},

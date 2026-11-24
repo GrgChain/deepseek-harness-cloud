@@ -67,7 +67,7 @@ export function StorageBrowsePage({ user }: { user: CurrentUser }) {
           </div>
         </div>
       </header>
-      <FileBrowser user={user} asset={asset} />
+      <FileBrowser key={asset.id} user={user} asset={asset} />
     </section>
   );
 }

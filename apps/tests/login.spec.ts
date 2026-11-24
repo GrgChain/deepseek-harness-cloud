@@ -225,10 +225,10 @@ test.describe('real local OIDC', () => {
       if (role === 'member') {
         await page.goto('/app/settings');
         await expect(
-          page.getByRole('heading', { name: '默认用户资源配置', exact: true }),
+          page.getByRole('heading', { name: '默认资源配置', exact: true }),
         ).toBeVisible();
         await expect(
-          page.getByRole('button', { name: /^(修改默认用户资源配置|初始化默认用户资源配置)$/ }),
+          page.getByRole('button', { name: /^(修改默认资源配置|初始化默认资源配置)$/ }),
         ).toHaveCount(0);
         await expect(page.getByRole('link', { name: '用户管理', exact: true })).toHaveCount(0);
       }

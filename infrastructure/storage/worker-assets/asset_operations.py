@@ -111,7 +111,10 @@ def browse_filesystem(mountpoint, request):
             names = names[:DIRECTORY_PAGE]
             entries = []
             for name in names:
-                info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                try:
+                    info = os.stat(name, dir_fd=directory, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
                 if stat.S_ISDIR(info.st_mode):
                     kind = "DIRECTORY"
                 elif stat.S_ISREG(info.st_mode):
@@ -451,9 +454,11 @@ def execute(action, request):
             os.chown(marker, 1000, 1000)
             command("sync", "-f", str(mountpoint))
         finally:
-            if mounted:
-                command("umount", str(mountpoint))
-            command("losetup", "-d", loop)
+            try:
+                if mounted:
+                    command("umount", str(mountpoint))
+            finally:
+                command("losetup", "-d", loop)
         PHASE = "STAGE_COMMITMENT"
         storage.regular_private(stage)
         if stage.stat().st_blocks * 512 < target["capacity_bytes"]:
@@ -469,7 +474,7 @@ def execute(action, request):
         finally:
             os.close(fd)
     finally:
-        if stage is not None and stage.exists():
+        if stage is not None and stage.exists() and not attached(stage):
             stage.unlink()
         os.close(lock)
     # Rebind the existing target's stable device reference and verify its marker.

@@ -29,11 +29,11 @@ func (c *Client) RunBuilds(ctx context.Context, runner Provisioner) error {
 	defer ticker.Stop()
 	for {
 		if err := c.RunPendingBuilds(ctx, runner); err != nil && ctx.Err() != nil {
-			return ctx.Err()
+			return nil
 		}
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 		}
 	}

@@ -94,7 +94,7 @@ for (const alias of ['dsh-kimi-v1', 'dsh-zai-v1']) {
         modelRequests.push(request.url());
     });
     await page.goto('/app/settings');
-    await expect(page.getByRole('region', { name: '默认用户资源配置', exact: true })).toContainText(
+    await expect(page.getByRole('region', { name: '默认资源配置', exact: true })).toContainText(
       '2 核',
     );
     await page.getByRole('tab', { name: '系统检查', exact: true }).click();

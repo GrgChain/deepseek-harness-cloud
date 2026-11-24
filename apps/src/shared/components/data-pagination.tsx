@@ -15,6 +15,8 @@ export function usePagePagination(scope: string) {
   };
 }
 
+export type PagePagination = ReturnType<typeof usePagePagination>;
+
 export function DataPagination({
   label,
   pagination,

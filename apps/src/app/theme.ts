@@ -2,13 +2,13 @@ import type { ThemeConfig } from 'antd';
 
 export const uiColors = {
   primary: '#2563eb',
-  foreground: '#172033',
-  muted: '#526078',
-  background: '#fafbff',
+  foreground: '#0f172a',
+  muted: '#475569',
+  background: '#f6f8fc',
   surface: '#ffffff',
   border: '#e2e8f0',
-  subtle: '#f6f8fc',
-  selected: '#eaf1ff',
+  subtle: '#f8fafc',
+  selected: '#eff6ff',
   success: '#15803d',
   danger: '#dc2626',
   successBackground: '#f0fdf4',
@@ -19,9 +19,9 @@ export const uiColors = {
   warningBorder: '#fde68a',
   dangerBackground: '#fef2f2',
   dangerBorder: '#fecaca',
-  navigation: '#111c30',
-  navigationText: '#c4cfdf',
-  navigationSelected: '#243653',
+  navigation: '#0f172a',
+  navigationText: '#cbd5e1',
+  navigationSelected: '#1e293b',
 } as const;
 
 export const uiFont =
