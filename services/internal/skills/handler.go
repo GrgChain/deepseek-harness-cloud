@@ -28,13 +28,21 @@ func decode(w http.ResponseWriter, r *http.Request, target any) error {
 	if err != nil || media != "application/json" {
 		return invalid("请求须使用 JSON 对象")
 	}
-	var body io.Reader = http.MaxBytesReader(w, r.Body, 7<<20)
+	const maxPreviewBody = 128 << 20
+	limit := int64(7 << 20)
 	if r.URL.Path == "/v1/skills:preview" {
-		body = r.Body
+		limit = maxPreviewBody
 	}
-	raw, err := io.ReadAll(body)
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
-		return webapi.Fail(413, "PAYLOAD_TOO_LARGE", "上传请求不能超过 7 MiB")
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			if limit == maxPreviewBody {
+				return webapi.Fail(413, "PAYLOAD_TOO_LARGE", "上传请求不能超过 128 MiB")
+			}
+			return webapi.Fail(413, "PAYLOAD_TOO_LARGE", "上传请求不能超过 7 MiB")
+		}
+		return invalid("无法读取请求内容")
 	}
 	if webapi.StrictUnmarshal(raw, target) != nil {
 		return invalid("请求字段或格式不正确")

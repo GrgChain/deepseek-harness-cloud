@@ -1,4 +1,4 @@
-import { APIError } from './error';
+import { apiFetch } from './http';
 import type { CurrentUser } from './identity';
 import type { CatalogPlugin, PluginCategory } from '../features/plugins/plugin-catalog';
 
@@ -52,21 +52,10 @@ export type PluginMetadata = Pick<
   | 'sourceNote'
 >;
 
-async function checkResponse(response: Response) {
-  if (!response.ok) {
-    const problem = await response.json().catch(() => ({}));
-    const error = new APIError(response.status, problem.code ?? 'DEPENDENCY_UNAVAILABLE');
-    if (
-      typeof problem.code === 'string' &&
-      problem.code.startsWith('PLUGIN_') &&
-      typeof problem.message === 'string'
-    )
-      error.message = problem.message;
-    throw error;
-  }
-}
+const pluginPassthrough = (code: string) => code.startsWith('PLUGIN_');
 
 export class PluginsClient {
+  constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   private async request<T>(
     user: CurrentUser,
     path = '',
@@ -74,19 +63,15 @@ export class PluginsClient {
     signal?: AbortSignal,
     method?: 'PUT',
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(22_000);
-    const response = await fetch('/v1/plugins' + path, {
+    const response = await apiFetch('/v1/plugins' + path, {
       method: method ?? (body === undefined ? 'GET' : 'POST'),
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers:
-        body === undefined
-          ? undefined
-          : { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+      user,
+      body,
+      timeoutMs: 22_000,
+      signal,
+      fetcher: this.fetcher,
+      passthroughError: pluginPassthrough,
     });
-    await checkResponse(response);
     return response.json();
   }
   async list(user: CurrentUser, signal?: AbortSignal) {
@@ -131,12 +116,11 @@ export class PluginsClient {
     );
   }
   async download(id: string) {
-    const response = await fetch('/v1/plugins/' + encodeURIComponent(id) + '/archive', {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: AbortSignal.timeout(22_000),
+    const response = await apiFetch('/v1/plugins/' + encodeURIComponent(id) + '/archive', {
+      timeoutMs: 22_000,
+      fetcher: this.fetcher,
+      passthroughError: pluginPassthrough,
     });
-    await checkResponse(response);
     return response.blob();
   }
 }

@@ -87,7 +87,7 @@ func (s *CommandService) ReleaseStorage(ctx context.Context, p identity.Principa
 		return out, err
 	}
 	details, _ := json.Marshal(map[string]any{"schema_version": 1, "request_id": out.RequestID, "source_asset_id": id, "reason_code": "OWNER_CONFIRMED_RELEASE"})
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,org_id,owner_id,resource_id,action,outcome,trace_id,details) VALUES($1,$2,$3,$4,'STORAGE_OWNER_RELEASE','ACCEPTED',$5,$6)`, webapi.ID(), p.OrganizationID, p.UserID, id, trace, details); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(id,org_id,actor_id,owner_id,resource_id,action,outcome,trace_id,details) VALUES($1,$2,$3,$3,$4,'STORAGE_OWNER_RELEASE','ACCEPTED',$5,$6)`, webapi.ID(), p.OrganizationID, p.UserID, id, trace, details); err != nil {
 		return out, err
 	}
 	return out, tx.Commit(ctx)

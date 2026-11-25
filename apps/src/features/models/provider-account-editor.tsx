@@ -540,9 +540,13 @@ export function ProviderAccountEditor({
                     <Button
                       type="text"
                       size="small"
+                      disabled={selected.length >= 20}
+                      title={selected.length >= 20 ? '最多选择 20 个模型' : undefined}
                       aria-label={'保留 ' + m.model}
                       icon={<X size={12} aria-hidden="true" />}
-                      onClick={() => toggle(m.model, true)}
+                      onClick={() => {
+                        if (selected.length < 20) toggle(m.model, true);
+                      }}
                     />
                   </Tag>
                 ))}

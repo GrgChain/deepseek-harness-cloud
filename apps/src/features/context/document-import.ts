@@ -1,5 +1,6 @@
 import type { CurrentUser } from '../../api/identity';
 import { APIError } from '../../api/error';
+import { combineAbortSignals } from '../../api/http';
 
 export const documentAccept =
   '.txt,.text,.md,.markdown,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.tif,.tiff';
@@ -14,6 +15,7 @@ export async function extractDocumentText(
   user: CurrentUser,
   name: string,
   blob: Blob,
+  signal?: AbortSignal,
 ): Promise<string> {
   if (!supportedDocument(name)) throw new Error('不支持此文件格式');
   if (!blob.size) throw new Error('文件为空');
@@ -26,7 +28,7 @@ export async function extractDocumentText(
     cache: 'no-store',
     headers: { 'X-CSRF-Token': user.csrf_token },
     body: data,
-    signal: AbortSignal.timeout(305_000),
+    signal: combineAbortSignals(signal, 305_000),
   });
   if (!response.ok) {
     const problem = await response.json().catch(() => ({}));

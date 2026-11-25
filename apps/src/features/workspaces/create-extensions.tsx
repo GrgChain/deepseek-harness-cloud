@@ -163,27 +163,28 @@ export function CreateExtensions({
           const label = labels[kind];
           const selected = value[kind] ?? [];
           const update = (ids: string[]) => {
-            const items = ids.map(
-              (id) =>
-                selected.find((item) => item.id === id) ??
-                (() => {
-                  const option = options.find((item) => item.id === id)!;
-                  const sessionMemory = kind === 'memory';
-                  return kind === 'plugins'
-                    ? { id, version: String(option.version) }
-                    : {
-                        id,
-                        version: Number(option.version),
-                        ...(kind === 'connectors'
-                          ? { catalog_version: option.catalog_version }
-                          : kind === 'knowledge'
-                            ? { permissions: value.knowledge?.[0]?.permissions ?? ['read'] }
-                            : sessionMemory
-                              ? { session_memory: true }
-                              : {}),
-                      };
-                })(),
-            );
+            const items = ids.flatMap((id) => {
+              const existing = selected.find((item) => item.id === id);
+              if (existing) return [existing];
+              const option = options.find((item) => item.id === id);
+              if (!option) return [];
+              const sessionMemory = kind === 'memory';
+              return [
+                kind === 'plugins'
+                  ? { id, version: String(option.version) }
+                  : {
+                      id,
+                      version: Number(option.version),
+                      ...(kind === 'connectors'
+                        ? { catalog_version: option.catalog_version }
+                        : kind === 'knowledge'
+                          ? { permissions: value.knowledge?.[0]?.permissions ?? ['read'] }
+                          : sessionMemory
+                            ? { session_memory: true }
+                            : {}),
+                    },
+              ];
+            });
             onChange({ ...value, [kind]: items });
           };
           const icon = (item: Option | undefined) =>

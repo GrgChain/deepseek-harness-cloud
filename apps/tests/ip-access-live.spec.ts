@@ -84,6 +84,13 @@ test('IP login, management, workspace frames and logout work without browser dom
   await page.getByRole('button', { name: '进入工作空间', exact: true }).click();
   const popup = await popupPromise;
   const escapedRequests: string[] = [];
+  const failedResources: string[] = [];
+  popup.on('pageerror', (error) => errors.push(error.message));
+  popup.on('response', (response) => {
+    const path = new URL(response.url()).pathname;
+    if (response.status() >= 400 && /\.(?:m?js|css)$/.test(path))
+      failedResources.push(`${response.status()} ${path}`);
+  });
   popup.on('request', (request) => {
     const url = new URL(request.url());
     if (url.origin === portal.origin && !url.pathname.startsWith(discovered.ip_base_path + '/'))
@@ -100,6 +107,7 @@ test('IP login, management, workspace frames and logout work without browser dom
     });
   });
   await popup.waitForURL(workspace + '/', { timeout: 30_000 });
+  await expect(popup.locator('#root')).not.toBeEmpty({ timeout: 20_000 });
   await expect.poll(() => frames, { timeout: 20_000 }).toBeGreaterThan(0);
   expect(await popup.evaluate(() => window.opener === null)).toBe(true);
   expect(await popup.evaluate(() => document.cookie.includes('__Host-hc_session'))).toBe(false);
@@ -128,4 +136,16 @@ test('IP login, management, workspace frames and logout work without browser dom
   expect(domainRequests).toEqual([]);
   expect(errors).toEqual([]);
   expect(escapedRequests).toEqual([]);
+  expect(failedResources).toEqual([]);
+  await info.attach('ip-entry-verification', {
+    body: JSON.stringify({
+      workspace,
+      frames_received: frames,
+      websocket_closed_on_logout: closed,
+      domain_requests: domainRequests,
+      failed_resources: failedResources,
+      page_errors: errors,
+    }),
+    contentType: 'application/json',
+  });
 });

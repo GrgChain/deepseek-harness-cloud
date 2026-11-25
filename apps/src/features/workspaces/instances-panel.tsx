@@ -227,13 +227,22 @@ export function InstanceDetails({ user }: { user: CurrentUser }) {
   );
   const [entering, setEntering] = useState(false);
   const [entryError, setEntryError] = useState<Error | null>(null);
+  useEffect(() => {
+    setEntering(false);
+    setEntryError(null);
+  }, [id]);
   const operationID = instance?.active_operation_id ?? instance?.latest_operation_id;
   const operation = useQuery({
     queryKey: ['resources', user.id, 'operation', operationID],
     enabled: !!operationID,
     queryFn: ({ signal }) => resources.operation(operationID!, signal),
     retry: false,
-    refetchInterval: 3000,
+    refetchInterval: (q) =>
+      !q.state.error &&
+      q.state.data &&
+      ['ACCEPTED', 'RUNNING', 'UNCERTAIN'].includes(q.state.data.status)
+        ? 3000
+        : false,
   });
   useEffect(() => {
     if (
@@ -243,18 +252,23 @@ export function InstanceDetails({ user }: { user: CurrentUser }) {
       resumed.current === id
     )
       return;
+    let active = true;
     resumed.current = id;
     navigate('/app/instances/' + id, { replace: true });
     setEntering(true);
     setEntryError(null);
     void resumeWorkspace(user, query.data)
       .then((continuing) => {
-        if (!continuing) setEntering(false);
+        if (active && !continuing) setEntering(false);
       })
       .catch((error) => {
+        if (!active) return;
         setEntryError(error instanceof Error ? error : new Error('进入工作空间失败'));
         setEntering(false);
       });
+    return () => {
+      active = false;
+    };
   }, [query.data, query.isError, location.search, id, user, navigate]);
   useExpiredSession(query.error ?? operation.error ?? entryError);
   const refresh = () => {

@@ -15,8 +15,11 @@ export function loginPath(path: string) {
 }
 
 export function expireSession(cache: QueryClient) {
-  cache.removeQueries({ predicate: (query) => query.queryKey[0] !== 'platform-status' });
   cache.setQueryData(['identity'], null);
+  cache.removeQueries({
+    predicate: (query) =>
+      query.queryKey[0] !== 'platform-status' && query.queryKey[0] !== 'identity',
+  });
 }
 
 export function useExpiredSession(error: unknown) {

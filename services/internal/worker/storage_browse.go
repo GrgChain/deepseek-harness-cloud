@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -192,21 +193,35 @@ func (b *StorageBrowser) process(ctx context.Context, request storageBrowseReque
 	b.finish(bounded, request, directory, file, err)
 }
 
-func (b *StorageBrowser) tick(ctx context.Context) {
+func (b *StorageBrowser) tick(ctx context.Context, slots chan struct{}, wg *sync.WaitGroup) {
+	select {
+	case slots <- struct{}{}:
+	default:
+		return
+	}
 	claimCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	request, err := b.claim(claimCtx)
 	cancel()
 	if err != nil || request.ID == "" || ctx.Err() != nil {
+		<-slots
 		return
 	}
-	b.process(ctx, request)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		defer func() { <-slots }()
+		b.process(ctx, request)
+	}()
 }
 
 func (b *StorageBrowser) Run(ctx context.Context) error {
 	ticker := time.NewTicker(StorageBrowseInterval)
 	defer ticker.Stop()
+	slots := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	defer wg.Wait()
 	for {
-		b.tick(ctx)
+		b.tick(ctx, slots, &wg)
 		select {
 		case <-ctx.Done():
 			return nil

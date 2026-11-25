@@ -1,5 +1,5 @@
 import type { CurrentUser } from './identity';
-import { APIError } from './error';
+import { apiFetch } from './http';
 import { type Health, type ResourceSpec } from './settings';
 
 export interface Instance {
@@ -76,19 +76,7 @@ export interface InstanceFilters {
 export class ResourcesClient {
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   private async read<T>(path: string, signal?: AbortSignal): Promise<T> {
-    const timeout = AbortSignal.timeout(10_000);
-    const response = await this.fetcher(path, {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    });
-    if (!response.ok) {
-      const problem: { code?: unknown } = await response.json().catch(() => ({}));
-      throw new APIError(
-        response.status,
-        typeof problem.code === 'string' ? problem.code : 'DEPENDENCY_UNAVAILABLE',
-      );
-    }
+    const response = await apiFetch(path, { fetcher: this.fetcher, signal, timeoutMs: 10_000 });
     return response.json() as Promise<T>;
   }
   private instance(value: Instance, user: CurrentUser) {

@@ -78,7 +78,7 @@ export async function apply(ctx) {
     try {
       response = await new Promise((resolve, reject) => {
         request = https.get(
-          config.endpoint + '/v1/models?scope=provider-account',
+          new URL('/v1/models?scope=provider-account', config.endpoint),
           {
             agent,
             signal: AbortSignal.timeout(10000),
@@ -93,14 +93,14 @@ export async function apply(ctx) {
         !response.headers['content-type']?.startsWith('application/json')
       )
         throw new Error('Model directory unavailable');
-      let raw = '',
-        bytes = 0;
+      const chunks = [];
+      let bytes = 0;
       for await (const chunk of response) {
         bytes += chunk.length;
         if (bytes > 131072) throw new Error('Model directory too large');
-        raw += chunk.toString('utf8');
+        chunks.push(chunk);
       }
-      return accountModels(JSON.parse(raw));
+      return accountModels(JSON.parse(Buffer.concat(chunks).toString('utf8')));
     } catch {
       throw new LlmError('Model directory unavailable', 'PROVIDER_ERROR');
     } finally {
@@ -165,7 +165,7 @@ export async function apply(ctx) {
         ]);
         response = await new Promise((resolve, reject) => {
           request = https.request(
-            config.endpoint + '/v1/messages?scope=provider-account',
+            new URL('/v1/messages?scope=provider-account', config.endpoint),
             {
               method: 'POST',
               agent,

@@ -13,15 +13,23 @@ from viking_sessions import SEARCH_PATHS, relay, validate
 
 def reads_memory(request):
     path, body = validate(request)
-    return path in SEARCH_PATHS or path.startswith("/api/v1/content/") or (
-        path == "/mcp" and isinstance(body, dict) and body.get("method") == "tools/call"
-        and body.get("params", {}).get("name") in {"find", "search", "read"}
+    params = body.get("params") if isinstance(body, dict) else None
+    return (
+        path in SEARCH_PATHS
+        or path.startswith("/api/v1/content/")
+        or (
+            path == "/mcp"
+            and isinstance(body, dict)
+            and body.get("method") == "tools/call"
+            and isinstance(params, dict)
+            and params.get("name") in {"find", "search", "read"}
+        )
     )
 
 
 def canonical_uri(uri):
     if isinstance(uri, str) and (uri == "viking://~" or uri.startswith("viking://~/")):
-        return "viking://user/owner" + uri[len("viking://~"):]
+        return "viking://user/owner" + uri[len("viking://~") :]
     return uri
 
 
@@ -52,8 +60,15 @@ class ManualMemories:
         ):
             return []
         types = args.get("context_type")
-        if types and "memory" not in ([types] if isinstance(types, str) else types):
-            return []
+        if types is not None:
+            if isinstance(types, str):
+                type_list = [types]
+            elif isinstance(types, list):
+                type_list = types
+            else:
+                return []
+            if type_list and "memory" not in type_list:
+                return []
         levels = args.get("level")
         if levels is not None and 2 not in (levels if isinstance(levels, list) else [levels]):
             return []
@@ -61,9 +76,14 @@ class ManualMemories:
         threshold = args.get("min_score", 0.35) if mcp else args.get("score_threshold", 0)
         if threshold is None:
             threshold = 0.35 if mcp else 0
-        if (not isinstance(limit, int) or isinstance(limit, bool) or limit < 1
-            or not isinstance(threshold, (int, float)) or isinstance(threshold, bool)
-            or not math.isfinite(threshold)):
+        if (
+            not isinstance(limit, int)
+            or isinstance(limit, bool)
+            or limit < 1
+            or not isinstance(threshold, (int, float))
+            or isinstance(threshold, bool)
+            or not math.isfinite(threshold)
+        ):
             return []
         limit = min(limit, 100)
         if not self.records or not self.target.has_tenant:
@@ -73,22 +93,41 @@ class ManualMemories:
         for hit in self.target.search(query, "personal", min(100, limit * 5)):
             record = self.versions.get((hit.get("record_id"), hit.get("version")))
             score = hit.get("score")
-            if record is None or not isinstance(score, (int, float)) or isinstance(score, bool) or not math.isfinite(score) or score < threshold:
+            if (
+                record is None
+                or not isinstance(score, (int, float))
+                or isinstance(score, bool)
+                or not math.isfinite(score)
+                or score < threshold
+            ):
                 continue
             path = self.target.uri(record)
-            if path in excluded or not (uri in ("viking:", "viking://user") or path == uri or path.startswith(uri + "/")):
+            if path in excluded or not (
+                uri in ("viking:", "viking://user") or path == uri or path.startswith(uri + "/")
+            ):
                 continue
             if path not in matches or score > matches[path]["score"]:
-                matches[path] = {"uri": path, "context_type": "memory", "level": 2,
-                                 "score": score, "abstract": record["title"]}
+                matches[path] = {
+                    "uri": path,
+                    "context_type": "memory",
+                    "level": 2,
+                    "score": score,
+                    "abstract": record["title"],
+                }
         return sorted(matches.values(), key=lambda item: (-item["score"], item["uri"]))[:limit]
 
     def assemble(self, result, hits, args):
         # 0.5.31 normally uses the context face rather than ranked bucket lists.
         # Append active manual contents within the server's remaining budget.
         stats = result.setdefault("stats", {})
-        budget = args.get("max_tokens", stats.get("max_tokens", 1600))
-        used = stats.get("used_tokens", 0)
+        raw_budget = args.get("max_tokens")
+        if raw_budget is None:
+            raw_budget = stats.get("max_tokens")
+        budget = (
+            raw_budget if isinstance(raw_budget, int) and not isinstance(raw_budget, bool) else 1600
+        )
+        raw_used = stats.get("used_tokens")
+        used = raw_used if isinstance(raw_used, int) and not isinstance(raw_used, bool) else 0
         remaining = max(0, budget - used)
         entries = result.setdefault("entries", [])
         seen = {entry["uri"] for entry in entries}
@@ -109,8 +148,15 @@ class ManualMemories:
             remaining -= cost
             used += cost
             detail = "full" if text == content else "overview"
-            entries.append({"uri": hit["uri"], "category": "memories", "score": hit["score"],
-                            "detail": detail, "text": text})
+            entries.append(
+                {
+                    "uri": hit["uri"],
+                    "category": "memories",
+                    "score": hit["score"],
+                    "detail": detail,
+                    "text": text,
+                }
+            )
             blocks.append(block)
             tiers = stats.setdefault("tier_counts", {})
             tiers[detail] = tiers.get(detail, 0) + 1
@@ -127,8 +173,11 @@ class ManualMemories:
 
 def payloads(response):
     if "text/event-stream" in response["headers"].get("content-type", ""):
-        return [json.loads(line[5:]) for line in response["body"].splitlines()
-                if line.startswith("data:") and line[5:].strip()]
+        return [
+            json.loads(line[5:])
+            for line in response["body"].splitlines()
+            if line.startswith("data:") and line[5:].strip()
+        ]
     return [json.loads(response["body"])]
 
 
@@ -136,7 +185,8 @@ def transform(response, change):
     if "text/event-stream" in response["headers"].get("content-type", ""):
         response["body"] = "\n".join(
             "data: " + json.dumps(change(json.loads(line[5:])), ensure_ascii=False)
-            if line.startswith("data:") and line[5:].strip() else line
+            if line.startswith("data:") and line[5:].strip()
+            else line
             for line in response["body"].split("\n")
         )
     else:
@@ -145,10 +195,19 @@ def transform(response, change):
 
 
 def mcp_read(target, request, body, manual):
-    args = body.get("params", {}).get("arguments", {})
+    params = body.get("params") if isinstance(body, dict) else None
+    args = params.get("arguments") if isinstance(params, dict) else None
+    if not isinstance(args, dict):
+        return None
     uris = args.get("uris")
     uris = [uris] if isinstance(uris, str) else uris
-    if not isinstance(uris, list) or not uris or len(uris) > 100 or not all(isinstance(uri, str) for uri in uris) or not any(manual.owns(uri) for uri in uris):
+    if (
+        not isinstance(uris, list)
+        or not uris
+        or len(uris) > 100
+        or not all(isinstance(uri, str) for uri in uris)
+        or not any(manual.owns(uri) for uri in uris)
+    ):
         return None
     parts = []
     for uri in uris:
@@ -156,16 +215,27 @@ def mcp_read(target, request, body, manual):
             record = manual.records.get(canonical_uri(uri))
             text = record["content"] if record else "Memory not found"
         else:
-            single = {**body, "params": {**body["params"], "arguments": {"uris": uri}}}
+            single = {**body, "params": {**params, "arguments": {**args, "uris": uri}}}
             response = relay(target, request.model_copy(update={"body": json.dumps(single)}))
             if response["status"] >= 400:
                 return response
             result = next((item["result"] for item in payloads(response) if "result" in item), {})
-            text = "\n".join(item["text"] for item in result.get("content", []) if item.get("type") == "text")
+            text = "\n".join(
+                item["text"] for item in result.get("content", []) if item.get("type") == "text"
+            )
         parts.append(text if len(uris) == 1 else f"=== {uri} ===\n{text}")
-    return {"status": 200, "headers": {"content-type": "application/json"},
-            "body": json.dumps({"jsonrpc": "2.0", "id": body.get("id"), "result": {
-                "content": [{"type": "text", "text": "\n\n".join(parts)}]}}, ensure_ascii=False)}
+    return {
+        "status": 200,
+        "headers": {"content-type": "application/json"},
+        "body": json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "id": body.get("id"),
+                "result": {"content": [{"type": "text", "text": "\n\n".join(parts)}]},
+            },
+            ensure_ascii=False,
+        ),
+    }
 
 
 def relay_shared(target, request, manual):
@@ -174,10 +244,15 @@ def relay_shared(target, request, manual):
         uri = parse_qs(urlsplit(request.path).query).get("uri", [""])[0]
         if manual.owns(uri):
             if canonical_uri(uri) not in manual.records:
-                return {"status": 404, "headers": {"content-type": "application/json"},
-                        "body": '{"status":"error","error":{"message":"Memory not found"}}'}
+                return {
+                    "status": 404,
+                    "headers": {"content-type": "application/json"},
+                    "body": '{"status":"error","error":{"message":"Memory not found"}}',
+                }
             return relay(manual.target, request)
-    params = body.get("params", {}) if isinstance(body, dict) else {}
+    params = body.get("params") if isinstance(body, dict) else None
+    if not isinstance(params, dict):
+        params = {}
     if path == "/mcp" and params.get("name") == "read":
         response = mcp_read(target, request, body, manual)
         if response is not None:
@@ -196,20 +271,39 @@ def relay_shared(target, request, manual):
                     return payload
                 memories = {hit["uri"]: hit for hit in result.get("memories", [])}
                 memories.update({hit["uri"]: hit for hit in hits})
-                result["memories"] = sorted(memories.values(), key=lambda hit: (-hit.get("score", 0), hit["uri"]))[:body.get("limit", 10)]
-                result["total"] = sum(len(result.get(bucket, [])) for bucket in ("memories", "resources", "skills"))
+                raw_limit = body.get("limit")
+                limit = (
+                    min(raw_limit, 100)
+                    if isinstance(raw_limit, int)
+                    and not isinstance(raw_limit, bool)
+                    and raw_limit >= 1
+                    else 10
+                )
+                result["memories"] = sorted(
+                    memories.values(), key=lambda hit: (-hit.get("score", 0), hit["uri"])
+                )[:limit]
+                result["total"] = sum(
+                    len(result.get(bucket, [])) for bucket in ("memories", "resources", "skills")
+                )
             return payload
 
         response = transform(response, merge)
     elif path == "/mcp" and params.get("name") in {"find", "search"}:
-        hits = manual.search(params.get("arguments", {}), mcp=True)
+        mcp_args = params.get("arguments")
+        hits = manual.search(mcp_args if isinstance(mcp_args, dict) else {}, mcp=True)
 
         def append(payload):
             result = payload.get("result", {})
             if hits and isinstance(result.get("content"), list) and not result.get("isError"):
-                result["content"] = [item for item in result["content"] if item != {
-                    "type": "text", "text": "No matching context found."}]
-                text = "\n\n".join(f'- [memory {hit["score"] * 100:.0f}%] {hit["uri"]}\n    {hit["abstract"]}' for hit in hits)
+                result["content"] = [
+                    item
+                    for item in result["content"]
+                    if item != {"type": "text", "text": "No matching context found."}
+                ]
+                text = "\n\n".join(
+                    f'- [memory {hit["score"] * 100:.0f}%] {hit["uri"]}\n    {hit["abstract"]}'
+                    for hit in hits
+                )
                 text += "\n\nUse the read tool to expand a URI."
                 result["content"].append({"type": "text", "text": text})
             return payload

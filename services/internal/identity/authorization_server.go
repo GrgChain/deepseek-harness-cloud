@@ -159,6 +159,13 @@ func (s *AuthorizationServer) passwordLogin(ctx context.Context, request, browse
 	if !uuidPattern.MatchString(request) || len(browser) != 43 || len(csrf) != 43 || len(email) > 254 || len(password) > 72 {
 		return "", ErrUnauthenticated
 	}
+	var requestActive bool
+	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM identity_authorizations WHERE id=$1 AND browser_sha256=$2 AND csrf_sha256=$3 AND consumed_at IS NULL AND expires_at>clock_timestamp() AND attempts<10)`, request, digest(browser), digest(csrf)).Scan(&requestActive); err != nil {
+		return "", ErrUnavailable
+	}
+	if !requestActive {
+		return "", ErrUnauthenticated
+	}
 	a, hash, err := scanAccount(s.pool.QueryRow(ctx, accountQuery+` AND a.login_email=$3`, s.options.OrganizationID, s.options.Issuer, strings.ToLower(strings.TrimSpace(email))))
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", ErrUnavailable

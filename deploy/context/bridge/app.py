@@ -520,6 +520,14 @@ def apply(db, backend, inp, target, native=None):
             "SELECT * FROM records WHERE backend=? AND namespace=? AND id=?",
             (backend, inp.namespace, obj["id"]),
         ).fetchone()
+        if (
+            prior
+            and prior["version"] == expected + 1
+            and prior["operation_id"] == inp.idempotency_key
+            and prior["status"] == "READY"
+        ):
+            done.append(obj["id"])
+            continue
         if prior and prior["status"] == "READY":
             db.execute(
                 "INSERT OR IGNORE INTO revisions VALUES(?,?,?,?,?,?,?)",
@@ -995,20 +1003,37 @@ def dispatch(db, backend, action, inp, target, native=None):
         if action == "delete" and backend not in MEMORY:
             keyword_search.remove(db, backend, inp.namespace, row["id"])
         db.commit()
-        target.delete(row["id"], row["version"] if action == "rebuild" else None)
         if action == "rebuild":
-            target.put(json.loads(row["payload"]), json.loads(row["chunks"]))
-        else:
+            payload_obj = json.loads(row["payload"])
+            try:
+                target.delete(row["id"], row["version"])
+                metadata = target.put(payload_obj, json.loads(row["chunks"]))
+                if metadata and metadata.get("graph"):
+                    payload_obj["graph"] = metadata["graph"]
+            except Exception:
+                db.execute(
+                    "UPDATE records SET status='ERROR' WHERE backend=? AND namespace=? AND id=?",
+                    (backend, inp.namespace, row["id"]),
+                )
+                db.commit()
+                raise
             db.execute(
-                "DELETE FROM revisions WHERE backend=? AND namespace=? AND id=?",
-                (backend, inp.namespace, row["id"]),
+                "UPDATE records SET status='READY',payload=? WHERE backend=? AND namespace=? AND id=?",
+                (canonical(payload_obj).decode(), backend, inp.namespace, row["id"]),
             )
+            db.commit()
+            return {"deleted": False, "rebuilt": True}
+        target.delete(row["id"], None)
         db.execute(
-            "UPDATE records SET status=? WHERE backend=? AND namespace=? AND id=?",
-            ("DELETED" if action == "delete" else "READY", backend, inp.namespace, row["id"]),
+            "DELETE FROM revisions WHERE backend=? AND namespace=? AND id=?",
+            (backend, inp.namespace, row["id"]),
+        )
+        db.execute(
+            "UPDATE records SET status='DELETED' WHERE backend=? AND namespace=? AND id=?",
+            (backend, inp.namespace, row["id"]),
         )
         db.commit()
-        return {"deleted": action == "delete", "rebuilt": action == "rebuild"}
+        return {"deleted": True, "rebuilt": False}
     raise HTTPException(404)
 
 
@@ -1202,6 +1227,8 @@ def call(backend: str, action: str, inp: Input):
             if receipt["status"] == "FAILED":
                 raise HTTPException(int(receipt["result"]))
         if key not in JOBS:
+            if len(JOBS) >= 16:
+                raise HTTPException(503)
             if not receipt:
                 saved = {}
                 if action == "apply":
@@ -1217,13 +1244,18 @@ def call(backend: str, action: str, inp: Input):
                     (*key, request_digest, canonical(saved).decode()),
                 )
                 db.commit()
-            if len(JOBS) >= 16:
-                raise HTTPException(503)
             JOBS.add(key)
 
             def work():
                 try:
                     execute(backend, action, inp)
+                except HTTPException as exc:
+                    with closing(connect()) as err_db:
+                        err_db.execute(
+                            "UPDATE operations SET status='FAILED',result=? WHERE backend=? AND namespace=? AND id=? AND status='PENDING'",
+                            (str(exc.status_code), *key),
+                        )
+                        err_db.commit()
                 except Exception as exc:
                     logging.warning(
                         "memory operation pending reconciliation: %s", type(exc).__name__

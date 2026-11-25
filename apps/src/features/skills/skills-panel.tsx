@@ -76,6 +76,7 @@ export function SkillsPanel({ user }: { user: CurrentUser }) {
     await cache.invalidateQueries({ queryKey: ['skills', user.id] });
   }
   async function action(key: string, run: () => Promise<void>) {
+    if (busy) return;
     setBusy(key);
     setError('');
     try {

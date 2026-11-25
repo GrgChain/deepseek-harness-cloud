@@ -31,6 +31,14 @@ func NewGate(pool *pgxpool.Pool, runtime *access.Runtime, caPath string) (*Gate,
 	if err != nil {
 		return nil, err
 	}
+	if runtime.Options.IPOnly {
+		ip := runtime.Options.IPAccess
+		if ip == nil {
+			checks.Close()
+			return nil, errObservation
+		}
+		checks.ingressURL = ip.Origin(ip.PortalPort) + "/dsh/00000000-0000-4000-8000-000000000001/"
+	}
 	return &Gate{pool, runtime, checks}, nil
 }
 func (g *Gate) Close() { g.http.Close() }

@@ -31,6 +31,7 @@ type Options struct {
 	PortalOrigin            string     `json:"portal_origin"`
 	Domain                  string     `json:"instance_domain"`
 	IPAccess                *IPOptions `json:"ip_access,omitempty"`
+	IPOnly                  bool       `json:"ip_only,omitempty"`
 }
 
 func LoadOptions(path string) (Options, error) {
@@ -53,7 +54,7 @@ func LoadOptions(path string) (Options, error) {
 	if o.WorkspaceEngine != "embedded" {
 		return Options{}, ErrConfiguration
 	}
-	if o.IPAccess != nil && o.IPAccess.Validate() != nil {
+	if o.IPOnly && o.IPAccess == nil || o.IPAccess != nil && o.IPAccess.Validate() != nil {
 		return Options{}, ErrConfiguration
 	}
 	return o, nil

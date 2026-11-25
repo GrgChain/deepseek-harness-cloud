@@ -1,4 +1,5 @@
 import { APIError } from './error';
+import { apiFetch } from './http';
 import type { CurrentUser } from './identity';
 
 export interface Health {
@@ -119,31 +120,19 @@ export class SettingsClient {
     body?: unknown,
     signal?: AbortSignal,
   ): Promise<T> {
-    const timeout = AbortSignal.timeout(
-      path.endsWith(':validate')
-        ? 36_000
-        : path.endsWith(':refresh') || method === 'PUT'
-          ? 15_000
-          : 10_000,
-    );
-    const response = await this.fetcher(path, {
+    const timeoutMs = path.endsWith(':validate')
+      ? 36_000
+      : path.endsWith(':refresh') || method === 'PUT'
+        ? 15_000
+        : 10_000;
+    const response = await apiFetch(path, {
+      fetcher: this.fetcher,
       method,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      headers:
-        method === 'GET'
-          ? undefined
-          : { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
-      body: body === undefined ? undefined : JSON.stringify(body),
+      user: method === 'GET' ? undefined : user,
+      body,
+      signal,
+      timeoutMs,
     });
-    if (!response.ok) {
-      const error: { code?: unknown } = await response.json().catch(() => ({}));
-      throw new APIError(
-        response.status,
-        typeof error.code === 'string' ? error.code : 'DEPENDENCY_UNAVAILABLE',
-      );
-    }
     return response.json() as Promise<T>;
   }
   platformChecks(user: CurrentUser, signal?: AbortSignal) {

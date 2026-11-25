@@ -44,7 +44,7 @@ func Run(role string) error {
 	if err != nil {
 		return errors.New("database DSN is invalid")
 	}
-	poolConfig.MaxConns = 4
+	poolConfig.MaxConns = c.DatabaseMaxConns
 	poolConfig.ConnConfig.ConnectTimeout = 2 * time.Second
 	poolConfig.ConnConfig.RuntimeParams["statement_timeout"] = "5000"
 	poolConfig.ConnConfig.RuntimeParams["lock_timeout"] = "1000"
@@ -213,6 +213,10 @@ func Run(role string) error {
 		root = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Host == c.HTTPAddress && (r.URL.Path == "/livez" || r.URL.Path == "/readyz") {
 				handler.ServeHTTP(w, r)
+				return
+			}
+			if accessRuntime.Options.IPOnly {
+				http.NotFound(w, r)
 				return
 			}
 			gateway.ServeHTTP(w, r)

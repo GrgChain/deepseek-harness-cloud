@@ -1,10 +1,4 @@
-import { ConnectorsPanel } from '../features/connectors/connectors-panel';
-import { ContextPanel } from '../features/context/context-panel';
-import { SkillsPanel } from '../features/skills/skills-panel';
-import { PluginsPanel } from '../features/plugins/plugins-panel';
-import { StorageBrowsePage, StoragePanel } from '../features/storage/storage-panel';
-import { OperationLogsPanel } from '../features/operation-logs/operation-logs-panel';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -19,42 +13,79 @@ import {
   Space,
   Spin,
   Tooltip,
-  type MenuProps,
 } from 'antd';
-import {
-  Activity,
-  BookOpen,
-  Brain,
-  Library,
-  Box,
-  Check,
-  CircleHelp,
-  Cloud,
-  Database,
-  ExternalLink,
-  FileText,
-  Gauge,
-  LayoutGrid,
-  LockKeyhole,
-  Menu as MenuIcon,
-  Puzzle,
-  RefreshCw,
-  Settings2,
-  ShieldCheck,
-} from 'lucide-react';
+import { Box, CircleHelp, ExternalLink, LockKeyhole, Menu as MenuIcon } from 'lucide-react';
 import { PlatformClient } from '../api/platform';
 import { IdentityClient, hasPermission } from '../api/identity';
-import { UsersPanel, RolesPanel } from '../features/management/management-panel';
-import { ResourceQuotasPanel } from '../features/resource-quotas/resource-quotas-panel';
-import { ModelProvidersPanel } from '../features/models/model-providers-panel';
-import { SettingsPanel } from '../features/settings/settings-panel';
-import { InstancesPanel, InstanceDetails } from '../features/workspaces/instances-panel';
-import { CreateInstanceButton } from '../features/workspaces/instance-commands';
 import { expireSession, loginReturnPath } from '../shared/hooks/use-expired-session';
+import { BrandLogo } from './brand-logo';
+import { buildMenuItems, DiagnosticsSection, HelpDrawer, pageTitle } from './navigation';
+
+const ConnectorsPanel = lazy(() =>
+  import('../features/connectors/connectors-panel').then((m) => ({ default: m.ConnectorsPanel })),
+);
+const ContextPanel = lazy(() =>
+  import('../features/context/context-panel').then((m) => ({ default: m.ContextPanel })),
+);
+const SkillsPanel = lazy(() =>
+  import('../features/skills/skills-panel').then((m) => ({ default: m.SkillsPanel })),
+);
+const PluginsPanel = lazy(() =>
+  import('../features/plugins/plugins-panel').then((m) => ({ default: m.PluginsPanel })),
+);
+const StoragePanel = lazy(() =>
+  import('../features/storage/storage-panel').then((m) => ({ default: m.StoragePanel })),
+);
+const StorageBrowsePage = lazy(() =>
+  import('../features/storage/storage-panel').then((m) => ({ default: m.StorageBrowsePage })),
+);
+const OperationLogsPanel = lazy(() =>
+  import('../features/operation-logs/operation-logs-panel').then((m) => ({
+    default: m.OperationLogsPanel,
+  })),
+);
+const UsersPanel = lazy(() =>
+  import('../features/management/management-panel').then((m) => ({ default: m.UsersPanel })),
+);
+const RolesPanel = lazy(() =>
+  import('../features/management/management-panel').then((m) => ({ default: m.RolesPanel })),
+);
+const ResourceQuotasPanel = lazy(() =>
+  import('../features/resource-quotas/resource-quotas-panel').then((m) => ({
+    default: m.ResourceQuotasPanel,
+  })),
+);
+const ModelProvidersPanel = lazy(() =>
+  import('../features/models/model-providers-panel').then((m) => ({
+    default: m.ModelProvidersPanel,
+  })),
+);
+const SettingsPanel = lazy(() =>
+  import('../features/settings/settings-panel').then((m) => ({ default: m.SettingsPanel })),
+);
+const InstancesPanel = lazy(() =>
+  import('../features/workspaces/instances-panel').then((m) => ({ default: m.InstancesPanel })),
+);
+const InstanceDetails = lazy(() =>
+  import('../features/workspaces/instances-panel').then((m) => ({ default: m.InstanceDetails })),
+);
+const CreateInstanceButton = lazy(() =>
+  import('../features/workspaces/instance-commands').then((m) => ({
+    default: m.CreateInstanceButton,
+  })),
+);
 
 const platform = new PlatformClient();
 const identity = new IdentityClient();
 const { Sider, Header, Content } = Layout;
+
+function RouteFallback() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '48px 0' }} role="status">
+      <Spin aria-label="加载页面" />
+    </div>
+  );
+}
 
 export function App() {
   const [navOpen, setNavOpen] = useState(false);
@@ -70,27 +101,7 @@ export function App() {
   const login = location.pathname === '/login';
   const detail = location.pathname.startsWith('/app/instances/');
   const storageBrowse = /^\/app\/storage\/[^/]+\/browse$/.test(location.pathname);
-  const titles: Record<string, string> = {
-    '/app/instances': '工作空间',
-    '/app/storage': '工作数据',
-    '/app/skills': '技能包',
-    '/app/connectors': '连接器',
-    '/app/plugins': '插件',
-    '/app/memory': '记忆',
-    '/app/knowledge': '知识库',
-    '/app/models': '模型提供商',
-    '/app/users': '用户管理',
-    '/app/quotas': '资源配额',
-    '/app/roles': '角色与权限',
-    '/app/settings': '平台配置',
-    '/app/audit': '操作日志',
-    '/login': '账户',
-  };
-  const title = detail
-    ? '实例详情'
-    : storageBrowse
-      ? '数据浏览'
-      : (titles[location.pathname] ?? '工作空间');
+  const title = pageTitle(location.pathname, detail, storageBrowse);
   const status = useQuery({
     queryKey: ['platform-status'],
     queryFn: ({ signal }) => platform.status(signal),
@@ -131,142 +142,17 @@ export function App() {
     if (auth) void session.refetch();
   };
   const roleName = user?.memberships[0]?.role_name ?? '组织用户';
-  const workspaceItems: MenuProps['items'] = [
-    ...(!user || hasPermission(user, 'instances:read')
-      ? [
-          {
-            key: '/app/instances',
-            icon: <LayoutGrid size={18} />,
-            label: <Link to="/app/instances">工作空间</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'instances:read')
-      ? [
-          {
-            key: '/app/storage',
-            icon: <Database size={18} />,
-            label: <Link to="/app/storage">工作数据</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'skills:read')
-      ? [
-          {
-            key: '/app/skills',
-            icon: <BookOpen size={18} />,
-            label: <Link to="/app/skills">技能包</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'connectors:read')
-      ? [
-          {
-            key: '/app/connectors',
-            icon: <ExternalLink size={18} />,
-            label: <Link to="/app/connectors">连接器</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'memory:read')
-      ? [
-          {
-            key: '/app/memory',
-            icon: <Brain size={18} />,
-            label: <Link to="/app/memory">记忆</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'knowledge:read')
-      ? [
-          {
-            key: '/app/knowledge',
-            icon: <Library size={18} />,
-            label: <Link to="/app/knowledge">知识库</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'instances:read')
-      ? [
-          {
-            key: '/app/plugins',
-            icon: <Puzzle size={18} />,
-            label: <Link to="/app/plugins">插件</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'personal-model:read')
-      ? [
-          {
-            key: '/app/models',
-            icon: <Box size={18} />,
-            label: <Link to="/app/models">模型提供商</Link>,
-          },
-        ]
-      : []),
-  ];
-  const administrationItems: MenuProps['items'] = [
-    ...(hasPermission(user, 'users:read')
-      ? [
-          {
-            key: '/app/users',
-            icon: <ShieldCheck size={18} />,
-            label: <Link to="/app/users">用户管理</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'roles:read')
-      ? [
-          {
-            key: '/app/roles',
-            icon: <LockKeyhole size={18} />,
-            label: <Link to="/app/roles">角色与权限</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'users:read')
-      ? [
-          {
-            key: '/app/quotas',
-            icon: <Gauge size={18} />,
-            label: <Link to="/app/quotas">资源配额</Link>,
-          },
-        ]
-      : []),
-    ...(hasPermission(user, 'audit:read')
-      ? [
-          {
-            key: '/app/audit',
-            icon: <FileText size={18} />,
-            label: <Link to="/app/audit">操作日志</Link>,
-          },
-        ]
-      : []),
-    ...(!user || hasPermission(user, 'configuration:read')
-      ? [
-          {
-            key: '/app/settings',
-            icon: <Settings2 size={18} />,
-            label: <Link to="/app/settings">平台配置</Link>,
-          },
-        ]
-      : []),
-  ];
-  const menuItems: MenuProps['items'] = [
-    ...(workspaceItems.length
-      ? [{ type: 'group' as const, label: '工作台', children: workspaceItems }]
-      : []),
-    ...(administrationItems.length
-      ? [{ type: 'group' as const, label: '管理', children: administrationItems }]
-      : []),
-  ];
+  const menuItems = buildMenuItems(user);
   const nav = (
     <div className="sidebar-content">
       <Link className="brand" to="/app/instances" onClick={() => setNavOpen(false)}>
         <span className="brand-mark">
-          <Cloud size={22} aria-hidden="true" />
+          <BrandLogo size={36} />
         </span>
-        <span>DSH Cloud</span>
+        <span className="brand-copy">
+          <span className="brand-name">DSH Cloud</span>
+          <span className="brand-tagline">AI Workspace</span>
+        </span>
       </Link>
       <nav aria-label="主导航">
         <Menu
@@ -291,46 +177,21 @@ export function App() {
           ? '无法验证用户会话'
           : null;
   const diagnostics = (
-    <section className="settings-section diagnostics-section" aria-label="平台连接状态">
-      <div className="section-top">
-        <h2>平台连接状态</h2>
-        <Button icon={<RefreshCw size={15} />} onClick={refresh} loading={status.isFetching}>
-          刷新状态
-        </Button>
-      </div>
-      <div className="diagnostics-grid">
-        {[
-          { icon: Activity, title: '平台 API', ok: online, label: online ? '已连接' : '未连接' },
-          {
-            icon: Database,
-            title: '数据库与缓存',
-            ok: ready,
-            label: online ? (ready ? '已就绪' : '未就绪') : '待检查',
-          },
-          { icon: ShieldCheck, title: '组织身份认证', ok: auth, label: auth ? '已就绪' : '未就绪' },
-        ].map(({ icon: Icon, title: checkTitle, ok, label }) => (
-          <div className="diagnostic-item" key={checkTitle}>
-            <Icon size={18} aria-hidden="true" />
-            <div>
-              <strong>{checkTitle}</strong>
-              <span
-                className={`diagnostic-state ${ok ? 'ok' : status.isPending ? 'pending' : 'error'}`}
-              >
-                {ok && <Check size={13} aria-hidden="true" />}
-                {status.isPending ? '检查中' : label}
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <DiagnosticsSection
+      online={online}
+      ready={!!ready}
+      auth={!!auth}
+      pending={status.isPending}
+      fetching={status.isFetching}
+      onRefresh={refresh}
+    />
   );
 
   if (anonymous || status.isPending || (auth && session.isPending))
     return (
       <main className="auth-transition" aria-busy="true">
         <span className="brand-mark">
-          <Cloud size={24} aria-hidden="true" />
+          <BrandLogo size={52} />
         </span>
         <h1>DSH Cloud</h1>
         <div role="status">
@@ -371,9 +232,10 @@ export function App() {
               />
               <h1>{title}</h1>
             </div>
-            <Space>
+            <Space size={8}>
               <Tooltip title="使用帮助">
                 <Button
+                  className="topbar-icon-button"
                   type="text"
                   aria-label="使用帮助"
                   icon={<CircleHelp size={18} />}
@@ -424,287 +286,283 @@ export function App() {
             )}
             {home && !user && (
               <div className="page-actions">
-                <CreateInstanceButton user={user} />
+                <Suspense fallback={null}>
+                  <CreateInstanceButton user={user} />
+                </Suspense>
               </div>
             )}
-            <Routes>
-              <Route
-                path="/app/instances"
-                element={
-                  <>
-                    {user && hasPermission(user, 'instances:read') ? (
-                      <InstancesPanel user={user} actions={<CreateInstanceButton user={user} />} />
-                    ) : user ? (
+            <Suspense fallback={<RouteFallback />}>
+              <Routes>
+                <Route
+                  path="/app/instances"
+                  element={
+                    <>
+                      {user && hasPermission(user, 'instances:read') ? (
+                        <InstancesPanel
+                          user={user}
+                          actions={<CreateInstanceButton user={user} />}
+                        />
+                      ) : user ? (
+                        <Alert
+                          type="error"
+                          showIcon
+                          message="没有实例读取权限"
+                          description="请联系管理员分配所需权限。"
+                        />
+                      ) : (
+                        <Card className="welcome-card">
+                          {status.isPending || (auth && session.isPending) ? (
+                            <Spin aria-label="加载账户" />
+                          ) : (
+                            <Empty
+                              image={Empty.PRESENTED_IMAGE_SIMPLE}
+                              description="登录后查看工作空间"
+                            >
+                              <Space wrap>
+                                <Button
+                                  type="primary"
+                                  disabled={!auth}
+                                  onClick={() => navigate('/login')}
+                                >
+                                  登录
+                                </Button>
+                                <Button onClick={() => navigate('/app/settings')}>
+                                  查看平台配置
+                                </Button>
+                              </Space>
+                            </Empty>
+                          )}
+                        </Card>
+                      )}
+                    </>
+                  }
+                />
+                <Route
+                  path="/app/settings"
+                  element={
+                    user && !hasPermission(user, 'configuration:read') ? (
                       <Alert
                         type="error"
                         showIcon
-                        message="没有实例读取权限"
+                        message="没有配置读取权限"
                         description="请联系管理员分配所需权限。"
                       />
                     ) : (
-                      <Card className="welcome-card">
-                        {status.isPending || (auth && session.isPending) ? (
-                          <Spin aria-label="加载账户" />
+                      <>
+                        {user && hasPermission(user, 'configuration:read') ? (
+                          <SettingsPanel user={user} diagnostics={diagnostics} />
                         ) : (
-                          <Empty
-                            image={Empty.PRESENTED_IMAGE_SIMPLE}
-                            description="登录后查看工作空间"
-                          >
-                            <Space wrap>
-                              <Button
-                                type="primary"
-                                disabled={!auth}
-                                onClick={() => navigate('/login')}
-                              >
-                                登录
-                              </Button>
-                              <Button onClick={() => navigate('/app/settings')}>
-                                查看平台配置
-                              </Button>
-                            </Space>
-                          </Empty>
+                          <>
+                            <Card className="configuration-placeholder">
+                              <Box size={28} />
+                              <h2>请管理员登录</h2>
+                              <p>登录后查看运行配置。</p>
+                            </Card>
+                            {diagnostics}
+                          </>
                         )}
-                      </Card>
-                    )}
-                  </>
-                }
-              />
-              <Route
-                path="/app/settings"
-                element={
-                  user && !hasPermission(user, 'configuration:read') ? (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message="没有配置读取权限"
-                      description="请联系管理员分配所需权限。"
-                    />
-                  ) : (
-                    <>
-                      {user && hasPermission(user, 'configuration:read') ? (
-                        <SettingsPanel user={user} diagnostics={diagnostics} />
-                      ) : (
-                        <>
-                          <Card className="configuration-placeholder">
-                            <Box size={28} />
-                            <h2>请管理员登录</h2>
-                            <p>登录后查看运行配置。</p>
-                          </Card>
-                          {diagnostics}
-                        </>
-                      )}
-                    </>
-                  )
-                }
-              />
-              <Route
-                path="/app/storage"
-                element={
-                  user && hasPermission(user, 'instances:read') ? (
-                    <StoragePanel key={user.id} user={user} />
-                  ) : (
-                    <Alert
-                      type={user ? 'error' : 'info'}
-                      message={user ? '没有数据资产读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/app/storage/:assetId/browse"
-                element={
-                  user && hasPermission(user, 'instances:read') ? (
-                    <StorageBrowsePage user={user} />
-                  ) : (
-                    <Alert
-                      type={user ? 'error' : 'info'}
-                      message={user ? '没有数据资产读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/app/skills"
-                element={
-                  user && hasPermission(user, 'skills:read') ? (
-                    <SkillsPanel key={user.id} user={user} />
-                  ) : (
-                    <Alert
-                      type={user ? 'error' : 'info'}
-                      message={user ? '没有 Skill 读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/app/connectors"
-                element={
-                  user && hasPermission(user, 'connectors:read') ? (
-                    <ConnectorsPanel key={user.id} user={user} />
-                  ) : (
-                    <Alert type="error" message="没有连接器读取权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/plugins"
-                element={
-                  user && hasPermission(user, 'instances:read') ? (
-                    <PluginsPanel key={user.id} user={user} />
-                  ) : (
-                    <Alert
-                      type={user ? 'error' : 'info'}
-                      showIcon
-                      message={user ? '没有实例读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/app/memory"
-                element={
-                  user && hasPermission(user, 'memory:read') ? (
-                    <ContextPanel key={user.id + 'memory'} user={user} kind="memory" />
-                  ) : (
-                    <Alert type="error" message="没有记忆读取权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/knowledge"
-                element={
-                  user && hasPermission(user, 'knowledge:read') ? (
-                    <ContextPanel key={user.id + 'knowledge'} user={user} kind="knowledge" />
-                  ) : (
-                    <Alert type="error" message="没有知识库读取权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/models"
-                element={
-                  user && hasPermission(user, 'personal-model:read') ? (
-                    <ModelProvidersPanel key={user.id} user={user} />
-                  ) : (
-                    <Alert
-                      type="error"
-                      showIcon
-                      message={user ? '没有个人模型读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/app/users"
-                element={
-                  user && hasPermission(user, 'users:read') ? (
-                    <UsersPanel user={user} />
-                  ) : (
-                    <Alert type="error" showIcon message="没有用户管理权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/quotas"
-                element={
-                  user && hasPermission(user, 'users:read') ? (
-                    <ResourceQuotasPanel key={user.id} user={user} />
-                  ) : (
-                    <Alert type="error" showIcon message="没有资源配额读取权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/roles"
-                element={
-                  user && hasPermission(user, 'roles:read') ? (
-                    <RolesPanel user={user} />
-                  ) : (
-                    <Alert type="error" showIcon message="没有角色管理权限" />
-                  )
-                }
-              />
-              <Route
-                path="/app/audit"
-                element={
-                  user && hasPermission(user, 'audit:read') ? (
-                    <OperationLogsPanel user={user} />
-                  ) : (
-                    <Alert
-                      type={user ? 'error' : 'info'}
-                      message={user ? '没有操作日志读取权限' : '请先登录组织账户'}
-                    />
-                  )
-                }
-              />
-              <Route
-                path="/login"
-                element={
-                  <Card className="login-section">
-                    <span className="login-icon">
-                      <ShieldCheck size={28} />
-                    </span>
-                    <h2>{user ? '账户已登录' : '登录 DSH Cloud'}</h2>
-                    <p>{user ? roleName : '登录账户'}</p>
-                    {user ? (
-                      <Space wrap>
-                        <Button type="primary" onClick={() => navigate('/app/instances')}>
-                          进入工作台
-                        </Button>
-                        <Button loading={logout.isPending} onClick={() => logout.mutate()}>
-                          退出登录
-                        </Button>
-                      </Space>
+                      </>
+                    )
+                  }
+                />
+                <Route
+                  path="/app/storage"
+                  element={
+                    user && hasPermission(user, 'instances:read') ? (
+                      <StoragePanel key={user.id} user={user} />
                     ) : (
-                      <Button
-                        type="primary"
-                        disabled={!auth || session.isPending}
-                        icon={<ExternalLink size={16} />}
-                        onClick={() =>
-                          window.location.assign('/auth/login?return_to=/app/instances')
-                        }
-                      >
-                        登录账户
-                      </Button>
-                    )}
-                    {logout.isError && (
-                      <Alert type="error" showIcon message={logout.error.message} />
-                    )}
-                  </Card>
-                }
-              />
-              <Route
-                path="/app/instances/:id"
-                element={
-                  user && hasPermission(user, 'instances:read') ? (
-                    <InstanceDetails user={user} />
-                  ) : user ? (
-                    <Alert type="error" showIcon message="没有实例读取权限" />
-                  ) : (
-                    <Card>
-                      <Empty description="登录后查看实例">
-                        <Button onClick={() => navigate('/login')}>登录</Button>
-                      </Empty>
+                      <Alert
+                        type={user ? 'error' : 'info'}
+                        message={user ? '没有数据资产读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/storage/:assetId/browse"
+                  element={
+                    user && hasPermission(user, 'instances:read') ? (
+                      <StorageBrowsePage user={user} />
+                    ) : (
+                      <Alert
+                        type={user ? 'error' : 'info'}
+                        message={user ? '没有数据资产读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/skills"
+                  element={
+                    user && hasPermission(user, 'skills:read') ? (
+                      <SkillsPanel key={user.id} user={user} />
+                    ) : (
+                      <Alert
+                        type={user ? 'error' : 'info'}
+                        message={user ? '没有 Skill 读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/connectors"
+                  element={
+                    user && hasPermission(user, 'connectors:read') ? (
+                      <ConnectorsPanel key={user.id} user={user} />
+                    ) : (
+                      <Alert type="error" message="没有连接器读取权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/plugins"
+                  element={
+                    user && hasPermission(user, 'instances:read') ? (
+                      <PluginsPanel key={user.id} user={user} />
+                    ) : (
+                      <Alert
+                        type={user ? 'error' : 'info'}
+                        showIcon
+                        message={user ? '没有实例读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/memory"
+                  element={
+                    user && hasPermission(user, 'memory:read') ? (
+                      <ContextPanel key={user.id + 'memory'} user={user} kind="memory" />
+                    ) : (
+                      <Alert type="error" message="没有记忆读取权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/knowledge"
+                  element={
+                    user && hasPermission(user, 'knowledge:read') ? (
+                      <ContextPanel key={user.id + 'knowledge'} user={user} kind="knowledge" />
+                    ) : (
+                      <Alert type="error" message="没有知识库读取权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/models"
+                  element={
+                    user && hasPermission(user, 'personal-model:read') ? (
+                      <ModelProvidersPanel key={user.id} user={user} />
+                    ) : (
+                      <Alert
+                        type="error"
+                        showIcon
+                        message={user ? '没有个人模型读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/users"
+                  element={
+                    user && hasPermission(user, 'users:read') ? (
+                      <UsersPanel user={user} />
+                    ) : (
+                      <Alert type="error" showIcon message="没有用户管理权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/quotas"
+                  element={
+                    user && hasPermission(user, 'users:read') ? (
+                      <ResourceQuotasPanel key={user.id} user={user} />
+                    ) : (
+                      <Alert type="error" showIcon message="没有资源配额读取权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/roles"
+                  element={
+                    user && hasPermission(user, 'roles:read') ? (
+                      <RolesPanel user={user} />
+                    ) : (
+                      <Alert type="error" showIcon message="没有角色管理权限" />
+                    )
+                  }
+                />
+                <Route
+                  path="/app/audit"
+                  element={
+                    user && hasPermission(user, 'audit:read') ? (
+                      <OperationLogsPanel user={user} />
+                    ) : (
+                      <Alert
+                        type={user ? 'error' : 'info'}
+                        message={user ? '没有操作日志读取权限' : '请先登录组织账户'}
+                      />
+                    )
+                  }
+                />
+                <Route
+                  path="/login"
+                  element={
+                    <Card className="login-section">
+                      <span className="login-icon">
+                        <BrandLogo size={56} />
+                      </span>
+                      <h2>{user ? '账户已登录' : '登录 DSH Cloud'}</h2>
+                      <p>{user ? roleName : '登录账户'}</p>
+                      {user ? (
+                        <Space wrap>
+                          <Button type="primary" onClick={() => navigate('/app/instances')}>
+                            进入工作台
+                          </Button>
+                          <Button loading={logout.isPending} onClick={() => logout.mutate()}>
+                            退出登录
+                          </Button>
+                        </Space>
+                      ) : (
+                        <Button
+                          type="primary"
+                          disabled={!auth || session.isPending}
+                          icon={<ExternalLink size={16} />}
+                          onClick={() =>
+                            window.location.assign('/auth/login?return_to=/app/instances')
+                          }
+                        >
+                          登录账户
+                        </Button>
+                      )}
+                      {logout.isError && (
+                        <Alert type="error" showIcon message={logout.error.message} />
+                      )}
                     </Card>
-                  )
-                }
-              />
-              <Route path="*" element={<Navigate to="/app/instances" replace />} />
-            </Routes>
+                  }
+                />
+                <Route
+                  path="/app/instances/:id"
+                  element={
+                    user && hasPermission(user, 'instances:read') ? (
+                      <InstanceDetails user={user} />
+                    ) : user ? (
+                      <Alert type="error" showIcon message="没有实例读取权限" />
+                    ) : (
+                      <Card>
+                        <Empty description="登录后查看实例">
+                          <Button onClick={() => navigate('/login')}>登录</Button>
+                        </Empty>
+                      </Card>
+                    )
+                  }
+                />
+                <Route path="*" element={<Navigate to="/app/instances" replace />} />
+              </Routes>
+            </Suspense>
           </Content>
         </Layout>
-        <Drawer title="使用帮助" open={helpOpen} onClose={() => setHelpOpen(false)} width={380}>
-          <div className="help-content">
-            <h3>模型</h3>
-            <p>在“模型提供商”添加连接，校验后设置为个人默认或在创建时选择。</p>
-            <h3>工作空间</h3>
-            <p>创建后在实例详情进入。停止保留工作数据，删除前需确认实例名称。</p>
-            <h3>用户与权限</h3>
-            <p>
-              管理员通过用户管理分配角色，在“资源配额”查看占用和分配额度。功能入口按账户权限显示。
-            </p>
-          </div>
-        </Drawer>
+        <HelpDrawer open={helpOpen} onClose={() => setHelpOpen(false)} />
       </Layout>
     </>
   );

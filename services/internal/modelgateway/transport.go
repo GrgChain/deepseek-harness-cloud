@@ -96,7 +96,7 @@ func publicAddress(ip netip.Addr) bool {
 	return true
 }
 func providerClient(customBases ...string) *http.Client {
-	tr := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, ResponseHeaderTimeout: 15 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 16, IdleConnTimeout: 30 * time.Second, ForceAttemptHTTP2: true}
+	tr := &http.Transport{TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12}, ResponseHeaderTimeout: 115 * time.Second, MaxConnsPerHost: 8, MaxIdleConns: 16, IdleConnTimeout: 30 * time.Second, ForceAttemptHTTP2: true}
 	tr.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {

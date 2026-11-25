@@ -132,7 +132,7 @@ func fetchSourceWithTransport(ctx context.Context, raw string, transport *http.T
 		}
 		return content, u.String(), nil
 	}
-	return downloadSource(ctx, client, u, 0, sourceURL)
+	return downloadSource(ctx, client, u, maxImportExpandedBytes, sourceURL)
 }
 
 func downloadSource(ctx context.Context, client *http.Client, u *url.URL, limit int, validate func(string) (*url.URL, error)) ([]byte, string, error) {
@@ -176,9 +176,13 @@ func downloadSourceTo(ctx context.Context, client *http.Client, u *url.URL, limi
 			}
 			return "", invalid("来源未返回可下载文件，请检查链接")
 		}
+		tooLarge := "远端文件超过 5 MiB"
+		if limit > MaxUpload {
+			tooLarge = "远端文件超过 128 MiB"
+		}
 		if limit > 0 && response.ContentLength > int64(limit) {
 			response.Body.Close()
-			return "", invalid("远端文件超过 5 MiB")
+			return "", invalid(tooLarge)
 		}
 		var reader io.Reader = response.Body
 		if limit > 0 {
@@ -187,7 +191,7 @@ func downloadSourceTo(ctx context.Context, client *http.Client, u *url.URL, limi
 		size, e := io.Copy(output, reader)
 		response.Body.Close()
 		if limit > 0 && size > int64(limit) {
-			return "", invalid("远端文件超过 5 MiB")
+			return "", invalid(tooLarge)
 		}
 		if e != nil {
 			return "", invalid("来源读取失败，请稍后重试")

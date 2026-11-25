@@ -100,6 +100,16 @@ export function RolesPanel({ user }: { user: CurrentUser }) {
       setDialog(null);
       refresh();
     },
+    onError: (cause) => {
+      if (
+        dialog?.action === 'create' &&
+        cause instanceof APIError &&
+        cause.status >= 400 &&
+        cause.status < 500
+      ) {
+        setRequestKey(crypto.randomUUID());
+      }
+    },
   });
   useExpiredSession(roles.error ?? permissions.error ?? mutation.error);
   const open = (action: NonNullable<typeof dialog>['action'], target?: ManagedRole) => {
@@ -273,6 +283,9 @@ export function RolesPanel({ user }: { user: CurrentUser }) {
         }
         okText={readOnly ? '关闭' : '确认'}
         confirmLoading={mutation.isPending}
+        closable={!mutation.isPending}
+        maskClosable={!mutation.isPending}
+        keyboard={!mutation.isPending}
         okButtonProps={{
           danger: dialog?.action === 'delete',
           disabled:
@@ -285,13 +298,12 @@ export function RolesPanel({ user }: { user: CurrentUser }) {
         onCancel={() => {
           if (!mutation.isPending) setDialog(null);
         }}
-        onOk={() =>
-          readOnly
-            ? setDialog(null)
-            : dialog?.action === 'delete'
-              ? mutation.mutate()
-              : form.submit()
-        }
+        onOk={() => {
+          if (mutation.isPending) return;
+          if (readOnly) setDialog(null);
+          else if (dialog?.action === 'delete') mutation.mutate();
+          else form.submit();
+        }}
         destroyOnHidden
       >
         {readOnly && dialog?.target ? (

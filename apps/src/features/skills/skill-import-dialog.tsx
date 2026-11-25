@@ -33,6 +33,7 @@ export function ImportDialog({
   const cache = useQueryClient();
   const fileInput = useRef<HTMLInputElement>(null);
   async function inspect(file?: File, source = url.trim()) {
+    if (busy) return;
     setBusy(true);
     setError('');
     try {
@@ -45,7 +46,7 @@ export function ImportDialog({
     }
   }
   async function apply() {
-    if (!preview?.token) return;
+    if (busy || !preview?.token) return;
     setBusy(true);
     setError('');
     try {

@@ -142,7 +142,7 @@ func (s *StorageReleaser) Run(ctx context.Context) error {
 		s.tick(ctx)
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return nil
 		case <-ticker.C:
 		}
 	}

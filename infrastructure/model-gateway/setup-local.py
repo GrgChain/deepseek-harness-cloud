@@ -76,20 +76,11 @@ def main():
             + password
             + "'"
         )
+        hostport = dsn.hostname if dsn.port is None else f"{dsn.hostname}:{dsn.port}"
         private_file(
             role_path,
             (
-                urlunparse(
-                    dsn._replace(
-                        netloc="hc_model_gateway:"
-                        + password
-                        + "@"
-                        + dsn.hostname
-                        + ":"
-                        + str(dsn.port)
-                    )
-                )
-                + "\n"
+                urlunparse(dsn._replace(netloc=f"hc_model_gateway:{password}@{hostport}")) + "\n"
             ).encode(),
         )
     private_file(role_path)

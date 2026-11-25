@@ -279,7 +279,7 @@ Mock 只验证相应逻辑层，不替代真实 Docker、模型/工具和浏览�
 
 ## 工程检查现状
 
-当前仓库的前端格式脚本仍显式读取根目录`.prettierrc.json`与`.prettierignore`，但两文件已不在版本控制中；`npm run format:check --prefix apps`因配置缺失失败。`make check`依赖`format-check`，`make ci`又依赖`check`，因此不能把这些入口列为当前可通过的完整检查。恢复格式工具链前，先按根README分别执行Go静态检查、前端类型检查、`make test`和`make build`，各项结果独立记录。仓库也不再提供`.editorconfig`、`pyproject.toml`或`requirements-dev.txt`，不得使用旧的依赖安装命令或声称Ruff配置和版本仍由这些文件锁定。
+根目录已提供 `.prettierrc.json`、`.prettierignore` 与 `pyproject.toml`，`make format`、`make format-check`、`make check` 和 `make ci` 可直接作为本地与 CI 完整工程检查入口。仓库仍不提供 `.editorconfig` 或 `requirements-dev.txt`。
 
 `make test`及`make plugin-mem0-test`、`make plugin-graphiti-test`需要先执行`npm ci --prefix infrastructure/runtime`安装固定DSH依赖。Go数据库集成用例和Docker契约按环境变量决定执行或跳过；普通测试通过不代表这些外部依赖已经验收。bridge测试需先构建`hc-context-bridge:dev`并执行`make context-unit-test`，该镜像包含FastEmbed、LlamaIndex等依赖；宿主Python缺少这些库时的导入失败属于测试环境未准备完整。
 
@@ -599,6 +599,14 @@ npm run test:e2e -- ip-access-live.spec.ts
 ```
 
 原域名登录、13个页面和原生 WS 数据帧亦通过。API、Worker、Gateway、模型入口保持就绪。内网 IP 的浏览器验证使用直连：本机系统代理曾使 WebSocket 握手超时，直接连接返回101并正常收发帧。
+
+### 仅 IP 入口（2026-11-13）
+
+本机已启用 `ip_only: true` 并更新 API、控制台与 Gateway。控制台和工作空间域名在控制台 TLS、IP TLS 与回环 Gateway 上的 HTTP 请求均返回404；WebSocket 握手返回404或关闭连接。批准 IP 的证书校验、登录、API 与 Gateway 就绪检查通过，系统检查的入口探测已改为 IP 工作空间挂载。
+
+Access、Admission 与 hcctl 的 Go 竞态测试、前端代理3项测试和类型检查通过；桌面与手机上的管理员/成员登录、会话恢复、过期回调及平台入口检查共8项浏览器测试通过。随后创建临时工作空间，使用原固定 DSH 镜像进行桌面和手机真实验收，两项均通过：IP 登录、13个管理页面、DSH 页面渲染和静态资源加载、WebSocket 数据帧、实例路径 Cookie、退出后撤销和连接关闭。浏览器禁用旧域名解析，两个端均无域名请求、静态资源失败或页面异常。测试空间及空存储已清理，数据库确认创建和删除操作成功、实例及存储均为 DELETED。复验沿用上方 IP 入口命令。
+
+真实创建检查同时发现默认模型首个响应约18秒，早于30秒探测总预算被10秒响应头及14秒传输限制截断。网关客户端现统一采用30秒传输上限，调用方更短的期限仍生效；15秒延迟响应及短期限取消的回归测试通过，默认模型真实流式工具往返校验恢复 HEALTHY。API 与 Worker 已同步更新。
 
 ### 现有功能权限目录同步（2026-11-04）
 

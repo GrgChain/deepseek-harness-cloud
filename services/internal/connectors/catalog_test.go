@@ -5,50 +5,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
 func TestBuiltinCatalog(t *testing.T) {
 	catalog := builtinCatalog()
-	want := strings.Fields("tencent-docs tencent-meeting tencent-lexiang tencent-weiyun didi qcc tencent-ardot notion openalex dida365 dify github gitee gitlab codeup context7 linear sentry vercel supabase")
-	if catalog.Version != 2 || len(catalog.Entries) != len(want) {
-		t.Fatal("incomplete built-in catalog")
+	if catalog.Version != 2 || len(catalog.Entries) != 0 {
+		t.Fatal("built-in catalog should be empty")
 	}
-	seen := map[string]bool{}
-	categories := map[string]bool{"office": true, "knowledge": true, "productivity": true, "media": true, "travel": true, "professional": true, "self_hosted": true, "development": true}
-	for _, entry := range catalog.Entries {
-		if seen[entry.ID] || !endpointID.MatchString(entry.ID) || entry.Name == "" || entry.Description == "" || entry.SetupHint == "" || len(entry.Requirements) == 0 || !categories[entry.Category] || entry.Mode != "remote" {
-			t.Fatal("invalid catalog entry", entry.ID)
-		}
-		if entry.DefaultURL == "" && entry.ID != "dify" {
-			t.Fatal("catalog entry needs an external adapter", entry.ID)
-		}
-		for _, link := range []string{entry.DocURL, entry.GuideURL, catalog.SourceURL} {
-			u, err := url.Parse(link)
-			if err != nil || u.Host == "" || u.User != nil || u.Scheme != "https" && u.Scheme != "http" {
-				t.Fatal("invalid catalog link", entry.ID)
-			}
-		}
-		seen[entry.ID] = true
-		if entry.DefaultURL != "" {
-			if _, err := parseEndpoint(Endpoint{URL: entry.DefaultURL}); err != nil {
-				t.Fatal("invalid default MCP URL", entry.ID)
-			}
-			if entry.AuthKind != "oauth2" && entry.AuthKind != "personal_token" && entry.AuthKind != "api_key" {
-				t.Fatal("default endpoint lacks supported authentication", entry.ID)
-			}
-		}
-	}
-	for _, id := range want {
-		if !seen[id] {
-			t.Fatal("missing catalog entry", id)
-		}
-	}
-	// Callers cannot mutate the metadata served by a later request.
-	catalog.Entries[0].Requirements[0] = "changed"
-	if builtinCatalog().Entries[0].Requirements[0] == "changed" {
-		t.Fatal("catalog shared mutable state")
+	u, err := url.Parse(catalog.SourceURL)
+	if err != nil || u.Host == "" || u.User != nil || u.Scheme != "https" && u.Scheme != "http" {
+		t.Fatal("invalid catalog source link")
 	}
 }
 
@@ -90,30 +57,14 @@ func TestCatalogBindingsDoNotApproveNetworkTargets(t *testing.T) {
 func TestDefaultEndpointsPreserveDeploymentOverrides(t *testing.T) {
 	s := NewService(nil, nil, "test", false, "")
 	p, err := s.loadPolicy()
-	if err != nil || len(p.Endpoints) != 19 {
-		t.Fatal("official defaults missing", err)
-	}
-	for _, provider := range oauthProviders {
-		matched := false
-		for _, endpoint := range p.Endpoints {
-			if endpoint.CatalogID == provider.ID && endpoint.URL == provider.URL {
-				matched = true
-			}
-		}
-		if !matched {
-			t.Fatal("OAuth metadata differs from default address", provider.ID)
-		}
+	if err != nil || len(p.Endpoints) != 0 {
+		t.Fatal("empty catalog must not inject built-in endpoints", err)
 	}
 	s.policy = func() (Policy, error) {
 		return Policy{Endpoints: []Endpoint{{ID: "company-docs", CatalogID: "tencent-docs", URL: "https://company.example/mcp"}}}, nil
 	}
 	p, err = s.loadPolicy()
-	if err != nil || len(p.Endpoints) != 19 || p.Endpoints[0].URL != "https://company.example/mcp" {
+	if err != nil || len(p.Endpoints) != 1 || p.Endpoints[0].URL != "https://company.example/mcp" {
 		t.Fatal("deployment endpoint replaced", err)
-	}
-	for _, endpoint := range p.Endpoints[1:] {
-		if endpoint.CatalogID == "tencent-docs" {
-			t.Fatal("duplicate default overrides company binding")
-		}
 	}
 }

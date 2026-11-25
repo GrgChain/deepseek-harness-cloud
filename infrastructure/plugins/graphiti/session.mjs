@@ -20,8 +20,18 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
     if (disposed || !session?.id || session.header?.origin === 'subagent') return null;
     if (!sessions.has(session.id)) {
       if (sessions.size >= 100) {
-        stats.dropped++;
-        return null;
+        let evicted = false;
+        for (const [oldId, oldState] of sessions) {
+          if (!oldState.pending.size && !oldState.task && !oldState.wantCommit) {
+            sessions.delete(oldId);
+            evicted = true;
+            break;
+          }
+        }
+        if (!evicted) {
+          stats.dropped++;
+          return null;
+        }
       }
       sessions.set(session.id, {
         pending: new Map(),
@@ -64,7 +74,13 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
     if (state.seen.has(id)) return;
     const row = { id, role, content };
     const bytes = Buffer.byteLength(JSON.stringify(row));
-    if (bytes > 240 * 1024 || buffered + bytes > 4 * 1024 * 1024 || state.seen.size >= 10000) {
+    const extractionBytes = Buffer.byteLength(JSON.stringify({ role, content })) + 34;
+    if (
+      bytes > 240 * 1024 ||
+      extractionBytes > 262144 ||
+      buffered + bytes > 4 * 1024 * 1024 ||
+      state.seen.size >= 10000
+    ) {
       stats.dropped++;
       warn();
       return;
@@ -79,6 +95,7 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
     state.wantCommit ||= commit;
     state.forceCommit ||= force;
     if (state.task) return state.task;
+    let failed = false;
     state.task = (async () => {
       while (!disposed) {
         while (state.pending.size && !disposed) {
@@ -113,6 +130,7 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
             state.pendingTokens = result.pending_tokens ?? state.pendingTokens;
             state.pendingMessages = result.pending_messages ?? state.pendingMessages;
           } catch {
+            failed = true;
             stats.failed++;
             // Retain the batch. Stable message IDs make a later replay idempotent.
             warn();
@@ -150,6 +168,7 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
               state.forceCommit = true;
             }
           } catch {
+            failed = true;
             state.wantCommit = true;
             state.forceCommit ||= forceCommit;
             stats.failed++;
@@ -158,8 +177,16 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
           }
         } else break;
       }
+      state.task = null;
     })().finally(() => {
       state.task = null;
+      if (
+        !failed &&
+        !disposed &&
+        (state.pending.size || (options.archiveSessions && state.wantCommit))
+      ) {
+        void flush(session);
+      }
     });
     return state.task;
   };
@@ -195,7 +222,6 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
       const query = text(message).slice(0, 4000);
       const key = String(turn ?? message.id ?? hash(query));
       if (state.lastRecall === key) return decision;
-      state.lastRecall = key;
       try {
         const result = JSON.parse(
           await request(
@@ -209,6 +235,8 @@ export async function mountSessionMemory(ctx, item, request, options = {}) {
             { agent, signal },
           ),
         );
+        if (signal?.aborted) return decision;
+        state.lastRecall = key;
         const lines = [];
         let used = 0;
         for (const row of result.items ?? []) {

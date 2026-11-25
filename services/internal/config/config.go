@@ -13,6 +13,18 @@ import (
 type Config struct {
 	Role, HTTPAddress, DatabaseDSN, RedisAddress, RedisUsername, RedisPassword string
 	RedisTLS                                                                   bool
+	DatabaseMaxConns                                                           int32
+}
+
+func ParseDatabaseMaxConns(raw string, fallback int32) (int32, error) {
+	if raw == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 || n > 64 {
+		return 0, errors.New("HC_DB_MAX_CONNS must be between 1 and 64")
+	}
+	return int32(n), nil
 }
 
 func ReadPrivateFile(path string) ([]byte, error) {
@@ -54,7 +66,12 @@ func Load(role string, getenv func(string) string) (Config, error) {
 	if !exists {
 		return Config{}, errors.New("unknown process role")
 	}
-	c := Config{Role: role, HTTPAddress: "127.0.0.1:" + port, RedisTLS: true}
+	defaultMaxConns := map[string]int32{"api": 12, "worker": 6, "gateway": 8}
+	c := Config{Role: role, HTTPAddress: "127.0.0.1:" + port, RedisTLS: true, DatabaseMaxConns: defaultMaxConns[role]}
+	var err error
+	if c.DatabaseMaxConns, err = ParseDatabaseMaxConns(getenv("HC_DB_MAX_CONNS"), c.DatabaseMaxConns); err != nil {
+		return Config{}, err
+	}
 	if value := getenv("HC_HTTP_ADDR"); value != "" {
 		c.HTTPAddress = value
 	}
@@ -63,7 +80,6 @@ func Load(role string, getenv func(string) string) (Config, error) {
 	} else if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
 		return Config{}, errors.New("HC_HTTP_ADDR port is invalid")
 	}
-	var err error
 	c.DatabaseDSN, err = ReadSecret(getenv("HC_DB_DSN_FILE"))
 	if err != nil {
 		return Config{}, fmt.Errorf("HC_DB_DSN_FILE: %w", err)

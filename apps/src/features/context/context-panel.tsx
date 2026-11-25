@@ -60,6 +60,7 @@ export function ContextPanel({ user, kind }: { user: CurrentUser; kind: ContextK
   const [filter, setFilter] = useState('全部');
   const pagination = usePagePagination(JSON.stringify([user.id, kind, search, filter]));
   async function run(id: string, task: () => Promise<void>) {
+    if (busy) return;
     setBusy(id);
     setError('');
     try {

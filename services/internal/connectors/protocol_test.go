@@ -80,9 +80,11 @@ func TestAutomaticProtocolCompatibility(t *testing.T) {
 	}{
 		{"prefer-modern", "2026-07-28", "2026-07-28", []string{"2026-07-28", "2025-11-25"}},
 		{"modern-only", "2026-07-28", "2026-07-28", []string{"2026-07-28"}},
-		{"legacy-fallback", "2026-07-28", "2025-11-25", []string{"2025-11-25"}},
+		{"legacy-fallback-2025-11-25", "2026-07-28", "2025-11-25", []string{"2025-11-25"}},
+		{"legacy-fallback-2025-06-18", "2026-07-28", "2025-06-18", []string{"2025-06-18"}},
+		{"legacy-fallback-2025-03-26", "2026-07-28", "2025-03-26", []string{"2025-03-26"}},
+		{"legacy-fallback-2024-11-05", "2026-07-28", "2024-11-05", []string{"2024-11-05"}},
 		{"preserve-legacy", "2025-11-25", "2025-11-25", []string{"2026-07-28", "2025-11-25"}},
-		{"unsupported-version", "2026-07-28", "", []string{"2025-06-18"}},
 		{"legacy-does-not-upgrade", "2025-11-25", "", []string{"2026-07-28"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

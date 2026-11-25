@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-test-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: apps/.node-version
+          cache: npm
+          cache-dependency-path: |
+            apps/package-lock.json
+            infrastructure/runtime/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Ruff
+        run: pip install --no-cache-dir ruff
+
+      - name: Install JavaScript dependencies
+        run: |
+          npm ci --prefix apps
+          npm ci --prefix infrastructure/runtime
+
+      - name: Format, lint, vet, and typecheck
+        run: make check
+
+      - name: Run unit and race tests
+        run: make test
+
+      - name: Build backend and portal
+        run: make build

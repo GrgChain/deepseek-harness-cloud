@@ -35,6 +35,12 @@ class Commit(BaseModel):
 def initialize(db, backend):
     if backend not in {"mem0", "graphiti"}:
         raise HTTPException(403)
+    ready = db.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN (?,?)",
+        (f"{backend}_session_messages", f"{backend}_session_commits"),
+    ).fetchone()[0]
+    if ready == 2:
+        return
     db.executescript(
         f"""
         CREATE TABLE IF NOT EXISTS {backend}_session_messages (
@@ -81,6 +87,13 @@ def execute(db, backend, inp, target):
                 not row.content.strip()
                 or "\x00" in row.content
                 or len(row.content.encode()) > 240 * 1024
+                or len(
+                    json.dumps(
+                        {"role": row.role, "content": row.content}, ensure_ascii=False
+                    ).encode()
+                )
+                + 34
+                > 262144
                 for row in batch.messages
             ):
                 raise HTTPException(422)

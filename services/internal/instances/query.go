@@ -72,7 +72,7 @@ const selectInstance = `SELECT i.id::text,i.org_id::text,i.owner_id::text,i.name
  JOIN model_configurations c ON c.org_id=i.org_id AND c.id=i.model_config_id AND c.version=i.model_config_version
  JOIN secrets sec ON sec.org_id=c.org_id AND sec.id=c.credential_ref
  LEFT JOIN model_validations mv ON mv.config_id=c.id AND mv.config_version=c.version
- LEFT JOIN user_model_connection_versions pv ON pv.org_id=i.org_id AND pv.owner_id=i.owner_id AND pv.model_configuration_id=i.model_config_id AND pv.model_configuration_version=i.model_config_version
+ LEFT JOIN user_model_connection_versions pv ON pv.org_id=i.org_id AND pv.owner_id=i.owner_id AND pv.connection_id=i.model_config_id AND pv.version=i.model_config_version AND pv.model_configuration_id=i.model_config_id AND pv.model_configuration_version=i.model_config_version
  LEFT JOIN model_providers mp ON mp.id=pv.manifest->'catalog'->>'provider'`
 
 func scanInstance(row pgx.Row, now time.Time) (InstanceView, error) {

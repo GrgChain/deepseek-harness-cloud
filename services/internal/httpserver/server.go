@@ -38,6 +38,38 @@ func New(role string, probe func(context.Context) error) *Server {
 	return &Server{role: role, probe: probe}
 }
 
+type requestBudget struct {
+	write time.Duration
+	read  time.Duration
+}
+
+func routeBudget(method, path string) requestBudget {
+	switch {
+	case method == http.MethodPost && path == "/v1/context/knowledge/parse":
+		return requestBudget{write: 300 * time.Second, read: 60 * time.Second}
+	case method == http.MethodPost && (path == "/v1/skills:preview" || path == "/v1/skills:apply" || path == "/v1/skills:export" || (strings.HasPrefix(path, "/v1/skills/") && strings.HasSuffix(path, ":previous"))):
+		return requestBudget{write: 300 * time.Second, read: 60 * time.Second}
+	case method == http.MethodPost && (path == "/v1/skills:source" || strings.HasPrefix(path, "/v1/skills/") && strings.HasSuffix(path, ":check-update")):
+		return requestBudget{write: 125 * time.Second}
+	case strings.HasPrefix(path, "/v1/connectors"):
+		return requestBudget{write: 125 * time.Second}
+	case method == http.MethodPost && strings.HasPrefix(path, "/v1/context/memory/") && (strings.HasSuffix(path, "/export") || strings.HasSuffix(path, "/preview")):
+		return requestBudget{write: 95 * time.Second, read: 60 * time.Second}
+	case method == http.MethodGet && strings.HasPrefix(path, "/v1/storage-assets/") && (strings.HasSuffix(path, "/files") || strings.HasSuffix(path, "/file")):
+		return requestBudget{write: 65 * time.Second}
+	case method == http.MethodPost && (path == "/v1/model-configuration:validate" || (strings.HasPrefix(path, "/v1/my-models/") && strings.HasSuffix(path, ":validate"))):
+		return requestBudget{write: 35 * time.Second}
+	case method == http.MethodPost && ((strings.HasPrefix(path, "/v1/model-providers/") || strings.HasPrefix(path, "/v1/my-provider-accounts/")) && strings.HasSuffix(path, ":sync")):
+		return requestBudget{write: 35 * time.Second}
+	case strings.HasPrefix(path, "/v1/plugins"):
+		return requestBudget{write: 25 * time.Second, read: 20 * time.Second}
+	case strings.HasPrefix(path, "/v1/skills") || strings.HasPrefix(path, "/v1/context/"):
+		return requestBudget{write: 20 * time.Second}
+	default:
+		return requestBudget{write: 9 * time.Second}
+	}
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	id := make([]byte, 16)
 	_, _ = rand.Read(id)
@@ -89,45 +121,14 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if s.business != nil {
-				budget := 9 * time.Second
-				if strings.HasPrefix(r.URL.Path, "/v1/skills") || strings.HasPrefix(r.URL.Path, "/v1/context/") {
-					budget = 20 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
+				budget := routeBudget(r.Method, r.URL.Path)
+				if budget.write > 9*time.Second {
+					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget.write))
 				}
-				if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/v1/context/memory/") && (strings.HasSuffix(r.URL.Path, "/export") || strings.HasSuffix(r.URL.Path, "/preview")) {
-					budget = 95 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
+				if budget.read > 0 {
+					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(budget.read))
 				}
-				if r.Method == http.MethodPost && (r.URL.Path == "/v1/skills:source" || strings.HasPrefix(r.URL.Path, "/v1/skills/") && strings.HasSuffix(r.URL.Path, ":check-update")) {
-					budget = 125 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-				}
-				if strings.HasPrefix(r.URL.Path, "/v1/connectors") {
-					budget = 125 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-				}
-				if r.Method == http.MethodPost && r.URL.Path == "/v1/context/knowledge/parse" {
-					budget = 300 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-					_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(60 * time.Second))
-				}
-				if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/v1/storage-assets/") && (strings.HasSuffix(r.URL.Path, "/files") || strings.HasSuffix(r.URL.Path, "/file")) {
-					budget = 65 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-				}
-				if r.Method == http.MethodPost && (r.URL.Path == "/v1/model-configuration:validate" || (strings.HasPrefix(r.URL.Path, "/v1/my-models/") && strings.HasSuffix(r.URL.Path, ":validate"))) {
-					budget = 35 * time.Second
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(budget))
-				}
-				var ctx context.Context
-				var cancel context.CancelFunc
-				if r.Method == http.MethodPost && (r.URL.Path == "/v1/skills:preview" || r.URL.Path == "/v1/skills:apply" || r.URL.Path == "/v1/skills:export" || strings.HasSuffix(r.URL.Path, ":previous")) {
-					_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
-					ctx, cancel = context.WithCancel(r.Context())
-				} else {
-					ctx, cancel = context.WithTimeout(r.Context(), budget)
-				}
+				ctx, cancel := context.WithTimeout(r.Context(), budget.write)
 				defer cancel()
 				s.business.ServeAuthenticated(w, r.WithContext(ctx), p)
 				return

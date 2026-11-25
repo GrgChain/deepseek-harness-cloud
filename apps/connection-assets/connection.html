@@ -11,17 +11,31 @@
     <main class="transition" aria-labelledby="entry-title">
       <p class="brand">DSH Cloud</p>
       <div class="indicator" aria-hidden="true">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M20 16.6A4.5 4.5 0 0 0 18 8a6 6 0 0 0-11.5 1.5A3.8 3.8 0 0 0 6 17h12" />
-          <path d="M12 13v7m-3-3 3 3 3-3" />
+        <svg viewBox="0 0 36 36" fill="none" aria-hidden="true">
+          <defs>
+            <linearGradient
+              id="dsh-conn-bg"
+              x1="3"
+              y1="2"
+              x2="33"
+              y2="34"
+              gradientUnits="userSpaceOnUse"
+            >
+              <stop offset="0%" stop-color="#3b82f6" />
+              <stop offset="52%" stop-color="#2563eb" />
+              <stop offset="100%" stop-color="#0891b2" />
+            </linearGradient>
+          </defs>
+          <rect width="36" height="36" rx="10" fill="url(#dsh-conn-bg)" />
+          <path
+            d="M11.5 22.5H9.8C7.7 22.5 6 20.8 6 18.7C6 16.8 7.4 15.2 9.2 14.9C9.8 11.3 12.9 8.5 16.7 8.5C20.2 8.5 23.1 10.8 24.1 14C24.5 13.9 24.9 13.8 25.3 13.8C27.9 13.8 30 15.9 30 18.5C30 20.8 28.3 22.5 26 22.5H24.5"
+            stroke="#ffffff"
+            stroke-width="2.2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path d="M18 14.8L22.2 19L18 23.2L13.8 19L18 14.8Z" fill="#ffffff" />
+          <path d="M13 26.8H23" stroke="#bae6fd" stroke-width="2" stroke-linecap="round" />
         </svg>
       </div>
       <div role="status" aria-live="polite">

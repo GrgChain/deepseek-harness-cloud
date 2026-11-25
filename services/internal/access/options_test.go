@@ -22,7 +22,7 @@ func TestAccessConfigRequiresPrivateReferencesAndSameHTTPSDeployment(t *testing.
 	if _, err := LoadOptions(path); err != nil {
 		t.Fatal(err)
 	}
-	for _, change := range []func(*Options){func(o *Options) { o.DataKeyFile = "/private/../key" }, func(o *Options) { o.OrganizationID = "" }, func(o *Options) { o.PortalOrigin = "https://portal.foreign.test:42013" }, func(o *Options) { o.WorkspaceEngine = "http://192.168.1.1:17080" }, func(o *Options) { o.SchemaVersion = 2 }} {
+	for _, change := range []func(*Options){func(o *Options) { o.DataKeyFile = "/private/../key" }, func(o *Options) { o.OrganizationID = "" }, func(o *Options) { o.PortalOrigin = "https://portal.foreign.test:42013" }, func(o *Options) { o.WorkspaceEngine = "http://192.168.1.1:17080" }, func(o *Options) { o.SchemaVersion = 2 }, func(o *Options) { o.IPOnly = true }} {
 		o := good
 		change(&o)
 		write(o)

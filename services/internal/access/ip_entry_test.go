@@ -4,16 +4,73 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jonluo94/deepseek-harness-cloud/services/internal/webapi"
 )
+
+func TestIPOnlyPortalUsesLoopbackHostAndPreservesLoginOrigin(t *testing.T) {
+	fixture := httptest.NewTLSServer(http.NotFoundHandler())
+	certificate := fixture.TLS.Certificates[0]
+	fixture.Close()
+	key, err := x509.MarshalPKCS8PrivateKey(certificate.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	certFile, keyFile := filepath.Join(dir, "cert.pem"), filepath.Join(dir, "key.pem")
+	for path, data := range map[string][]byte{
+		certFile: pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: certificate.Certificate[0]}),
+		keyFile:  pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}),
+	} {
+		if err := os.WriteFile(path, data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rules, _ := NewRules("https://portal.harness.test:42013", "harness.test")
+	for _, ipOnly := range []bool{false, true} {
+		t.Run(strconv.FormatBool(ipOnly), func(t *testing.T) {
+			var receivedHost, receivedOrigin, publicOrigin string
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHost, receivedOrigin, publicOrigin = r.Host, r.Header.Get("Origin"), r.Header.Get("X-HC-Public-Origin")
+				w.Header().Set("Location", rules.PortalOrigin+"/oidc/authorize")
+				w.WriteHeader(http.StatusSeeOther)
+			}))
+			defer upstream.Close()
+			o := &IPOptions{Address: "127.0.0.1", PortalPort: 42013, CertificateFile: certFile, KeyFile: keyFile, PortalUpstream: upstream.URL}
+			entry, err := NewIPEntry(&Runtime{Options: Options{IPAccess: o, IPOnly: ipOnly}, Rules: rules}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer entry.Close()
+			request := httptest.NewRequest("POST", o.Origin(42013)+"/oidc/login", nil)
+			request.Header.Set("Origin", o.Origin(42013))
+			response := httptest.NewRecorder()
+			entry.handler().ServeHTTP(response, request)
+			wantHost := "portal.harness.test:42013"
+			if ipOnly {
+				wantHost = strings.TrimPrefix(upstream.URL, "http://")
+			}
+			if receivedHost != wantHost || receivedOrigin != rules.PortalOrigin || publicOrigin != o.Origin(42013) {
+				t.Fatal("IP portal lost its approved host or login origin")
+			}
+			if response.Code != http.StatusSeeOther || response.Header().Get("Location") != o.Origin(42013)+"/oidc/authorize" {
+				t.Fatal("login redirect escaped the IP entry")
+			}
+		})
+	}
+}
 
 func TestIPWorkspaceWebSocketHandshakeAndFrames(t *testing.T) {
 	rules, _ := NewRules("https://portal.harness.test:42013", "harness.test")

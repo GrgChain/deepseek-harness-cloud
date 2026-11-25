@@ -360,6 +360,10 @@ export function ConnectorDetails({
             setTool(null);
             await refresh();
           }}
+          onSettled={() => {
+            setBusy('');
+            void calls.refetch();
+          }}
         />
       )}
       <Modal
@@ -395,6 +399,7 @@ function ToolCall({
   onStarted,
   onBackground,
   onResult,
+  onSettled,
 }: {
   user: CurrentUser;
   connection: Connector;
@@ -403,13 +408,14 @@ function ToolCall({
   onStarted: () => void;
   onBackground: () => void;
   onResult: (v: MCPCall) => Promise<void>;
+  onSettled: () => void;
 }) {
   const cache = useQueryClient();
   const parameters = toolParameters(tool.input_schema);
   const [mode, setMode] = useState<'form' | 'json'>(parameters ? 'form' : 'json');
   const [text, setText] = useState('{}');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [timeout, setTimeout] = useState<number>(60);
+  const [timeoutSeconds, setTimeoutSeconds] = useState<number>(60);
   const [preview, setPreview] = useState<Record<string, unknown> | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [riskConfirmed, setRiskConfirmed] = useState(false);
@@ -461,10 +467,11 @@ function ToolCall({
     }
   }
   async function submit() {
-    if (!preview) return;
+    if (!preview || busy) return;
     setBusy(true);
     setError('');
     onStarted();
+    let delivered = false;
     try {
       const value = await client.request<MCPCall>(user, `/${connection.id}/invoke`, {
         expected_version: connection.version,
@@ -474,8 +481,9 @@ function ToolCall({
         idempotency_key: key,
         confirmed,
         risk_confirmed: riskConfirmed,
-        timeout_seconds: timeout,
+        timeout_seconds: timeoutSeconds,
       });
+      delivered = true;
       await onResult(value);
     } catch (cause) {
       if (cause instanceof APIError && cause.status === 401) expireSession(cache);
@@ -485,6 +493,7 @@ function ToolCall({
       } else setError(errorText(cause));
     } finally {
       setBusy(false);
+      if (!delivered) onSettled();
     }
   }
   return (
@@ -605,8 +614,8 @@ function ToolCall({
                           min={1}
                           max={120}
                           precision={0}
-                          value={timeout}
-                          onChange={(v) => setTimeout(v ?? 60)}
+                          value={timeoutSeconds}
+                          onChange={(v) => setTimeoutSeconds(v ?? 60)}
                         />
                       </Form.Item>
                       <details className="connector-call-schema">
@@ -626,7 +635,7 @@ function ToolCall({
         <>
           <div className="connector-call-preview-heading">
             <h3>核对调用参数</h3>
-            <span>超时 {timeout} 秒</span>
+            <span>超时 {timeoutSeconds} 秒</span>
           </div>
           <pre className="connector-json">{JSON.stringify(preview, null, 2)}</pre>
           <div className="connector-confirmations">

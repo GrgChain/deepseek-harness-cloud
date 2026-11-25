@@ -1,12 +1,18 @@
 import { defineConfig, devices } from '@playwright/test';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+const access = existsSync('../.local/access-config.json')
+  ? JSON.parse(readFileSync('../.local/access-config.json', 'utf8'))
+  : undefined;
+const ipAddress = access?.ip_access?.address;
 const baseURL =
   process.env.HC_TEST_PORTAL_URL ??
-  (existsSync('../.local/access-config.json')
-    ? 'https://portal.harness.localhost:42013'
-    : existsSync('../.local/auth/cert.pem')
-      ? 'https://127.0.0.1:42013'
-      : 'http://127.0.0.1:42013');
+  (access?.ip_only
+    ? `https://${ipAddress.includes(':') ? `[${ipAddress}]` : ipAddress}:${access.ip_access.portal_port}`
+    : access
+      ? 'https://portal.harness.localhost:42013'
+      : existsSync('../.local/auth/cert.pem')
+        ? 'https://127.0.0.1:42013'
+        : 'http://127.0.0.1:42013');
 
 export default defineConfig({
   testDir: './tests',

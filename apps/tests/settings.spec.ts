@@ -133,7 +133,7 @@ test('platform configuration combines system checks and connection status withou
     if (/\/v1\/(model-|my-)/.test(new URL(r.url()).pathname)) modelRequests.push(r.url());
   });
   await page.goto('/app/settings');
-  await expect(page.getByRole('tab')).toHaveText(['默认资源', '系统上限', '系统检查']);
+  await expect(page.getByRole('tab')).toHaveText(['默认资源', '系统检查']);
   await expect(page.getByRole('tab', { name: '默认资源', exact: true })).toHaveAttribute(
     'aria-selected',
     'true',
@@ -144,11 +144,13 @@ test('platform configuration combines system checks and connection status withou
     tabTops.push((await tab.boundingBox())!.y);
   }
   expect(Math.max(...tabTops) - Math.min(...tabTops)).toBeLessThan(2);
-  const runtime = page.getByRole('region', { name: '默认用户资源配置', exact: true });
+  const runtime = page.getByRole('region', { name: '默认资源配置', exact: true });
   await expect(runtime.getByText('2 核', { exact: true })).toBeVisible();
   await expect(runtime.getByText('4 GiB', { exact: true })).toBeVisible();
   await expect(runtime.getByText('10 GiB', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: '系统资源上限', exact: true })).not.toBeVisible();
+  const quota = page.getByRole('region', { name: '系统资源上限', exact: true });
+  await expect(quota).toBeVisible();
+  await expect(quota.getByRole('table')).toBeVisible();
   await expect(page.getByRole('region', { name: '检查结果', exact: true })).not.toBeVisible();
   await expect(page.getByRole('region', { name: '平台连接状态', exact: true })).not.toBeVisible();
   await expect(page.locator('input[type=password]')).toHaveCount(0);
@@ -163,17 +165,6 @@ test('platform configuration combines system checks and connection status withou
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({
     path: info.outputPath('platform-runtime-only.png'),
-    fullPage: true,
-    animations: 'disabled',
-  });
-  await page.getByRole('tab', { name: '系统上限', exact: true }).click();
-  const quota = page.getByRole('region', { name: '系统资源上限', exact: true });
-  await expect(quota.getByText('默认单用户实例上限：2 个', { exact: true })).toBeVisible();
-  await expect(quota.getByRole('table')).toBeVisible();
-  await expect(runtime).not.toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({
-    path: info.outputPath('platform-resource-limits.png'),
     fullPage: true,
     animations: 'disabled',
   });
@@ -233,7 +224,7 @@ test('missing runtime defaults shows initialization state', async ({ page }) => 
     r.fulfill({ status: 404, json: { code: 'DEFAULTS_NOT_CONFIGURED' } }),
   );
   await page.goto('/app/settings');
-  await expect(page.getByText('尚未初始化默认用户资源配置', { exact: true })).toBeVisible();
+  await expect(page.getByText('尚未初始化默认资源配置', { exact: true })).toBeVisible();
   await expect(page.getByText('模型连接', { exact: true })).toHaveCount(0);
 });
 
@@ -266,7 +257,7 @@ test('administrator initializes runtime defaults without loading or submitting a
   });
   await page.goto('/app/settings');
   await page.getByRole('button', { name: '初始化配置', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: '初始化默认用户资源配置', exact: true });
+  const dialog = page.getByRole('dialog', { name: '初始化默认资源配置', exact: true });
   await expect(dialog.getByRole('button', { name: '保存配置', exact: true })).toBeEnabled();
   await dialog.getByRole('spinbutton', { name: '每用户默认实例上限', exact: true }).fill('3');
   await dialog.getByRole('spinbutton', { name: '数据保留期限', exact: true }).fill('14');
@@ -284,8 +275,8 @@ test('administrator initializes runtime defaults without loading or submitting a
     },
   ]);
   expect(models).toEqual([]);
-  await expect(page.getByText('默认用户资源配置已保存', { exact: true })).toBeVisible();
-  await expect(page.getByText('默认用户资源配置已保存', { exact: true })).not.toBeVisible({
+  await expect(page.getByText('默认资源配置已保存', { exact: true })).toBeVisible();
+  await expect(page.getByText('默认资源配置已保存', { exact: true })).not.toBeVisible({
     timeout: 6000,
   });
 });
@@ -312,17 +303,17 @@ test('administrator edits approved resources and retention while cancellation wr
   });
   await page.goto('/app/settings');
   await page
-    .getByRole('region', { name: '默认用户资源配置', exact: true })
+    .getByRole('region', { name: '默认资源配置', exact: true })
     .getByRole('button', { name: '修改配置', exact: true })
     .click();
-  let dialog = page.getByRole('dialog', { name: '修改默认用户资源配置', exact: true });
+  let dialog = page.getByRole('dialog', { name: '修改默认资源配置', exact: true });
   await dialog.getByRole('button', { name: /^取\s*消$/ }).click();
   expect(writes).toEqual([]);
   await page
-    .getByRole('region', { name: '默认用户资源配置', exact: true })
+    .getByRole('region', { name: '默认资源配置', exact: true })
     .getByRole('button', { name: '修改配置', exact: true })
     .click();
-  dialog = page.getByRole('dialog', { name: '修改默认用户资源配置', exact: true });
+  dialog = page.getByRole('dialog', { name: '修改默认资源配置', exact: true });
   await dialog
     .getByRole('combobox', { name: '默认 CPU', exact: true })
     .locator('..')
@@ -372,10 +363,10 @@ test('runtime defaults version conflict requires explicit reload before saving t
   });
   await page.goto('/app/settings');
   await page
-    .getByRole('region', { name: '默认用户资源配置', exact: true })
+    .getByRole('region', { name: '默认资源配置', exact: true })
     .getByRole('button', { name: '修改配置', exact: true })
     .click();
-  const dialog = page.getByRole('dialog', { name: '修改默认用户资源配置', exact: true });
+  const dialog = page.getByRole('dialog', { name: '修改默认资源配置', exact: true });
   await expect(dialog.getByRole('button', { name: '保存配置', exact: true })).toBeEnabled();
   await dialog.getByRole('button', { name: '保存配置', exact: true }).click();
   await expect(dialog.getByText('配置已被更新，请重新加载后保存', { exact: true })).toBeVisible();
@@ -395,7 +386,7 @@ test('read-only user cannot initialize or edit runtime defaults', async ({ page 
   await expect(page.getByText('2 核', { exact: true })).toBeVisible();
   await expect(
     page
-      .getByRole('region', { name: '默认用户资源配置', exact: true })
+      .getByRole('region', { name: '默认资源配置', exact: true })
       .getByRole('button', { name: '修改配置', exact: true }),
   ).toHaveCount(0);
 });
@@ -456,10 +447,10 @@ test('runtime storage is numeric and maps approved capacities without a template
   });
   await page.goto('/app/settings');
   await page
-    .getByRole('region', { name: '默认用户资源配置', exact: true })
+    .getByRole('region', { name: '默认资源配置', exact: true })
     .getByRole('button', { name: '修改配置', exact: true })
     .click();
-  const dialog = page.getByRole('dialog', { name: '修改默认用户资源配置', exact: true });
+  const dialog = page.getByRole('dialog', { name: '修改默认资源配置', exact: true });
   await expect(dialog.getByText('运行模板', { exact: true })).toHaveCount(0);
   await expect(dialog.getByRole('combobox', { name: '默认运行模板' })).toHaveCount(0);
   const storage = dialog.getByRole('spinbutton', { name: '默认存储', exact: true });
@@ -493,10 +484,10 @@ test('runtime storage rejects fractional empty and unapproved values without wri
   });
   await page.goto('/app/settings');
   await page
-    .getByRole('region', { name: '默认用户资源配置', exact: true })
+    .getByRole('region', { name: '默认资源配置', exact: true })
     .getByRole('button', { name: '修改配置', exact: true })
     .click();
-  const dialog = page.getByRole('dialog', { name: '修改默认用户资源配置', exact: true });
+  const dialog = page.getByRole('dialog', { name: '修改默认资源配置', exact: true });
   const storage = dialog.getByRole('spinbutton', { name: '默认存储', exact: true });
   for (const [value, message] of [
     ['', '请输入存储容量'],

@@ -1,4 +1,4 @@
-import { APIError } from './error';
+import { apiFetch } from './http';
 import type { CurrentUser } from './identity';
 
 export interface SkillFile {
@@ -61,6 +61,15 @@ export interface HubSearch {
   items: HubSkill[];
 }
 
+const skillPassthroughCodes = new Set([
+  'SKILL_INVALID',
+  'SKILL_EXISTS',
+  'SKILL_LIMIT',
+  'VERSION_CONFLICT',
+  'NOT_FOUND',
+  'PAYLOAD_TOO_LARGE',
+]);
+
 export class SkillsClient {
   constructor(private readonly fetcher: typeof fetch = (...args) => fetch(...args)) {}
   private async response(
@@ -73,40 +82,20 @@ export class SkillsClient {
     const unrestricted =
       ['/v1/skills:preview', '/v1/skills:apply', '/v1/skills:export'].includes(path) ||
       path.endsWith(':previous');
-    const timeout = unrestricted
+    const timeoutMs = unrestricted
       ? undefined
-      : AbortSignal.timeout(
-          path === '/v1/skills:source' || path.endsWith(':check-update') ? 127_000 : 22_000,
-        );
-    const response = await this.fetcher(path, {
+      : path === '/v1/skills:source' || path.endsWith(':check-update')
+        ? 127_000
+        : 22_000;
+    return apiFetch(path, {
       method,
-      credentials: 'same-origin',
-      cache: 'no-store',
-      headers:
-        body === undefined
-          ? undefined
-          : { 'Content-Type': 'application/json', 'X-CSRF-Token': user.csrf_token },
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: signal && timeout ? AbortSignal.any([timeout, signal]) : (signal ?? timeout),
+      user,
+      body,
+      timeoutMs,
+      signal,
+      fetcher: this.fetcher,
+      passthroughError: (code) => skillPassthroughCodes.has(code),
     });
-    if (!response.ok) {
-      const problem = await response.json().catch(() => ({}));
-      const error = new APIError(response.status, problem.code ?? 'DEPENDENCY_UNAVAILABLE');
-      if (
-        [
-          'SKILL_INVALID',
-          'SKILL_EXISTS',
-          'SKILL_LIMIT',
-          'VERSION_CONFLICT',
-          'NOT_FOUND',
-          'PAYLOAD_TOO_LARGE',
-        ].includes(problem.code) &&
-        typeof problem.message === 'string'
-      )
-        error.message = problem.message;
-      throw error;
-    }
-    return response;
   }
   private async request<T>(
     user: CurrentUser,

@@ -66,11 +66,13 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
   }, [search]);
   const canManage = hasPermission(user, 'users:manage');
   const pagination = usePagePagination(JSON.stringify([user.id, filter]));
-  const [roleSearch, setRoleSearch] = useState('');
+  const [filterRoleSearch, setFilterRoleSearch] = useState('');
+  const [modalRoleSearch, setModalRoleSearch] = useState('');
   const [dialog, setDialog] = useState<{
     action: 'create' | 'edit' | 'view' | 'delete' | 'repair-identity' | UserAction;
     target?: ManagedUser;
   } | null>(null);
+  const activeRoleSearch = dialog ? modalRoleSearch : filterRoleSearch;
   const [requestKey, setRequestKey] = useState('');
   const [notice, setNotice] = useTransientNotice();
   const [form] = Form.useForm();
@@ -82,10 +84,10 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
     retry: false,
   });
   const roles = useInfiniteQuery({
-    queryKey: ['management', user.id, 'role-options', roleSearch],
+    queryKey: ['management', user.id, 'role-options', activeRoleSearch],
     initialPageParam: '',
     queryFn: ({ pageParam, signal }) =>
-      client.userRoleOptions(user, { q: roleSearch, cursor: pageParam, limit: 100 }, signal),
+      client.userRoleOptions(user, { q: activeRoleSearch, cursor: pageParam, limit: 100 }, signal),
     getNextPageParam: (page) => page.next_cursor ?? undefined,
     retry: false,
   });
@@ -168,6 +170,16 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
       form.resetFields();
       refresh();
     },
+    onError: (cause) => {
+      if (
+        dialog?.action === 'create' &&
+        cause instanceof APIError &&
+        cause.status >= 400 &&
+        cause.status < 500
+      ) {
+        setRequestKey(crypto.randomUUID());
+      }
+    },
     onSettled: () => form.resetFields(['password']),
   });
   useExpiredSession(users.error ?? roles.error ?? mutation.error);
@@ -175,7 +187,7 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
     mutation.reset();
     setNotice(null);
     form.resetFields();
-    setRoleSearch('');
+    setModalRoleSearch('');
     setRequestKey(crypto.randomUUID());
     setDialog({ action, target });
     form.setFieldsValue(
@@ -193,7 +205,7 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
     <Select
       showSearch
       filterOption={false}
-      onSearch={setRoleSearch}
+      onSearch={setModalRoleSearch}
       options={roleOptions}
       loading={roles.isFetching}
       disabled={roles.isError}
@@ -265,7 +277,7 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
             allowClear
             showSearch
             filterOption={false}
-            onSearch={setRoleSearch}
+            onSearch={setFilterRoleSearch}
             options={roleOptions}
             placeholder="全部角色"
             value={filter.role_id || undefined}
@@ -488,6 +500,9 @@ export function UsersPanel({ user }: { user: CurrentUser }) {
         width={dialog?.action === 'role' ? 480 : undefined}
         centered={dialog?.action === 'role'}
         confirmLoading={mutation.isPending}
+        closable={!mutation.isPending}
+        maskClosable={!mutation.isPending}
+        keyboard={!mutation.isPending}
         okText={
           dialog?.action === 'view'
             ? '关闭'

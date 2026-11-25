@@ -30,6 +30,7 @@ type ExtensionBroker struct {
 	connectors *connectors.Service
 	context    *contextservice.Service
 	active     sync.Map
+	mcpCache   sync.Map
 	slots      chan struct{}
 }
 

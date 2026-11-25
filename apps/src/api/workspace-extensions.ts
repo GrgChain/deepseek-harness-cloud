@@ -1,4 +1,4 @@
-import { APIError } from './error';
+import { apiFetch } from './http';
 export interface ExtensionSelection {
   id: string;
   version: number;
@@ -46,20 +46,11 @@ export async function readWorkspaceExtensions<T>(
   id: string,
   signal?: AbortSignal,
   skills = false,
+  fetcher?: typeof fetch,
 ): Promise<T> {
-  const response = await fetch(
+  const response = await apiFetch(
     '/v1/workspace-extensions/' + encodeURIComponent(id) + (skills ? '/skills' : ''),
-    {
-      credentials: 'same-origin',
-      cache: 'no-store',
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(10000)])
-        : AbortSignal.timeout(10000),
-    },
+    { timeoutMs: 10_000, signal, fetcher },
   );
-  if (!response.ok) {
-    const problem = await response.json().catch(() => ({}));
-    throw new APIError(response.status, problem.code ?? 'DEPENDENCY_UNAVAILABLE');
-  }
   return response.json();
 }

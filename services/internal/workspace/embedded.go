@@ -138,29 +138,31 @@ func (c *Client) WorkspaceInventory(ctx context.Context, organization string) ([
 	if organization != c.organization {
 		return nil, ErrUnavailable
 	}
-	rows, err := c.pool.Query(ctx, `SELECT id::text FROM workspace_workspaces WHERE organization_id=$1 AND NOT deleted ORDER BY id LIMIT 1001`, organization)
+	rows, err := c.pool.Query(ctx, `SELECT w.id::text,w.name,w.owner_id::text,w.organization_id::text,w.template_id::text,b.id::text,b.workspace_id::text,b.template_version_id::text,b.build_number,b.transition,b.job_id::text,b.job_status,b.error_code,w.owner_id::text,b.initiator_id::text,b.created_at,coalesce(b.completed_at,b.started_at,b.created_at)
+ FROM workspace_workspaces w
+ JOIN LATERAL (SELECT id,workspace_id,template_version_id,build_number,transition,job_id,job_status,error_code,initiator_id,created_at,started_at,completed_at FROM workspace_builds b WHERE b.workspace_id=w.id ORDER BY b.build_number DESC LIMIT 1) b ON true
+ WHERE w.organization_id=$1 AND NOT w.deleted
+ ORDER BY w.id LIMIT 1001`, organization)
 	if err != nil {
 		return nil, ErrUnavailable
 	}
-	var ids []string
+	defer rows.Close()
+	result := []Workspace{}
+	zero := int64(0)
 	for rows.Next() {
-		var id string
-		if err = rows.Scan(&id); err != nil {
-			break
+		var w Workspace
+		var b Build
+		if err = rows.Scan(&w.ID, &w.Name, &w.OwnerID, &w.OrganizationID, &w.TemplateID, &b.ID, &b.WorkspaceID, &b.TemplateVersionID, &b.BuildNumber, &b.Transition, &b.Job.ID, &b.Job.Status, &b.Job.ErrorCode, &b.OwnerID, &b.InitiatorID, &b.CreatedAt, &b.UpdatedAt); err != nil {
+			return nil, ErrUnavailable
 		}
-		ids = append(ids, id)
-	}
-	rows.Close()
-	if err != nil || rows.Err() != nil || len(ids) > 1000 {
-		return nil, ErrUnavailable
-	}
-	result := make([]Workspace, 0, len(ids))
-	for _, id := range ids {
-		w, err := c.Workspace(ctx, id)
-		if err != nil {
-			return nil, err
-		}
+		b.Status = string(ConvertWorkspaceStatus(ProvisionerJobStatus(b.Job.Status), WorkspaceTransition(b.Transition)))
+		w.LatestBuild = b
+		w.AutomaticUpdates = "never"
+		w.TTLMillis = &zero
 		result = append(result, w)
+	}
+	if rows.Err() != nil || len(result) > 1000 {
+		return nil, ErrUnavailable
 	}
 	return result, nil
 }

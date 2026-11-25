@@ -166,7 +166,7 @@ export function PluginsPanel({ user }: { user: CurrentUser }) {
         count={items.length}
         total={matches.length}
         loading={list.isFetching}
-        failed={false}
+        failed={list.isError}
       />
       {adding && (
         <AddPlugin

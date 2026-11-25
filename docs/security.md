@@ -61,7 +61,7 @@ Portal 随机 256-bit 会话 Cookie 只保存摘要到 PostgreSQL；浏览器不
 
 Portal Cookie 为 `__Host-hc_session`，无 Domain。Portal 与实例必须是同一受控站点下的不同 Host，如 portal.cloud.example 与 i-<UUID无连字符>.cloud.example；不允许任意外部实例域名。CSP 限制脚本自身/构建 hash、form-action 为批准实例 Host；frame-ancestors 'none'、X-Content-Type-Options: nosniff、Referrer-Policy: no-referrer。绝不共享父域 Cookie。
 
-启用 IP 入口时，控制台与 DSH 使用同一批准 IP、HTTPS 端口和浏览器 origin，工作空间按 `/dsh/<实例UUID>/` 分流。路径本身不是浏览器安全边界；DSH 前端和插件属于同一站点的受信代码。资源访问仍逐请求校验 Owner、当前权限、运行代次和会话，不能凭 URL 中的实例 ID 访问他人的工作空间。入口精确检查 IP Host 和 Origin，再映射为既有服务端 authority；不信任 Forwarded/X-Forwarded-*，拒绝非规范及编码的挂载路径。工作空间挑战和访问 Cookie 使用 `__Secure-` 前缀、实例 ID 和对应挂载 Path，保留 Secure、HttpOnly、SameSite=Strict 和无 Domain；Gateway 只接收当前实例的这两个 Cookie，Portal 和其他实例 Cookie 不传入原生 DSH。同源 GET 挑战仅在精确 Origin 或浏览器 `Sec-Fetch-Site: same-origin`、`Sec-Fetch-Mode: cors` 元数据下创建；交接和 WS 仍校验 Origin。原生服务继续由服务端凭据访问，登录 issuer 和既有用户标识不变。域名入口继续使用不同实例 Host 的 origin 隔离。
+启用 IP 入口时，控制台与 DSH 使用同一批准 IP、HTTPS 端口和浏览器 origin，工作空间按 `/dsh/<实例UUID>/` 分流。路径本身不是浏览器安全边界；DSH 前端和插件属于同一站点的受信代码。资源访问仍逐请求校验 Owner、当前权限、运行代次和会话，不能凭 URL 中的实例 ID 访问他人的工作空间。入口精确检查 IP Host 和 Origin，再映射为既有服务端 authority；不信任 Forwarded/X-Forwarded-*，拒绝非规范及编码的挂载路径。工作空间挑战和访问 Cookie 使用 `__Secure-` 前缀、实例 ID 和对应挂载 Path，保留 Secure、HttpOnly、SameSite=Strict 和无 Domain；Gateway 只接收当前实例的这两个 Cookie，Portal 和其他实例 Cookie 不传入原生 DSH。同源 GET 挑战仅在精确 Origin 或浏览器 `Sec-Fetch-Site: same-origin`、`Sec-Fetch-Mode: cors` 元数据下创建；交接和 WS 仍校验 Origin。原生服务继续由服务端凭据访问，登录 issuer 和既有用户标识不变。设置 `ip_only: true` 后，控制台与回环 Gateway 停用域名入口，仅保留 IP 访问和内部健康检查。
 
 ## 3 浏览器访问交接契约
 

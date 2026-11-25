@@ -135,13 +135,13 @@ test-integration:
 
 .PHONY: format format-check
 format:
-	rg --files -g '*.go' -0 db services apps infrastructure | xargs -0 gofmt -w
+	find db services apps infrastructure -name '*.go' -not -path '*/node_modules/*' -not -path '*/.local/*' -print0 | xargs -0 gofmt -w
 	$(RUFF) format deploy infrastructure
 	cd apps && $(NPM) run format
 
 format-check:
 	@set -e; \
-	formatting=$$(rg --files -g '*.go' -0 db services apps infrastructure | xargs -0 gofmt -l); \
+	formatting=$$(find db services apps infrastructure -name '*.go' -not -path '*/node_modules/*' -not -path '*/.local/*' -print0 | xargs -0 gofmt -l); \
 	if test -n "$$formatting"; then \
 		printf '%s\n' "$$formatting"; \
 		exit 1; \

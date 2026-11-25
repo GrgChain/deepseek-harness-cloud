@@ -107,19 +107,17 @@ API 默认地址为 `http://127.0.0.1:18080`，提供 `/livez` 和 `/readyz` 健
 
 完成以上步骤后即可访问控制台。要创建和进入 DSH 工作空间，还需按[部署运维指南](docs/deployment.md)配置运行镜像、Terraform 模板、持久存储、Worker、访问网关和模型网关。
 
-配置域名访问入口后，重启 API 与控制台，启动访问网关，通过 **[portal.harness.localhost:42013](https://portal.harness.localhost:42013/)** 访问控制台。浏览器所在机器需信任 `.local/auth/cert.pem` 开发 CA，以访问工作空间的独立站点。
-
 随后由管理员在“平台配置”设置默认资源和系统上限，成员在“模型提供商”添加账号并完成校验，即可创建工作空间。
 
-### 可选：通过局域网 IP 访问
+### 通过局域网 IP 访问
 
-完成域名访问配置后，可增加 IP 入口。将下面的示例 IP 替换为部署主机实际可监听的局域网 IP，在仓库根目录执行：
+按部署指南初始化工作空间访问配置后，将下面的示例 IP 替换为部署主机实际可监听的局域网 IP，在仓库根目录执行：
 
 ```bash
-HC_PUBLIC_IP=192.168.1.100 make ip-access-init
+HC_IP_ONLY=true HC_PUBLIC_IP=192.168.1.100 make ip-access-init
 ```
 
-重启 API 和访问网关后，通过 `https://192.168.1.100:42013` 访问控制台；工作空间使用同一入口下的 `/dsh/<实例UUID>/` 路径，静态资源和 WebSocket 也经此入口转发。客户端需信任开发 CA，并能连接该 HTTPS 端口；使用浏览器系统代理时将此 IP 设为直连。端口可通过 `HC_IP_PORTAL_PORT` 调整，OAuth 回调也需登记相应的 IP 入口地址，详见[部署运维](docs/deployment.md)。
+重启 API、控制台和访问网关后，通过 `https://192.168.1.100:42013` 访问控制台；工作空间使用同一入口下的 `/dsh/<实例UUID>/` 路径，静态资源和 WebSocket 也经此入口转发。此配置停用域名入口，浏览器无需配置域名解析。客户端需信任 `.local/auth/cert.pem` 开发 CA，并能连接该 HTTPS 端口；使用浏览器系统代理时将此 IP 设为直连。端口可通过 `HC_IP_PORTAL_PORT` 调整，OAuth 回调也需登记相应的 IP 入口地址，详见[部署运维](docs/deployment.md)。
 
 ### 常用命令
 
@@ -147,14 +145,14 @@ make build
 
 `make test` 包含 Python、Go（含竞态检查）、前端、Node 及原生插件测试；缺少外部环境的测试会按条件跳过，完整集成验收需另行执行。
 
-当前格式检查脚本仍引用仓库中已缺失的 Prettier 配置，`make format`、`make format-check`、`make check` 和 `make ci` 尚不能作为完整可用的检查入口。现状与复验方式见[工程检查现状](docs/testing.md#工程检查现状)。
+`make format`、`make format-check`、`make check` 和 `make ci` 已恢复可用（由根目录 `.prettierrc.json`、`.prettierignore` 与 `pyproject.toml` 统一管理格式与 Ruff 规则）。详情见[工程检查现状](docs/testing.md#工程检查现状)。
 
 ### 常见问题
 
 <details>
 <summary>浏览器提示证书不受信任</summary>
 
-本地控制台和工作空间入口使用开发证书。将部署主机上的 `.local/auth/cert.pem` 开发 CA 加入浏览器所在机器的信任库，使用已配置的域名或 IP 入口访问。只接受一次证书警告可能仍导致工作空间连接失败；证书与访问入口配置见[部署运维](docs/deployment.md)。
+本地控制台和工作空间入口使用开发证书。将部署主机上的 `.local/auth/cert.pem` 开发 CA 加入浏览器所在机器的信任库，使用已配置的 IP 入口访问。证书与访问入口配置见[部署运维](docs/deployment.md)。
 
 </details>
 

@@ -21,7 +21,7 @@ export function ExportDialog({
 }) {
   const details = useQuery({
     queryKey: ['skills', user.id, 'export', ids],
-    queryFn: () => Promise.all(ids.map((id) => client.get(user, id))),
+    queryFn: ({ signal }) => Promise.all(ids.map((id) => client.get(user, id, signal))),
     retry: false,
   });
   useExpiredSession(details.error);
@@ -29,6 +29,7 @@ export function ExportDialog({
   const [error, setError] = useState('');
   const cache = useQueryClient();
   async function run() {
+    if (busy) return;
     setBusy(true);
     setError('');
     try {

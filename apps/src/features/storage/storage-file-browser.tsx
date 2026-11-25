@@ -192,6 +192,7 @@ export function FileBrowser({ user, asset }: { user: CurrentUser; asset: Storage
         markLoaded([...loadedKeysRef.current, key]);
         setTreeError(null);
       } catch (cause) {
+        if (cause instanceof APIError && cause.status === 401) expireSession(cache);
         if (mounted.current && !isCancelledRead(cause)) {
           markLoaded([...loadedKeysRef.current, key]);
           const message = cause instanceof Error ? cause.message : '目录树加载失败';
@@ -237,20 +238,26 @@ export function FileBrowser({ user, asset }: { user: CurrentUser; asset: Storage
       throw cause;
     }
   }
+  const revealSeq = useRef(0);
   async function revealPath(nextRoot: StorageRoot, nextPath: string) {
+    const seq = ++revealSeq.current;
+    const stale = () => !mounted.current || revealSeq.current !== seq;
     const segments = nextPath ? nextPath.split('/') : [];
     let parentPath = '';
     const expanded = [storageTreeKey(nextRoot, '')];
     try {
       await loadNode(expanded[0]);
     } catch {}
+    if (stale()) return;
     for (const segment of segments) {
+      if (stale()) return;
       const parentKey = storageTreeKey(nextRoot, parentPath);
       const targetKey = storageTreeKey(nextRoot, parentPath ? `${parentPath}/${segment}` : segment);
       let child = findStorageTreeNode(treeDataRef.current, parentKey)?.children?.find(
         (node) => node.key === targetKey,
       );
       while (!child) {
+        if (stale()) return;
         const more = [
           ...(findStorageTreeNode(treeDataRef.current, parentKey)?.children ?? []),
         ].find((node) => node.key.startsWith('more:'));
@@ -258,11 +265,12 @@ export function FileBrowser({ user, asset }: { user: CurrentUser; asset: Storage
         const next = morePages.current.get(more.key);
         if (!next) break;
         await loadMore(more.key, next);
+        if (stale()) return;
         child = findStorageTreeNode(treeDataRef.current, parentKey)?.children?.find(
           (node) => node.key === targetKey,
         );
       }
-      if (!child) break;
+      if (!child || stale()) break;
       parentPath = parentPath ? `${parentPath}/${segment}` : segment;
       expanded.push(storageTreeKey(nextRoot, parentPath));
       try {
@@ -271,6 +279,7 @@ export function FileBrowser({ user, asset }: { user: CurrentUser; asset: Storage
         break;
       }
     }
+    if (stale()) return;
     setExpandedKeys((current) => [...new Set([...current, ...expanded])]);
     setSelectedKeys([storageTreeKey(nextRoot, nextPath)]);
   }

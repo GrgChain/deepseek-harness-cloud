@@ -17,7 +17,7 @@
 - [模型提供商账号（REQ-17）](#模型提供商账号req-17)
 - [提供商默认模型与审计扩展](#提供商默认模型与审计扩展)
 - [DSH账号模型目录与推理](#dsh账号模型目录与推理)
-- [默认用户资源配置初始化与修改（API-019、API-020）](#默认用户资源配置初始化与修改api-019api-020)
+- [默认资源配置初始化与修改（API-019、API-020）](#默认资源配置初始化与修改api-019api-020)
 - [存储资产查询（REQ-19）](#存储资产查询req-19)
 - [个人 Skill 库（REQ-20）](#个人-skill-库req-20)
 - [外接记忆与知识库（API-095～099、API-120）](#外接记忆与知识库api-095099api-120)
@@ -294,7 +294,7 @@ POST /v1/instances已有可选name字段，Portal创建抽屉现提交用户填�
 
 实例列表及详情增加只读model_display_name和model_provider_name。个人模型按实例绑定的org_id/owner_id、model_configuration_id和精确版本读取不可变manifest.catalog.model；提供商按该版本的provider解析显示名，组织模型沿用原模型名。名称缺失返回空字符串。读取不追随个人模型头版本或目录新版本，不修改config_snapshot.model和执行路由，也不返回凭据。
 
-## 默认用户资源配置初始化与修改（API-019、API-020）
+## 默认资源配置初始化与修改（API-019、API-020）
 
 `GET /v1/defaults` 需要 configuration:read，未初始化返回 404 DEFAULTS_NOT_CONFIGURED。`PUT /v1/defaults` 需要 defaults:write、同源/CSRF 校验，必填 version、template_id、template_version、spec_id；初始化 version=0，更新须精确匹配当前版本，成功递增，冲突返回 409 VERSION_CONFLICT。模板和规格须已批准且启用；平台页不展示模板选择，按当前批准模板及数字资源解析 spec_id。存储支持 1–100 GiB 整数，协议仍传批准 spec_id，不允许未批准资源金额。
 
@@ -345,7 +345,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 | 方法与路径                                                       | 权限及用途                                                                                           |
 | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及20种直连MCP目录                                  |
+| `GET /v1/connectors`                                             | `connectors:read`；本人连接、工具快照、批准服务及连接器目录（当前内置模板为空）                      |
 | `POST /v1/connectors`、`PUT /v1/connectors/{id}`                 | `connectors:manage`；创建及版本化保存；凭据只写                                                      |
 | `DELETE /v1/connectors/{id}`                                     | 管理权限；`expected_version`、`confirmed_name`确认删除                                               |
 | `POST /v1/connectors/{id}/enabled`                               | 管理权限；`expected_version`、`enabled`启停服务，保留配置及工具偏好；启用时自动发现（API-129）         |
@@ -360,7 +360,7 @@ API-083～094 为 Portal 个人技能库接口：列表/创建、正文读取/�
 
 所有写请求须同源及CSRF。配置及工具选择使用当前版本；调用另提交目录版本、UUID `idempotency_key`、JSON对象参数、`confirmed`及必要的`risk_confirmed`。同键同请求仅返回原状态，不再次执行；同键不同请求409。调用结果仅在本次响应返回，查询和重放均无正文。发现和调用的网络/业务失败分别通过连接状态及调用状态反馈；参数422、版本/幂等/并发冲突409、失权403、跨Owner404、超限429。完整DTO及限额见[OpenAPI](../api/openapi.yaml)与[连接器后端设计](backend.md#工作台连接器mcp)。
 
-`GET /v1/connectors` 新增 `catalog: {version, source_url, entries}`。每个条目提供 `id/name/description/category/mode/auth_kind/default_url/doc_url/guide_url/setup_hint/requirements/color`；可选 `default_url` 为19种官方远程服务提供预填地址（其中9种采用OAuth），Dify按应用发布结果填写。目录版本2只包含 `mode=remote` 的直接兼容Streamable HTTP服务，不展示需要网关或协议适配的条目。`auth_kind`描述上游认证要求。批准服务新增可选 `catalog_id`，支持已知目录ID，并兼容已移除的旧ID以保留已有配置；不设置时继续作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台中每个目录条目及“自定义 MCP”均提交本人填写的 `url`、可选 `catalog_id` 及独立凭据，两种目标只能选一。内置目录可预填官方地址，允许用户修改；自定义MCP地址默认留空，表单不提供推荐服务选择。旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存已启用的非OAuth服务后自动连接并发现工具；停用配置仅保存，不连接。
+`GET /v1/connectors` 返回 `catalog: {version, source_url, entries}`；当前已移除全部内置连接器模板，`entries` 为空数组，不再自动注入内置默认端点。批准服务及连接配置保留可选 `catalog_id`，继续兼容已下线的历史目录ID以保障已有连接和管理员策略不受影响；不设置时作为自定义MCP服务。API继续支持平台服务 `endpoint_id`；工作台“添加连接器”直接打开自定义连接器编辑表单，提交本人填写的 `url` 及独立凭据，两种目标只能选一。旧平台连接编辑后保存为个人地址。公网 HTTPS 无需管理员预先绑定；私网或 HTTP 须精确匹配平台例外。地址不接受内嵌账号、查询参数和片段。更换地址须重新填写 Bearer 凭据。导入同样校验个人地址，导出不含凭据和工具授权；保存已启用的非OAuth服务后自动连接并发现工具；停用配置仅保存，不连接。
 
 `auth_type`支持`none`、`bearer`、`oauth2`。`bearer`在自定义网关使用标准Bearer；精确匹配腾讯文档、腾讯会议、微云、乐享或滴滴官方地址时使用厂商原生认证。乐享的`credential`为包含`token`和`company_from`的JSON字符串，二者一起加密且不读回；滴滴Key只在出站时写入查询参数，不存入连接URL。OAuth凭据只能经授权流程获取，配置请求不得手填OAuth Token。OAuth连接须先保存并启用，再发起授权。回调state有效10分钟，绑定连接版本及完整目标；取消、过期、重放、跨会话和配置变化均不能发布新凭据。回调消费在Token交换之前完成，交换中断须重新发起授权。
 
